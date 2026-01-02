@@ -50,7 +50,7 @@
       return;
     }
     if (!state.services.length) {
-      $servicesGrid.html('<div class="koopo-card koopo-muted">No services yet. Click “Add Service”.</div>');
+      $servicesGrid.html('<div class="koopo-card koopo-muted">No services yet. Click "Add Service".</div>');
       return;
     }
     const cards = state.services.map(s => {
@@ -199,31 +199,48 @@
     if (s === 'expired') return '<span class="koopo-badge koopo-badge--gray">Expired</span>';
     if (s === 'cancelled') return '<span class="koopo-badge koopo-badge--red">Cancelled</span>';
     if (s === 'refunded') return '<span class="koopo-badge koopo-badge--purple">Refunded</span>';
+    if (s === 'conflict') return '<span class="koopo-badge koopo-badge--conflict">⚠️ Conflict</span>';
     return '<span class="koopo-badge koopo-badge--gray">'+escapeHtml(status)+'</span>';
   }
 
-  
   function actionsForBooking(b){
     const id = Number(b && b.id ? b.id : 0);
     if (!id) return '—';
     const st = String(b.status||'').toLowerCase();
     let html = '';
+
+    // CONFLICT status gets priority warning
+    if (st === 'conflict') {
+      html += `<span class="koopo-conflict-badge">⚠️ Requires Action</span><br>`;
+      html += `<button class="koopo-btn koopo-btn--sm koopo-appt-action" data-action="reschedule" data-id="${id}">Reschedule</button> `;
+      html += `<button class="koopo-btn koopo-btn--sm koopo-btn--danger koopo-appt-action" data-action="refund" data-id="${id}">Refund</button>`;
+      return html;
+    }
+
     // Allow cancel while pending or confirmed
     if (st === 'pending_payment' || st === 'confirmed') {
       html += `<button class="koopo-btn koopo-btn--sm koopo-btn--danger koopo-appt-action" data-action="cancel" data-id="${id}">Cancel</button> `;
     }
+
     // Allow manual confirm for pending_payment only (edge cases)
     if (st === 'pending_payment') {
       html += `<button class="koopo-btn koopo-btn--sm koopo-appt-action" data-action="confirm" data-id="${id}">Confirm</button> `;
     }
+
+    // Allow reschedule for confirmed bookings
+    if (st === 'confirmed') {
+      html += `<button class="koopo-btn koopo-btn--sm koopo-appt-action" data-action="reschedule" data-id="${id}">Reschedule</button> `;
+    }
+
     // Always allow adding a note if order exists
     if (b.wc_order_id) {
-      html += `<button class="koopo-btn koopo-btn--sm koopo-appt-action" data-action="note" data-id="${id}">Add note</button>`;
+      html += `<button class="koopo-btn koopo-btn--sm koopo-appt-action" data-action="note" data-id="${id}">Add Note</button>`;
     }
+
     return html || '—';
   }
 
-function fmtMoney(price, currency){
+  function fmtMoney(price, currency){
     const n = Number(price||0);
     const c = String(currency||'').trim();
     return (c ? escapeHtml(c)+' ' : '$') + n.toFixed(2);
@@ -268,12 +285,15 @@ function fmtMoney(price, currency){
 
       const baseAdmin = (window.ajaxurl || '').replace('/admin-ajax.php','');
       const rows = items.map(b => {
+        const isConflict = String(b.status || '').toLowerCase() === 'conflict';
+        const rowClass = isConflict ? 'class="koopo-row--conflict"' : '';
+        
         const orderLink = b.wc_order_id && baseAdmin
           ? `<a href="${escapeHtml(baseAdmin)}/post.php?post=${b.wc_order_id}&action=edit" target="_blank">#${b.wc_order_id}</a>`
           : (b.wc_order_id ? '#'+b.wc_order_id : '—');
 
         return `
-          <tr>
+          <tr ${rowClass}>
             <td>#${b.id}</td>
             <td>${escapeHtml(b.customer_name || '')}</td>
             <td>${escapeHtml(b.service_title || '')}</td>
@@ -327,7 +347,7 @@ function fmtMoney(price, currency){
       loadAppointments();
     });
     
-    // Vendor booking actions (cancel / confirm / note)
+    // === ENHANCED VENDOR BOOKING ACTIONS (Commit 19) ===
     $apptTable.on('click', '.koopo-appt-action', async function(e){
       e.preventDefault();
       const $btn = $(this);
@@ -339,38 +359,107 @@ function fmtMoney(price, currency){
       let start_datetime = '';
       let end_datetime = '';
       let timezone = '';
+
       if (action === 'cancel') {
         note = prompt('Optional: add a cancellation note for the customer/admin (leave blank for none).', '') || '';
-        const ok = confirm('Cancel this booking? If it was already paid, you may need to refund the customer.');
+        const ok = confirm('Cancel this booking? If it was already paid, you may need to issue a refund separately.');
         if (!ok) return;
       }
+
+      if (action === 'confirm') {
+        const ok = confirm('Manually confirm this booking? This should only be used if payment was verified outside the system.');
+        if (!ok) return;
+      }
+
       if (action === 'note') {
         note = prompt('Enter an internal note for this booking/order:', '') || '';
         if (!note.trim()) return;
       }
 
       if (action === 'reschedule') {
-        start_datetime = prompt('New start (YYYY-MM-DD HH:MM:SS):', '') || '';
-        end_datetime = prompt('New end (YYYY-MM-DD HH:MM:SS):', '') || '';
-        timezone = prompt('Timezone (optional, e.g. America/Detroit):', '') || '';
-        if (!start_datetime.trim() || !end_datetime.trim()) return;
+        // Get current booking details from table row
+        const $row = $btn.closest('tr');
+        const currentStart = $row.find('td:eq(3)').text().trim();
+        
+        start_datetime = prompt(
+          'Enter new start date/time (YYYY-MM-DD HH:MM:SS format):\n\nCurrent: ' + currentStart,
+          currentStart
+        ) || '';
+        
+        if (!start_datetime.trim()) return;
+
+        // Ask for duration
+        const durationMinutes = prompt('Duration in minutes:', '60') || '60';
+        const duration = parseInt(durationMinutes, 10);
+        
+        if (duration <= 0) {
+          alert('Invalid duration');
+          return;
+        }
+
+        // Calculate end_datetime based on start + duration
+        try {
+          const startDate = new Date(start_datetime.replace(' ', 'T'));
+          if (isNaN(startDate.getTime())) {
+            alert('Invalid date format. Please use YYYY-MM-DD HH:MM:SS');
+            return;
+          }
+          const endDate = new Date(startDate.getTime() + duration * 60000);
+          end_datetime = endDate.toISOString().slice(0, 19).replace('T', ' ');
+        } catch(err) {
+          alert('Error calculating end time: ' + err.message);
+          return;
+        }
+
+        timezone = prompt('Timezone (leave blank to keep existing, or enter like America/Detroit):', '') || '';
+
+        const confirmMsg = `Reschedule to:\n${start_datetime} - ${end_datetime}\n\nThis will check for conflicts. Continue?`;
+        if (!confirm(confirmMsg)) return;
+      }
+
+      if (action === 'refund') {
+        note = prompt('Refund reason (optional):', '') || '';
+        const ok = confirm('Issue a refund for this booking?\n\nThis will:\n• Cancel the booking\n• Mark order as refunded\n• Release the time slot\n\nYou may need to process the payment gateway refund separately in WooCommerce.');
+        if (!ok) return;
       }
 
       $btn.prop('disabled', true);
       try {
-        await api(`/vendor/bookings/${id}/action`, {
+        const payload = { action, note, start_datetime, end_datetime, timezone };
+        const result = await api(`/vendor/bookings/${id}/action`, {
           method: 'POST',
-          body: JSON.stringify({ action, note, start_datetime, end_datetime, timezone })
+          body: JSON.stringify(payload)
         });
+        
         await loadAppointments();
+        
+        // User-friendly success messages
+        if (action === 'reschedule') {
+          alert('✓ Booking rescheduled successfully.\n\nThe customer will receive a notification about the new time.');
+        } else if (action === 'refund') {
+          alert('✓ Booking marked as refunded and order updated.\n\nPlease verify the payment gateway refund in WooCommerce → Orders if needed.');
+        } else if (action === 'cancel') {
+          alert('✓ Booking cancelled successfully.');
+        } else if (action === 'confirm') {
+          alert('✓ Booking confirmed.');
+        } else if (action === 'note') {
+          alert('✓ Note added to order.');
+        }
       } catch (err) {
-        alert('Action failed. Please try again.');
+        const msg = err.message || 'Action failed';
+        if (msg.includes('conflict')) {
+          alert('⚠️ Cannot reschedule: the selected time conflicts with another booking.\n\nPlease choose a different time.');
+        } else if (msg.includes('refund')) {
+          alert('⚠️ Refund failed: ' + msg);
+        } else {
+          alert('⚠️ Action failed: ' + msg);
+        }
       } finally {
         $btn.prop('disabled', false);
       }
     });
 
-$apptPager.on('click', 'button[data-page]', function(){
+    $apptPager.on('click', 'button[data-page]', function(){
       const p = Number($(this).data('page'));
       if (!p) return;
       apptState.page = p;

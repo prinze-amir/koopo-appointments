@@ -4,7 +4,7 @@ namespace Koopo_Appointments;
 defined('ABSPATH') || exit;
 
 /**
- * Vendor bookings endpoint for Dokan dashboard.
+  * Vendor bookings endpoint for Dokan dashboard.
  * GET /koopo/v1/vendor/bookings
  */
 class Vendor_Bookings_API {
@@ -35,7 +35,6 @@ class Vendor_Bookings_API {
         'note'   => ['type' => 'string', 'required' => false],
       ],
     ]);
-
   }
 
   public static function can_access(): bool {
@@ -119,10 +118,9 @@ class Vendor_Bookings_API {
     ]);
   }
 
-
   /**
    * POST /koopo/v1/vendor/bookings/{id}/action
-   * Actions: cancel, confirm, note, reschedule
+   * Actions: cancel, confirm, note, reschedule, refund
    */
   public static function booking_action(\WP_REST_Request $request) {
     $booking_id = (int) $request->get_param('id');
@@ -142,61 +140,170 @@ class Vendor_Bookings_API {
     $order_id = (int) ($booking->wc_order_id ?? 0);
     $order = $order_id ? wc_get_order($order_id) : null;
 
+    // === CANCEL ACTION ===
     if ($action === 'cancel') {
-      // Cancel booking; if order exists, leave a note and move order to on-hold to prompt refund handling if already paid.
-      Bookings::cancel_booking_safely($booking_id, 'cancelled');
+      $result = Bookings::cancel_booking_safely($booking_id, 'cancelled');
+      
+      if (!$result['ok']) {
+        return new \WP_Error('koopo_cancel_failed', $result['reason'] ?? 'Cancel failed', ['status' => 409]);
+      }
+
       if ($order) {
+        $order_note = 'Koopo: Vendor cancelled booking #'.$booking_id;
+        if ($note) $order_note .= ' — ' . wp_strip_all_tags($note);
+        $order->add_order_note($order_note);
+
         $st = $order->get_status();
-        $order->add_order_note('Koopo: Vendor cancelled booking #'.$booking_id . ($note ? ' — '.$note : ''));
         if (in_array($st, ['processing','completed'], true)) {
-          $order->update_status('on-hold', 'Koopo: Booking cancelled by vendor; refund/reschedule may be required.');
+          $order->update_status('on-hold', 'Koopo: Booking cancelled by vendor; refund may be required.');
         } elseif (in_array($st, ['pending','failed'], true)) {
           $order->update_status('cancelled', 'Koopo: Booking cancelled by vendor before payment.');
         }
       }
-    } elseif ($action === 'confirm') {
-      // Manual confirm (rare). Will no-op if already confirmed or conflicts.
-      $res = Bookings::confirm_booking_safely($booking_id);
-      if (!$res['ok']) {
-        if ($order) $order->add_order_note('Koopo: Vendor attempted to confirm booking #'.$booking_id.' but it failed: '.$res['message']);
-        return new \WP_Error('koopo_confirm_failed', $res['message'], ['status' => 409]);
+
+      return rest_ensure_response([
+        'ok' => true,
+        'action' => 'cancelled',
+        'message' => 'Booking cancelled successfully',
+        'booking' => Bookings::get_booking($booking_id),
+      ]);
+    }
+
+    // === CONFIRM ACTION ===
+    if ($action === 'confirm') {
+      $result = Bookings::confirm_booking_safely($booking_id);
+      
+      if (!$result['ok']) {
+        $msg = $result['reason'] ?? 'Confirmation failed';
+        if ($msg === 'conflict') {
+          $conflict_id = $result['conflict_id'] ?? 0;
+          $msg = "Cannot confirm: conflicts with booking #{$conflict_id}";
+        }
+        return new \WP_Error('koopo_confirm_failed', $msg, ['status' => 409]);
       }
-      if ($order) $order->add_order_note('Koopo: Vendor manually confirmed booking #'.$booking_id . ($note ? ' — '.$note : ''));
-    } elseif ($action === 'reschedule') {
+
+      if ($order) {
+        $order_note = 'Koopo: Vendor manually confirmed booking #'.$booking_id;
+        if ($note) $order_note .= ' — ' . wp_strip_all_tags($note);
+        $order->add_order_note($order_note);
+      }
+
+      return rest_ensure_response([
+        'ok' => true,
+        'action' => 'confirmed',
+        'message' => 'Booking confirmed successfully',
+        'booking' => Bookings::get_booking($booking_id),
+      ]);
+    }
+
+    // === RESCHEDULE ACTION ===
+    if ($action === 'reschedule') {
       $new_start = sanitize_text_field((string) $request->get_param('start_datetime'));
       $new_end   = sanitize_text_field((string) $request->get_param('end_datetime'));
       $tz        = $request->get_param('timezone');
       $tz        = $tz !== null ? sanitize_text_field((string) $tz) : null;
 
       if (!$new_start || !$new_end) {
-        return new \WP_Error('koopo_dates_required', 'start_datetime and end_datetime are required.', ['status' => 400]);
+        return new \WP_Error('koopo_dates_required', 'start_datetime and end_datetime are required', ['status' => 400]);
+      }
+
+      // Validate date format
+      if (!preg_match('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/', $new_start) ||
+          !preg_match('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/', $new_end)) {
+        return new \WP_Error('koopo_invalid_format', 'Dates must be in YYYY-MM-DD HH:MM:SS format', ['status' => 400]);
+      }
+
+      // Ensure end > start
+      if (strtotime($new_end) <= strtotime($new_start)) {
+        return new \WP_Error('koopo_invalid_range', 'End time must be after start time', ['status' => 400]);
       }
 
       $ok = Bookings::reschedule_booking_safely($booking_id, $new_start, $new_end, $tz);
+      
       if (!$ok) {
-        return new \WP_Error('koopo_reschedule_failed', 'Unable to reschedule (invalid dates or slot conflict).', ['status' => 409]);
+        return new \WP_Error(
+          'koopo_reschedule_failed', 
+          'Unable to reschedule: the selected time conflicts with another booking or is invalid',
+          ['status' => 409]
+        );
       }
 
       if ($order) {
-        $order->add_order_note('Koopo: Vendor rescheduled booking #'.$booking_id.' to '.$new_start.' - '.$new_end . ($tz ? ' ('.$tz.')' : ''));
+        $tz_display = $tz ? ' ('.$tz.')' : '';
+        $order->add_order_note('Koopo: Vendor rescheduled booking #'.$booking_id.' to '.$new_start.' - '.$new_end.$tz_display);
       }
-    } elseif ($action === 'note') {
-      if (!$order) {
-        return new \WP_Error('koopo_no_order', 'No WooCommerce order is associated with this booking.', ['status' => 409]);
-      }
-      $clean = wp_strip_all_tags($note);
-      if (!$clean) {
-        return new \WP_Error('koopo_note_required', 'Note is required.', ['status' => 400]);
-      }
-      $order->add_order_note('Koopo (vendor note) for booking #'.$booking_id.': '.$clean);
-    } else {
-      return new \WP_Error('koopo_bad_action', 'Unknown action', ['status' => 400]);
+
+      // Trigger notification
+      do_action('koopo_booking_rescheduled', $booking_id, $new_start, $new_end, $booking);
+
+      return rest_ensure_response([
+        'ok' => true,
+        'action' => 'rescheduled',
+        'message' => 'Booking rescheduled successfully. Customer will be notified.',
+        'booking' => Bookings::get_booking($booking_id),
+      ]);
     }
 
-    $updated = Bookings::get_booking($booking_id);
-    return rest_ensure_response([
-      'ok' => true,
-      'booking' => $updated,
-    ]);
+    // === NOTE ACTION ===
+    if ($action === 'note') {
+      if (!$order) {
+        return new \WP_Error('koopo_no_order', 'No WooCommerce order is associated with this booking', ['status' => 409]);
+      }
+      
+      $clean = wp_strip_all_tags($note);
+      if (!$clean) {
+        return new \WP_Error('koopo_note_required', 'Note is required', ['status' => 400]);
+      }
+      
+      $order->add_order_note('Koopo (vendor note) for booking #'.$booking_id.': '.$clean);
+
+      return rest_ensure_response([
+        'ok' => true,
+        'action' => 'note_added',
+        'message' => 'Note added to order',
+      ]);
+    }
+
+    // === REFUND ACTION (Commit 19/20) ===
+    if ($action === 'refund') {
+      if (!$order) {
+        return new \WP_Error('koopo_no_order', 'No order found to refund', ['status' => 409]);
+      }
+
+      $st = $order->get_status();
+      if (!in_array($st, ['processing', 'completed', 'on-hold'], true)) {
+        return new \WP_Error(
+          'koopo_cannot_refund',
+          'Order must be processing, completed, or on-hold to refund. Current status: ' . $st,
+          ['status' => 409]
+        );
+      }
+
+      // Mark booking as refunded
+      $result = Bookings::cancel_booking_safely($booking_id, 'refunded');
+      if (!$result['ok']) {
+        return new \WP_Error('koopo_refund_failed', $result['reason'] ?? 'Failed to mark as refunded', ['status' => 500]);
+      }
+
+      // Add order note
+      $refund_note = 'Koopo: Vendor initiated refund for booking #'.$booking_id;
+      if ($note) $refund_note .= ' — Reason: ' . wp_strip_all_tags($note);
+      $order->add_order_note($refund_note);
+
+      // Move order to refunded status
+      $order->update_status('refunded', 'Koopo: Booking refunded by vendor');
+
+      // Trigger hook for future auto-refund logic
+      do_action('koopo_vendor_refund_initiated', $booking_id, $order_id, $order);
+
+      return rest_ensure_response([
+        'ok' => true,
+        'action' => 'refunded',
+        'message' => 'Booking marked as refunded. Order status updated. Process payment gateway refund in WooCommerce if needed.',
+        'booking' => Bookings::get_booking($booking_id),
+      ]);
+    }
+
+    return new \WP_Error('koopo_bad_action', 'Unknown action: ' . $action, ['status' => 400]);
   }
 }

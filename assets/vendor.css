@@ -42,3 +42,123 @@
 .koopo-pager__info { opacity:.7; }
 .koopo-page-title { margin: 6px 0 10px; }
 .koopo-wrap { padding: 6px 2px; }
+
+/* === Commit 19: Enhanced Conflict & Action Styling === */
+
+/* Conflict row highlighting */
+.koopo-row--conflict {
+  background: #fff8e6 !important;
+  border-left: 4px solid #ff9f0a !important;
+}
+
+.koopo-row--conflict:hover {
+  background: #fff5d6 !important;
+}
+
+/* Conflict badge (in actions column) */
+.koopo-conflict-badge {
+  display: inline-block;
+  padding: 4px 8px;
+  background: #ff9f0a;
+  color: #fff;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+/* Status badge for conflict */
+.koopo-badge--conflict {
+  background: #fff3d6;
+  border: 1px solid #ff9f0a;
+  color: #333;
+  font-weight: 700;
+}
+
+/* Conflict info banner (if needed in future) */
+.koopo-conflict-info {
+  padding: 12px;
+  background: #fff8e6;
+  border: 1px solid #ff9f0a;
+  border-radius: 10px;
+  margin: 10px 0;
+}
+
+.koopo-conflict-info__title {
+  font-weight: 700;
+  margin-bottom: 6px;
+  color: #333;
+}
+
+.koopo-conflict-info__text {
+  font-size: 13px;
+  line-height: 1.4;
+  color: #666;
+}
+
+/* Action button refinements */
+.koopo-btn--sm {
+  padding: 6px 10px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.koopo-appt-action {
+  margin: 2px;
+}
+
+.koopo-appt-action:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Enhanced status badges */
+.koopo-badge--refunded {
+  background: #f1e7ff;
+  border: 1px solid #8e44ad;
+}
+
+.koopo-badge--yellow {
+  background: #fff3d6;
+  border: 1px solid #f4b400;
+}
+
+.koopo-badge--red {
+  background: #ffecec;
+  border: 1px solid #d63638;
+}
+
+.koopo-badge--purple {
+  background: #f1e7ff;
+  border: 1px solid #8e44ad;
+}
+
+/* Table hover improvements */
+.koopo-table tbody tr:hover {
+  background: #fafafa;
+}
+
+.koopo-table tbody tr.koopo-row--conflict:hover {
+  background: #fff5d6 !important;
+}
+
+/* Action column min-width to prevent wrapping */
+.koopo-table td:last-child {
+  min-width: 200px;
+}
+
+/* Responsive improvements */
+@media (max-width: 768px) {
+  .koopo-vendor-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  
+  .koopo-vendor-header__right {
+    flex-direction: column;
+  }
+  
+  .koopo-table-wrap {
+    -webkit-overflow-scrolling: touch;
+  }
+}
