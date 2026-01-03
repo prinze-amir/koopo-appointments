@@ -4,8 +4,8 @@ namespace Koopo_Appointments;
 defined('ABSPATH') || exit;
 
 /**
-  * Vendor bookings endpoint for Dokan dashboard.
- * GET /koopo/v1/vendor/bookings
+ * Commit 20: Enhanced Vendor Bookings API with Refund Tooling
+ * Location: includes/class-kgaw-vendor-bookings-api.php
  */
 class Vendor_Bookings_API {
 
@@ -33,20 +33,25 @@ class Vendor_Bookings_API {
       'args' => [
         'action' => ['type' => 'string', 'required' => true],
         'note'   => ['type' => 'string', 'required' => false],
+        'amount' => ['type' => 'number', 'required' => false], // NEW: for partial refunds
       ],
+    ]);
+
+    // NEW: Get refund info for a booking
+    register_rest_route('koopo/v1', '/vendor/bookings/(?P<id>\d+)/refund-info', [
+      'methods'  => 'GET',
+      'callback' => [__CLASS__, 'get_refund_info'],
+      'permission_callback' => [__CLASS__, 'can_access'],
     ]);
   }
 
   public static function can_access(): bool {
     if (!is_user_logged_in()) return false;
-    // If Dokan is installed, require seller
     if (function_exists('dokan_is_user_seller')) {
       return dokan_is_user_seller(get_current_user_id());
     }
-    // Fallback: allow admins
     return current_user_can('manage_options');
   }
-
 
   public static function list_bookings(\WP_REST_Request $req) {
     global $wpdb;
@@ -71,7 +76,6 @@ class Vendor_Bookings_API {
       $params[] = $status;
     }
 
-    // Total count
     $sql_count = $wpdb->prepare("SELECT COUNT(*) FROM {$table} {$where}", $params);
     $total = (int) $wpdb->get_var($sql_count);
 
@@ -90,14 +94,11 @@ class Vendor_Bookings_API {
       $service_title = $r['service_id'] ? get_the_title((int)$r['service_id']) : '';
       $customer_name = $r['customer_id'] ? (get_userdata((int)$r['customer_id'])->display_name ?? '') : '';
 
-      // Get timezone for formatting
       $tz = !empty($r['timezone']) ? (string)$r['timezone'] : '';
 
-      // Format dates for display
       $start_formatted = Date_Formatter::format($r['start_datetime'], $tz, 'short');
       $end_formatted = Date_Formatter::format($r['end_datetime'], $tz, 'time');
 
-      // Calculate duration
       $start_ts = strtotime($r['start_datetime']);
       $end_ts = strtotime($r['end_datetime']);
       $duration_mins = ($end_ts - $start_ts) / 60;
@@ -111,16 +112,11 @@ class Vendor_Bookings_API {
         'service_title' => $service_title ?: '',
         'customer_id' => (int) $r['customer_id'],
         'customer_name' => $customer_name ?: '',
-        
-        // Raw values (for reschedule form pre-fill)
         'start_datetime' => $r['start_datetime'],
         'end_datetime' => $r['end_datetime'],
-        
-        // Formatted values (for display)
         'start_datetime_formatted' => $start_formatted,
         'end_datetime_formatted' => $end_formatted,
         'duration_formatted' => $duration_formatted,
-        
         'status' => $r['status'],
         'price' => isset($r['price']) ? (float) $r['price'] : 0.0,
         'currency' => $r['currency'] ?? '',
@@ -142,9 +138,44 @@ class Vendor_Bookings_API {
   }
 
   /**
-   * POST /koopo/v1/vendor/bookings/{id}/action
-   * Actions: cancel, confirm, note, reschedule, refund
+   * NEW: Get refund information for a booking
+   * Returns policy, calculated amounts, and gateway capabilities
    */
+  public static function get_refund_info(\WP_REST_Request $request) {
+    $booking_id = (int) $request->get_param('id');
+    
+    $booking = Bookings::get_booking($booking_id);
+    if (!$booking) {
+      return new \WP_Error('koopo_booking_not_found', 'Booking not found', ['status' => 404]);
+    }
+
+    $current = get_current_user_id();
+    if ((int) $booking->listing_author_id !== (int) $current && !current_user_can('manage_options')) {
+      return new \WP_Error('koopo_forbidden', 'Forbidden', ['status' => 403]);
+    }
+
+    // Get refund policy summary
+    $policy_summary = Refund_Policy::get_booking_refund_summary($booking);
+
+    // Get WooCommerce refund capabilities
+    $order_id = (int) ($booking->wc_order_id ?? 0);
+    $wc_info = $order_id ? Refund_Processor::get_refund_info($order_id) : [
+      'can_refund' => false,
+      'automatic' => false,
+      'gateway' => 'None',
+      'instructions' => 'No order associated with this booking',
+      'available_amount' => 0,
+      'already_refunded' => 0,
+    ];
+
+    return rest_ensure_response([
+      'booking_id' => $booking_id,
+      'booking_price' => (float) $booking->price,
+      'policy' => $policy_summary,
+      'woocommerce' => $wc_info,
+    ]);
+  }
+
   public static function booking_action(\WP_REST_Request $request) {
     $booking_id = (int) $request->get_param('id');
     $action = sanitize_key((string) $request->get_param('action'));
@@ -230,13 +261,11 @@ class Vendor_Bookings_API {
         return new \WP_Error('koopo_dates_required', 'start_datetime and end_datetime are required', ['status' => 400]);
       }
 
-      // Validate date format
       if (!preg_match('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/', $new_start) ||
           !preg_match('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/', $new_end)) {
         return new \WP_Error('koopo_invalid_format', 'Dates must be in YYYY-MM-DD HH:MM:SS format', ['status' => 400]);
       }
 
-      // Ensure end > start
       if (strtotime($new_end) <= strtotime($new_start)) {
         return new \WP_Error('koopo_invalid_range', 'End time must be after start time', ['status' => 400]);
       }
@@ -256,7 +285,6 @@ class Vendor_Bookings_API {
         $order->add_order_note('Koopo: Vendor rescheduled booking #'.$booking_id.' to '.$new_start.' - '.$new_end.$tz_display);
       }
 
-      // Trigger notification
       do_action('koopo_booking_rescheduled', $booking_id, $new_start, $new_end, $booking);
 
       return rest_ensure_response([
@@ -287,42 +315,82 @@ class Vendor_Bookings_API {
       ]);
     }
 
-    // === REFUND ACTION (Commit 19/20) ===
+    // === ENHANCED REFUND ACTION (Commit 20) ===
     if ($action === 'refund') {
       if (!$order) {
         return new \WP_Error('koopo_no_order', 'No order found to refund', ['status' => 409]);
       }
 
-      $st = $order->get_status();
-      if (!in_array($st, ['processing', 'completed', 'on-hold'], true)) {
+      // Step 1: Check refund policy eligibility
+      $policy_check = Refund_Policy::is_refundable($booking);
+      
+      if (!$policy_check['allowed']) {
         return new \WP_Error(
-          'koopo_cannot_refund',
-          'Order must be processing, completed, or on-hold to refund. Current status: ' . $st,
+          'koopo_refund_not_allowed',
+          $policy_check['reason'],
           ['status' => 409]
         );
       }
 
-      // Mark booking as refunded
-      $result = Bookings::cancel_booking_safely($booking_id, 'refunded');
-      if (!$result['ok']) {
-        return new \WP_Error('koopo_refund_failed', $result['reason'] ?? 'Failed to mark as refunded', ['status' => 500]);
+      // Step 2: Determine refund amount (can be custom or policy-based)
+      $custom_amount = $request->get_param('amount');
+      $refund_amount = null;
+
+      if ($custom_amount !== null) {
+        // Vendor specified custom amount
+        $refund_amount = (float) $custom_amount;
+      } else {
+        // Use policy-calculated amount
+        $calc = Refund_Policy::calculate_refund_amount((float)$booking->price, $booking);
+        $refund_amount = $calc['amount'];
       }
 
-      // Add order note
-      $refund_note = 'Koopo: Vendor initiated refund for booking #'.$booking_id;
-      if ($note) $refund_note .= ' — Reason: ' . wp_strip_all_tags($note);
-      $order->add_order_note($refund_note);
+      // Step 3: Validate refund amount
+      $validation = Refund_Processor::validate_refund($order->get_id(), $refund_amount);
+      if (!$validation['valid']) {
+        return new \WP_Error('koopo_invalid_refund', $validation['error'], ['status' => 400]);
+      }
 
-      // Move order to refunded status
-      $order->update_status('refunded', 'Koopo: Booking refunded by vendor');
+      // Step 4: Process WooCommerce refund
+      $refund_result = Refund_Processor::process_refund(
+        $order->get_id(),
+        $refund_amount,
+        $note,
+        $booking_id
+      );
 
-      // Trigger hook for future auto-refund logic
-      do_action('koopo_vendor_refund_initiated', $booking_id, $order_id, $order);
+      if (!$refund_result['success']) {
+        return new \WP_Error('koopo_refund_failed', $refund_result['message'], ['status' => 500]);
+      }
 
+      // Step 5: Mark booking as refunded
+      $result = Bookings::cancel_booking_safely($booking_id, 'refunded');
+      
+      if (!$result['ok']) {
+        // Refund was created but booking status didn't update - log this
+        error_log(sprintf(
+          'Koopo: WC refund #%d created for booking #%d, but booking status update failed: %s',
+          $refund_result['refund_id'],
+          $booking_id,
+          $result['reason'] ?? 'unknown'
+        ));
+      }
+
+      // Step 6: Trigger notification hook
+      do_action('koopo_vendor_refund_processed', $booking_id, $order->get_id(), $refund_amount, $refund_result);
+
+      // Step 7: Return detailed success response
       return rest_ensure_response([
         'ok' => true,
         'action' => 'refunded',
-        'message' => 'Booking marked as refunded. Order status updated. Process payment gateway refund in WooCommerce if needed.',
+        'refund_id' => $refund_result['refund_id'],
+        'amount' => $refund_amount,
+        'automatic' => $refund_result['automatic'],
+        'message' => $refund_result['automatic']
+          ? sprintf('Refund of $%.2f processed automatically via payment gateway.', $refund_amount)
+          : sprintf('Refund of $%.2f created. Please process manually in your payment gateway: %s', 
+                    $refund_amount, 
+                    Refund_Processor::get_gateway_name($order)),
         'booking' => Bookings::get_booking($booking_id),
       ]);
     }
