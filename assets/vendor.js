@@ -221,7 +221,14 @@
       html += `<button class="koopo-btn koopo-btn--sm koopo-appt-action" data-action="reschedule" data-id="${id}">Reschedule</button> `;
     }
 
-    if (b.wc_order_id) {
+    
+    // Show Refund when there is a WooCommerce order and the booking is in a refundable state.
+    // (Actual eligibility is validated server-side via /refund-info.)
+    if (b.wc_order_id && st !== 'refunded' && (st === 'confirmed' || st === 'cancelled')) {
+      html += `<button class="koopo-btn koopo-btn--sm koopo-btn--danger koopo-appt-action" data-action="refund" data-id="${id}">Refund</button> `;
+    }
+
+if (b.wc_order_id) {
       html += `<button class="koopo-btn koopo-btn--sm koopo-appt-action" data-action="note" data-id="${id}">Add Note</button>`;
     }
 
@@ -349,86 +356,9 @@
       const action = String($btn.data('action')||'').toLowerCase();
       if (!id || !action) return;
 
-      let note = '';
-      let start_datetime = '';
-      let end_datetime = '';
-      let timezone = '';
-
-      if (action === 'cancel') {
-        note = prompt('Optional: add a cancellation note for the customer/admin (leave blank for none).', '') || '';
-        const ok = confirm('Cancel this booking? If it was already paid, you may need to issue a refund separately.');
-        if (!ok) return;
-      }
-
-      if (action === 'confirm') {
-        const ok = confirm('Manually confirm this booking? This should only be used if payment was verified outside the system.');
-        if (!ok) return;
-      }
-
-      if (action === 'note') {
-        note = prompt('Enter an internal note for this booking/order:', '') || '';
-        if (!note.trim()) return;
-      }
-
-      if (action === 'reschedule') {
-        const $row = $btn.closest('tr');
-        const currentStart = $row.data('start') || $row.find('td:eq(3) strong').text().trim();
-        
-        start_datetime = prompt(
-          'Enter new start date/time (YYYY-MM-DD HH:MM:SS format):\n\nCurrent: ' + currentStart,
-          $row.data('start') || ''
-        ) || '';
-        
-        if (!start_datetime.trim()) return;
-
-        const durationMinutes = prompt('Duration in minutes:', '60') || '60';
-        const duration = parseInt(durationMinutes, 10);
-        
-        if (duration <= 0) {
-          alert('Invalid duration');
-          return;
-        }
-
-        try {
-          const startDate = new Date(start_datetime.replace(' ', 'T'));
-          if (isNaN(startDate.getTime())) {
-            alert('Invalid date format. Please use YYYY-MM-DD HH:MM:SS');
-            return;
-          }
-          const endDate = new Date(startDate.getTime() + duration * 60000);
-          end_datetime = endDate.toISOString().slice(0, 19).replace('T', ' ');
-        } catch(err) {
-          alert('Error calculating end time: ' + err.message);
-          return;
-        }
-
-        timezone = prompt('Timezone (leave blank to keep existing, or enter like America/Detroit):', '') || '';
-
-        const confirmMsg = `Reschedule to:\n${start_datetime} - ${end_datetime}\n\nThis will check for conflicts. Continue?`;
-        if (!confirm(confirmMsg)) return;
-      }
-
-      if (action === 'refund') {
-        note = prompt('Refund reason (optional):', '') || '';
-        const ok = confirm('Issue a refund for this booking?\n\nThis will:\n• Cancel the booking\n• Mark order as refunded\n• Release the time slot\n\nYou may need to process the payment gateway refund separately in WooCommerce.');
-        if (!ok) return;
-      }
-
-      $btn.prop('disabled', true);
-      try {
-        const payload = { action, note, start_datetime, end_datetime, timezone };
-        await api(`/vendor/bookings/${id}/action`, {
-          method: 'POST',
-          body: JSON.stringify(payload)
-        });
-        
-        await loadAppointments();
-        
-        if (action === 'reschedule') {
-          alert('✓ Booking rescheduled successfully.\n\nThe customer will receive a notification about the new time.');
-        } else if (action === 'refund') {
-          alert('✓ Booking marked as refunded and order updated.\n\nPlease verify the payment gateway refund in WooCommerce → Orders if needed.');
-        } else if (action === 'cancel') {
+      
+      // Route UI-only actions to their modals (avoid duplicate/conflicting handlers)
+        if (action === 'cancel') {
           alert('✓ Booking cancelled successfully.');
         } else if (action === 'confirm') {
           alert('✓ Booking confirmed.');
@@ -661,16 +591,6 @@
 
     await processRefund(bookingId, reason, customAmount);
   });
-
-  // MODIFY EXISTING: Update refund button click handler in appointments table
-  // Replace the existing refund button handler with this:
-  $(document).on('click', '.koopo-appt-action[data-action="refund"]', async function(e) {
-    e.preventDefault();
-    const bookingId = parseInt($(this).data('id'), 10);
-    if (!bookingId) return;
-
-    await showRefundModal(bookingId);
-  });
 let rescheduleState = {
     bookingId: null,
     serviceId: null,
@@ -863,10 +783,46 @@ let rescheduleState = {
       }
 
       // Group slots by time of day
+      // Normalize, de-dupe, and sort slots defensively before grouping.
+      const parseSlotDate = (s) => {
+        if (!s) return null;
+        let d = new Date(s);
+        if (!isNaN(d)) return d;
+        if (typeof s === 'string' && s.includes(' ')) {
+          d = new Date(s.replace(' ', 'T'));
+          if (!isNaN(d)) return d;
+        }
+        return null;
+      };
+
+      const seen = new Set();
+      const normalized = (slots || [])
+        .map(slot => {
+          const startDate = parseSlotDate(slot.start);
+          const endDate = parseSlotDate(slot.end);
+          return {
+            ...slot,
+            _startDate: startDate,
+            _endDate: endDate
+          };
+        })
+        .filter(slot => slot._startDate && slot._endDate)
+        .filter(slot => {
+          const key = `${slot._startDate.getTime()}|${slot._endDate.getTime()}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        })
+        .sort((a, b) => a._startDate.getTime() - b._startDate.getTime());
+
+      // If the API returns extremely dense slots (e.g., 5-min increments), thin them to a saner cadence.
+      const thinned = normalized.length > 60
+        ? normalized.filter(s => (s._startDate.getMinutes() % 15) === 0)
+        : normalized;
+
       const groups = { Morning: [], Afternoon: [], Evening: [] };
-      
-      slots.forEach(slot => {
-        const hour = parseInt(slot.start.split(' ')[1].split(':')[0]);
+      thinned.forEach(slot => {
+        const hour = slot._startDate.getHours();
         const period = hour < 12 ? 'Morning' : hour < 17 ? 'Afternoon' : 'Evening';
         groups[period].push(slot);
       });
@@ -1068,15 +1024,6 @@ let rescheduleState = {
     }
     
     await submitReschedule();
-  });
-
-  // REPLACE existing reschedule button handler
-  $(document).on('click', '.koopo-appt-action[data-action="reschedule"]', async function(e) {
-    e.preventDefault();
-    const bookingId = parseInt($(this).data('id'), 10);
-    if (!bookingId) return;
-
-    await showRescheduleModal(bookingId);
   });
 
 })(jQuery);
