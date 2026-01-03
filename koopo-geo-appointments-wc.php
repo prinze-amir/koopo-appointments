@@ -2,18 +2,18 @@
 /**
  * Plugin Name: Koopo Appointments
  * Description: GeoDirectory Addon For Appointments with WooCommerce/Dokan Integration.
- * Version: 0.1.3
+ * Version: 0.1.4
  * Author: Koopo
  */
 
 defined('ABSPATH') || exit;
 
-define('KOOPO_APPT_VERSION', '0.1.3');
+define('KOOPO_APPT_VERSION', '0.1.4');
 define('KOOPO_APPT_PATH', plugin_dir_path(__FILE__));
 define('KOOPO_APPT_URL', plugin_dir_url(__FILE__));
 
 final class Koopo_Appointments {
-  const VERSION = '0.1.3';
+  const VERSION = '0.1.4';
   const SLUG = 'koopo-geo-appointments-wc';
 
   private static $instance = null;
@@ -43,7 +43,7 @@ final class Koopo_Appointments {
 
     // Core classes
     require_once __DIR__ . '/includes/class-kgaw-db.php';
-    require_once __DIR__ . '/includes/class-kgaw-date-formatter.php'; // Commit 22
+    require_once __DIR__ . '/includes/class-kgaw-date-formatter.php';
     require_once __DIR__ . '/includes/class-kgaw-bookings.php';
     require_once __DIR__ . '/includes/class-kgaw-checkout.php';
     require_once __DIR__ . '/includes/class-kgaw-order-hooks.php';
@@ -57,7 +57,12 @@ final class Koopo_Appointments {
     require_once __DIR__ . '/includes/class-kgaw-ui.php';
     require_once __DIR__ . '/includes/class-kgaw-services-list.php';
     require_once __DIR__ . '/includes/class-kgaw-vendor-listings-api.php';
+    
+    // Commit 20: Enhanced Refund Tooling
+    require_once __DIR__ . '/includes/class-kgaw-refund-policy.php';
+    require_once __DIR__ . '/includes/class-kgaw-refund-processor.php';
     require_once __DIR__ . '/includes/class-kgaw-vendor-bookings-api.php';
+    
     require_once __DIR__ . '/includes/class-kgaw-availability.php';
     require_once __DIR__ . '/includes/class-kgaw-settings-api.php';
     require_once __DIR__ . '/includes/class-kgaw-dokan-dashboard.php';

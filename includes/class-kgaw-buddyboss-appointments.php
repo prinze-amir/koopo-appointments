@@ -3,10 +3,6 @@ namespace Koopo_Appointments;
 
 defined('ABSPATH') || exit;
 
-/**
- * Commit 22: BuddyBoss Appointments with Human-Readable Dates
- * Location: includes/class-kgaw-buddyboss-appointments.php
- */
 class BuddyBoss_Appointments {
 
   public static function init() {
