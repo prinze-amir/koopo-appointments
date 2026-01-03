@@ -213,6 +213,27 @@ class Date_Formatter {
     }
   }
 
+   /**
+   * Get timezone abbreviation (EST, PST, etc.)
+   * 
+   * @param string $timezone
+   * @param string $datetime Reference datetime for DST
+   * @return string Timezone abbreviation
+   */
+  public static function get_timezone_abbr(string $timezone, string $datetime = ''): string {
+    if (!$timezone) {
+      $timezone = function_exists('wp_timezone_string') ? wp_timezone_string() : 'UTC';
+    }
+
+    try {
+      $tz = new \DateTimeZone($timezone);
+      $dt = $datetime ? new \DateTime($datetime, $tz) : new \DateTime('now', $tz);
+      return $dt->format('T'); // Returns abbreviation like "EST" or "PDT"
+    } catch (\Exception $e) {
+      return '';
+    }
+  }
+  
   /**
    * Format for email display with timezone info
    * 
@@ -238,6 +259,8 @@ class Date_Formatter {
     
     return $formatted;
   }
+
+
 
   /**
    * Get add-to-calendar links for a booking
