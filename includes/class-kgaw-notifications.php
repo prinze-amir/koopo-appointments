@@ -11,6 +11,7 @@ class Notifications {
     add_action('koopo_booking_cancelled_safe', [__CLASS__, 'email_cancelled'], 10, 2);
     add_action('koopo_booking_refunded_safe', [__CLASS__, 'email_refunded'], 10, 2);
     add_action('koopo_booking_expired_safe', [__CLASS__, 'email_expired'], 10, 2);
+    add_action('koopo_booking_rescheduled', [__CLASS__, 'email_rescheduled'], 10, 4); // NEW
   }
 
   private static function admin_email(): string {
@@ -38,6 +39,12 @@ class Notifications {
 
     $listing_id = (int) $b->listing_id;
     $service_id = (int) $b->service_id;
+    $tz = !empty($b->timezone) ? (string) $b->timezone : '';
+
+    // Format dates for email display
+    $start_formatted = Date_Formatter::format((string)$b->start_datetime, $tz, 'full');
+    $duration_mins = (strtotime((string)$b->end_datetime) - strtotime((string)$b->start_datetime)) / 60;
+    $duration_formatted = Date_Formatter::format_duration((int)$duration_mins);
 
     return [
       'booking' => $b,
@@ -46,11 +53,15 @@ class Notifications {
       'service_title' => $service_id ? get_the_title($service_id) : '',
       'start' => (string) $b->start_datetime,
       'end' => (string) $b->end_datetime,
+      'start_formatted' => $start_formatted,
+      'duration_formatted' => $duration_formatted,
+      'timezone' => $tz,
+      'timezone_abbr' => Date_Formatter::get_timezone_abbr($tz, (string)$b->start_datetime),
       'order_id' => (int) ($b->wc_order_id ?? 0),
     ];
   }
 
-  public static function email_conflict(int $booking_id, int $conflict_id, $booking_obj) {
+    public static function email_conflict(int $booking_id, int $conflict_id, $booking_obj) {
     $ctx = self::booking_context($booking_id);
     if (!$ctx) return;
 
@@ -101,6 +112,7 @@ class Notifications {
     }
   }
 
+
   public static function email_confirmed(int $booking_id, $booking_obj) {
     $ctx = self::booking_context($booking_id);
     if (!$ctx) return;
@@ -111,130 +123,78 @@ class Notifications {
 
     $subject = sprintf('[Koopo] Booking confirmed – #%d', $booking_id);
 
-    $body_admin = self::render_email([
-      'title' => 'Booking Confirmed',
+    $body_customer = self::render_email([
+      'title' => 'Your booking is confirmed! ✓',
       'lines' => [
-        "Booking #{$booking_id} confirmed.",
-        "Listing: {$ctx['listing_title']}",
+        "Your booking is confirmed for {$ctx['start_formatted']} ({$ctx['timezone_abbr']}).",
+        "Business: {$ctx['listing_title']}",
         "Service: {$ctx['service_title']}",
-        "Time: {$ctx['start']} → {$ctx['end']}",
+        "Duration: {$ctx['duration_formatted']}",
+        "We look forward to seeing you!",
       ],
     ]);
 
     $body_seller = self::render_email([
       'title' => 'New Confirmed Booking',
       'lines' => [
-        "You have a new confirmed booking.",
+        "You have a new confirmed booking for {$ctx['start_formatted']}.",
         "Listing: {$ctx['listing_title']}",
         "Service: {$ctx['service_title']}",
-        "Time: {$ctx['start']} → {$ctx['end']}",
+        "Duration: {$ctx['duration_formatted']}",
       ],
     ]);
 
-    $body_customer = self::render_email([
-      'title' => 'Your booking is confirmed',
-      'lines' => [
-        "Your booking is confirmed.",
-        "Business: {$ctx['listing_title']}",
-        "Service: {$ctx['service_title']}",
-        "Time: {$ctx['start']} → {$ctx['end']}",
-      ],
-    ]);
-
-    self::send_mail($admin, $subject, $body_admin);
-    self::send_mail($seller, $subject, $body_seller);
     if ($customer) self::send_mail($customer, $subject, $body_customer);
+    self::send_mail($seller, $subject, $body_seller);
   }
 
   public static function email_cancelled(int $booking_id, $booking_obj) {
     $ctx = self::booking_context($booking_id);
     if (!$ctx) return;
 
-    $admin = self::admin_email();
-    $seller = self::listing_owner_email($ctx['listing_id']);
     $customer = self::customer_email((int)$ctx['booking']->customer_id, $ctx['order_id'] ?: null);
+    $seller = self::listing_owner_email($ctx['listing_id']);
 
     $subject = sprintf('[Koopo] Booking cancelled – #%d', $booking_id);
-
-    $body_admin = self::render_email([
-      'title' => 'Booking Cancelled',
-      'lines' => [
-        "Booking #{$booking_id} was cancelled.",
-        "Listing: {$ctx['listing_title']}",
-        "Service: {$ctx['service_title']}",
-        "Time: {$ctx['start']} → {$ctx['end']}",
-      ],
-    ]);
-
-    $body_seller = self::render_email([
-      'title' => 'Booking Cancelled',
-      'lines' => [
-        "A booking on your listing was cancelled.",
-        "Listing: {$ctx['listing_title']}",
-        "Service: {$ctx['service_title']}",
-        "Time: {$ctx['start']} → {$ctx['end']}",
-      ],
-    ]);
 
     $body_customer = self::render_email([
       'title' => 'Your booking was cancelled',
       'lines' => [
-        "Your booking has been cancelled.",
+        "Your booking for {$ctx['start_formatted']} has been cancelled.",
         "Business: {$ctx['listing_title']}",
         "Service: {$ctx['service_title']}",
-        "Time: {$ctx['start']} → {$ctx['end']}",
         "If you were charged, a refund may be processed depending on the payment method.",
       ],
     ]);
 
-    self::send_mail($admin, $subject, $body_admin);
-    self::send_mail($seller, $subject, $body_seller);
     if ($customer) self::send_mail($customer, $subject, $body_customer);
   }
 
-  public static function email_refunded(int $booking_id, $booking_obj) {
+  public static function email_rescheduled(int $booking_id, string $new_start, string $new_end, $booking_obj) {
     $ctx = self::booking_context($booking_id);
     if (!$ctx) return;
 
-    $admin = self::admin_email();
-    $seller = self::listing_owner_email($ctx['listing_id']);
     $customer = self::customer_email((int)$ctx['booking']->customer_id, $ctx['order_id'] ?: null);
+    $tz = $ctx['timezone'];
+    
+    $new_start_formatted = Date_Formatter::format($new_start, $tz, 'full');
+    $duration_mins = (strtotime($new_end) - strtotime($new_start)) / 60;
+    $duration_formatted = Date_Formatter::format_duration((int)$duration_mins);
 
-    $subject = sprintf('[Koopo] Booking refunded – #%d', $booking_id);
-
-    $body_admin = self::render_email([
-      'title' => 'Booking Refunded',
-      'lines' => [
-        "Booking #{$booking_id} was refunded.",
-        "Listing: {$ctx['listing_title']}",
-        "Service: {$ctx['service_title']}",
-        "Time: {$ctx['start']} → {$ctx['end']}",
-      ],
-    ]);
-
-    $body_seller = self::render_email([
-      'title' => 'Booking Refunded',
-      'lines' => [
-        "A booking on your listing was refunded.",
-        "Listing: {$ctx['listing_title']}",
-        "Service: {$ctx['service_title']}",
-        "Time: {$ctx['start']} → {$ctx['end']}",
-      ],
-    ]);
+    $subject = sprintf('[Koopo] Booking rescheduled – #%d', $booking_id);
 
     $body_customer = self::render_email([
-      'title' => 'Your refund is being processed',
+      'title' => 'Your booking has been rescheduled',
       'lines' => [
-        "Your booking was refunded.",
+        "Your booking has been moved to a new time:",
+        "New Date & Time: {$new_start_formatted} ({$ctx['timezone_abbr']})",
         "Business: {$ctx['listing_title']}",
         "Service: {$ctx['service_title']}",
-        "Time: {$ctx['start']} → {$ctx['end']}",
-        "Refund timing depends on your payment method.",
+        "Duration: {$duration_formatted}",
+        "If you have any questions, please contact the business.",
       ],
     ]);
 
-    self::send_mail($admin, $subject, $body_admin);
-    self::send_mail($seller, $subject, $body_seller);
     if ($customer) self::send_mail($customer, $subject, $body_customer);
   }
 
@@ -274,10 +234,16 @@ class Notifications {
     $lis = '';
     foreach ($lines as $l) $lis .= '<li>' . esc_html($l) . '</li>';
     return "
-      <div style='font-family:Arial,sans-serif;line-height:1.5'>
-        <h2>{$title}</h2>
-        <ul>{$lis}</ul>
-        <p style='opacity:.7'>— Koopo</p>
+      <div style='font-family:Arial,sans-serif;line-height:1.6;max-width:600px;margin:0 auto;'>
+        <div style='background:#f7f7f7;padding:20px;border-radius:8px 8px 0 0;'>
+          <h2 style='margin:0;color:#333;'>{$title}</h2>
+        </div>
+        <div style='background:#fff;padding:20px;border:1px solid #e5e5e5;'>
+          <ul style='padding-left:20px;'>{$lis}</ul>
+        </div>
+        <div style='background:#f7f7f7;padding:15px;text-align:center;font-size:12px;color:#666;border-radius:0 0 8px 8px;'>
+          <p style='margin:0;'>— Koopo Appointments</p>
+        </div>
       </div>
     ";
   }

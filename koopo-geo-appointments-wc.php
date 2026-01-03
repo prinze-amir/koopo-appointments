@@ -2,18 +2,18 @@
 /**
  * Plugin Name: Koopo Appointments
  * Description: GeoDirectory Addon For Appointments with WooCommerce/Dokan Integration.
- * Version: 0.1.2
+ * Version: 0.1.3
  * Author: Koopo
  */
 
 defined('ABSPATH') || exit;
 
-define('KOOPO_APPT_VERSION', '0.1.2');
+define('KOOPO_APPT_VERSION', '0.1.3');
 define('KOOPO_APPT_PATH', plugin_dir_path(__FILE__));
 define('KOOPO_APPT_URL', plugin_dir_url(__FILE__));
 
 final class Koopo_Appointments {
-  const VERSION = '0.1.2';
+  const VERSION = '0.1.3';
   const SLUG = 'koopo-geo-appointments-wc';
 
   private static $instance = null;
@@ -35,15 +35,15 @@ final class Koopo_Appointments {
   }
 
   public function deactivate() {
-    // Unschedule cleanup cron.
     wp_clear_scheduled_hook('koopo_appt_cleanup_pending');
   }
 
   public function boot() {
-    // Required: WooCommerce
     if (!class_exists('WooCommerce')) return;
 
+    // Core classes
     require_once __DIR__ . '/includes/class-kgaw-db.php';
+    require_once __DIR__ . '/includes/class-kgaw-date-formatter.php'; // Commit 22
     require_once __DIR__ . '/includes/class-kgaw-bookings.php';
     require_once __DIR__ . '/includes/class-kgaw-checkout.php';
     require_once __DIR__ . '/includes/class-kgaw-order-hooks.php';
@@ -65,14 +65,15 @@ final class Koopo_Appointments {
     require_once __DIR__ . '/includes/class-kgaw-settings-assets.php';
     require_once __DIR__ . '/includes/class-kgaw-admin-settings.php';
     require_once __DIR__ . '/includes/class-kgaw-features.php';
-require_once __DIR__ . '/includes/class-kgaw-myaccount.php';
-require_once __DIR__ . '/includes/class-kgaw-buddyboss-appointments.php';
-require_once __DIR__ . '/includes/class-kgaw-access.php';
-require_once __DIR__ . '/includes/class-kgaw-pack-features-admin.php';
-require_once __DIR__ . '/includes/class-kgaw-dokan-pack-adapter.php';
-Koopo_Appointments\Dokan_Pack_Adapter::init();
-Koopo_Appointments\Pack_Features_Admin::init();
-Koopo_Appointments\BuddyBoss_Appointments::init();
+    require_once __DIR__ . '/includes/class-kgaw-myaccount.php';
+    require_once __DIR__ . '/includes/class-kgaw-buddyboss-appointments.php';
+    require_once __DIR__ . '/includes/class-kgaw-access.php';
+    require_once __DIR__ . '/includes/class-kgaw-pack-features-admin.php';
+    require_once __DIR__ . '/includes/class-kgaw-dokan-pack-adapter.php';
+
+    Koopo_Appointments\Dokan_Pack_Adapter::init();
+    Koopo_Appointments\Pack_Features_Admin::init();
+    Koopo_Appointments\BuddyBoss_Appointments::init();
 
     if (Koopo_Appointments\Features::memberships_enabled()) {
       require_once __DIR__ . '/includes/class-kgaw-entitlements.php';
@@ -81,15 +82,12 @@ Koopo_Appointments\BuddyBoss_Appointments::init();
       Koopo_Appointments\Membership_UI::init();
     }
 
-
-Koopo_Appointments\Settings_Assets::init();
-Koopo_Appointments\Admin_Settings::init();
-Koopo_Appointments\MyAccount::init();
-
-Koopo_Appointments\Settings_UI_Shortcodes::init();
-  Koopo_Appointments\Dokan_Dashboard::init();
+    Koopo_Appointments\Settings_Assets::init();
+    Koopo_Appointments\Admin_Settings::init();
+    Koopo_Appointments\MyAccount::init();
+    Koopo_Appointments\Settings_UI_Shortcodes::init();
+    Koopo_Appointments\Dokan_Dashboard::init();
     Koopo_Appointments\Settings_API::init();
-
     Koopo_Appointments\Availability::init();
     Koopo_Appointments\Services_List::init();
     Koopo_Appointments\Vendor_Listings_API::init();

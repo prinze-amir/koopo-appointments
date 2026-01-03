@@ -3,10 +3,13 @@ namespace Koopo_Appointments;
 
 defined('ABSPATH') || exit;
 
+/**
+ * Commit 22: BuddyBoss Appointments with Human-Readable Dates
+ * Location: includes/class-kgaw-buddyboss-appointments.php
+ */
 class BuddyBoss_Appointments {
 
   public static function init() {
-    // BuddyBoss runs on BuddyPress core APIs
     add_action('bp_setup_nav', [__CLASS__, 'add_nav'], 100);
     add_action('wp_enqueue_scripts', [__CLASS__, 'enqueue_styles']);
   }
@@ -33,7 +36,6 @@ class BuddyBoss_Appointments {
     $displayed_id = function_exists('bp_displayed_user_id') ? (int) bp_displayed_user_id() : 0;
     $viewer_id = get_current_user_id();
 
-    // Only allow user to view their own appointments (privacy)
     if (!$displayed_id || $displayed_id !== $viewer_id) {
       echo '<p>You can only view your own appointments.</p>';
       return;
@@ -50,35 +52,54 @@ class BuddyBoss_Appointments {
     }
 
     echo '<table class="koopo-appts-table">';
-    echo '<thead><tr><th>Date</th><th>Business</th><th>Service</th><th>Status</th><th>Type</th><th>Actions</th></tr></thead><tbody>';
+    echo '<thead><tr>';
+    echo '<th>Date & Time</th>';
+    echo '<th>Business</th>';
+    echo '<th>Service</th>';
+    echo '<th>Duration</th>';
+    echo '<th>Status</th>';
+    echo '<th>Actions</th>';
+    echo '</tr></thead><tbody>';
 
     foreach ($rows as $b) {
       $listing_title = get_the_title((int)$b->listing_id);
       $service_title = get_the_title((int)$b->service_id);
 
-      $status = (string)$b->status;
-      $type = ($b->payment_type === 'membership') ? 'membership' : (($b->payment_type === 'free') ? 'free' : 'paid');
-
+      // Format datetime with timezone
+      $tz = !empty($b->timezone) ? (string)$b->timezone : '';
+      $datetime_display = Date_Formatter::format((string)$b->start_datetime, $tz, 'relative');
       
-$actions = '';
-if ($status === 'pending_payment') {
-  $pay_url = MyAccount::pay_now_url((int) $b->id);
-  $actions = '<a class="button" href="' . esc_url($pay_url) . '">' . esc_html__('Pay now', 'koopo') . '</a>';
-}
+      // Calculate duration
+      $start_ts = strtotime((string)$b->start_datetime);
+      $end_ts = strtotime((string)$b->end_datetime);
+      $duration_mins = ($end_ts - $start_ts) / 60;
+      $duration_display = Date_Formatter::format_duration((int)$duration_mins);
 
-if (Bookings::customer_can_cancel($b)) {
-  $cancel_url = MyAccount::cancel_booking_url((int) $b->id);
-  $cancel_btn = '<a class="button" href="' . esc_url($cancel_url) . '" onclick="return confirm(\'Cancel this booking?\');">' . esc_html__('Cancel', 'koopo') . '</a>';
-  $actions = $actions ? ($actions . ' ' . $cancel_btn) : $cancel_btn;
-}
+      // Status
+      $status = (string)$b->status;
+      $status_class = 'koopo-badge--' . sanitize_html_class($status);
+      $status_label = ucfirst(str_replace('_', ' ', $status));
+
+      // Actions
+      $actions = '';
+      if ($status === 'pending_payment') {
+        $pay_url = MyAccount::pay_now_url((int)$b->id);
+        $actions = '<a class="button" href="' . esc_url($pay_url) . '">' . esc_html__('Pay now', 'koopo') . '</a>';
+      }
+
+      if (Bookings::customer_can_cancel($b)) {
+        $cancel_url = MyAccount::cancel_booking_url((int)$b->id);
+        $cancel_btn = '<a class="button" href="' . esc_url($cancel_url) . '" onclick="return confirm(\'Cancel this booking?\');">' . esc_html__('Cancel', 'koopo') . '</a>';
+        $actions = $actions ? ($actions . ' ' . $cancel_btn) : $cancel_btn;
+      }
 
       echo '<tr>';
-      echo '<td>' . esc_html($b->start_datetime) . '</td>';
+      echo '<td>' . esc_html($datetime_display) . '</td>';
       echo '<td>' . esc_html($listing_title) . '</td>';
       echo '<td>' . esc_html($service_title) . '</td>';
-      echo '<td><span class="koopo-badge koopo-badge--' . esc_attr($status) . '">' . esc_html($status) . '</span></td>';
-      echo '<td><span class="koopo-badge koopo-badge--type-' . esc_attr($type) . '">' . esc_html(ucfirst($type)) . '</span></td>';
-      echo '<td>' . $actions . '</td>';
+      echo '<td>' . esc_html($duration_display) . '</td>';
+      echo '<td><span class="koopo-badge ' . esc_attr($status_class) . '">' . esc_html($status_label) . '</span></td>';
+      echo '<td>' . ($actions ?: '—') . '</td>';
       echo '</tr>';
     }
 
@@ -92,7 +113,6 @@ if (Bookings::customer_can_cancel($b)) {
   }
 
   public static function enqueue_styles() {
-    // Reuse our badge styles or add small stylesheet
     wp_enqueue_style(
       'koopo-appt-badges',
       plugins_url('../assets/appointments-badges.css', __FILE__),

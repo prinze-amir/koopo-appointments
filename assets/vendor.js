@@ -13,7 +13,6 @@
     return data;
   }
 
-  // ---------- Shared: vendor listings picker ----------
   async function loadVendorListings($select){
     $select.empty().append(`<option value="">Select listing…</option>`);
     const listings = await api('/vendor/listings', { method:'GET' });
@@ -133,26 +132,21 @@
     closeModal();
   }
 
-  // Wire services page if present
   if ($servicesPicker.length) {
     loadVendorListings($servicesPicker).catch(()=>{});
-
     $servicesPicker.on('change', async function(){
       state.listingId = parseInt($(this).val(),10) || null;
       await refreshServices();
     });
-
     $('#koopo-add-service').on('click', function(){
       if (!state.listingId) { alert('Select a listing first.'); return; }
       openModal(null);
     });
-
     $servicesGrid.on('click', '[data-service-id]', function(){
       const id = parseInt($(this).data('service-id'),10);
       const svc = state.services.find(s => s.id === id);
       if (svc) openModal(svc);
     });
-
     $modal.on('click', '.koopo-modal__close, #koopo-service-cancel', closeModal);
     $('#koopo-service-save').on('click', function(){
       saveService().catch(e => alert(e.message || 'Save failed'));
@@ -162,7 +156,7 @@
     });
   }
 
-  // ---------- Booking settings page (minimal: enable + timezone) ----------
+  // ---------- Booking settings page ----------
   const $settingsPicker = $('#koopo-settings-listing-picker');
   if ($settingsPicker.length) {
     loadVendorListings($settingsPicker).catch(()=>{});
@@ -182,7 +176,6 @@
       alert('Saved');
     });
   }
-
 
   // ---------- Appointments (Bookings) page ----------
   const $apptPicker = $('#koopo-appointments-picker');
@@ -209,7 +202,6 @@
     const st = String(b.status||'').toLowerCase();
     let html = '';
 
-    // CONFLICT status gets priority warning
     if (st === 'conflict') {
       html += `<span class="koopo-conflict-badge">⚠️ Requires Action</span><br>`;
       html += `<button class="koopo-btn koopo-btn--sm koopo-appt-action" data-action="reschedule" data-id="${id}">Reschedule</button> `;
@@ -217,22 +209,18 @@
       return html;
     }
 
-    // Allow cancel while pending or confirmed
     if (st === 'pending_payment' || st === 'confirmed') {
       html += `<button class="koopo-btn koopo-btn--sm koopo-btn--danger koopo-appt-action" data-action="cancel" data-id="${id}">Cancel</button> `;
     }
 
-    // Allow manual confirm for pending_payment only (edge cases)
     if (st === 'pending_payment') {
       html += `<button class="koopo-btn koopo-btn--sm koopo-appt-action" data-action="confirm" data-id="${id}">Confirm</button> `;
     }
 
-    // Allow reschedule for confirmed bookings
     if (st === 'confirmed') {
       html += `<button class="koopo-btn koopo-btn--sm koopo-appt-action" data-action="reschedule" data-id="${id}">Reschedule</button> `;
     }
 
-    // Always allow adding a note if order exists
     if (b.wc_order_id) {
       html += `<button class="koopo-btn koopo-btn--sm koopo-appt-action" data-action="note" data-id="${id}">Add Note</button>`;
     }
@@ -292,13 +280,20 @@
           ? `<a href="${escapeHtml(baseAdmin)}/post.php?post=${b.wc_order_id}&action=edit" target="_blank">#${b.wc_order_id}</a>`
           : (b.wc_order_id ? '#'+b.wc_order_id : '—');
 
+        // Commit 22: Use formatted dates from API
+        const dateTimeDisplay = b.start_datetime_formatted || escapeHtml(b.start_datetime || '');
+        const endTimeDisplay = b.end_datetime_formatted || '';
+        const durationDisplay = b.duration_formatted || '—';
+
         return `
-          <tr ${rowClass}>
+          <tr ${rowClass} data-start="${escapeHtml(b.start_datetime)}" data-end="${escapeHtml(b.end_datetime)}">
             <td>#${b.id}</td>
             <td>${escapeHtml(b.customer_name || '')}</td>
             <td>${escapeHtml(b.service_title || '')}</td>
-            <td>${escapeHtml(b.start_datetime || '')}</td>
-            <td>${escapeHtml(b.end_datetime || '')}</td>
+            <td>
+              <strong>${dateTimeDisplay}</strong><br>
+              <span style="opacity:0.7;font-size:12px;">to ${endTimeDisplay} (${durationDisplay})</span>
+            </td>
             <td>${badgeForStatus(b.status)}</td>
             <td>${fmtMoney(b.price, b.currency)}</td>
             <td>${orderLink}</td>
@@ -314,8 +309,7 @@
               <th>Booking</th>
               <th>Customer</th>
               <th>Service</th>
-              <th>Start</th>
-              <th>End</th>
+              <th>When</th>
               <th>Status</th>
               <th>Total</th>
               <th>Order</th>
@@ -347,7 +341,7 @@
       loadAppointments();
     });
     
-    // === ENHANCED VENDOR BOOKING ACTIONS (Commit 19) ===
+    // Commit 19+22: Enhanced vendor actions with formatted dates
     $apptTable.on('click', '.koopo-appt-action', async function(e){
       e.preventDefault();
       const $btn = $(this);
@@ -377,18 +371,16 @@
       }
 
       if (action === 'reschedule') {
-        // Get current booking details from table row
         const $row = $btn.closest('tr');
-        const currentStart = $row.find('td:eq(3)').text().trim();
+        const currentStart = $row.data('start') || $row.find('td:eq(3) strong').text().trim();
         
         start_datetime = prompt(
           'Enter new start date/time (YYYY-MM-DD HH:MM:SS format):\n\nCurrent: ' + currentStart,
-          currentStart
+          $row.data('start') || ''
         ) || '';
         
         if (!start_datetime.trim()) return;
 
-        // Ask for duration
         const durationMinutes = prompt('Duration in minutes:', '60') || '60';
         const duration = parseInt(durationMinutes, 10);
         
@@ -397,7 +389,6 @@
           return;
         }
 
-        // Calculate end_datetime based on start + duration
         try {
           const startDate = new Date(start_datetime.replace(' ', 'T'));
           if (isNaN(startDate.getTime())) {
@@ -426,14 +417,13 @@
       $btn.prop('disabled', true);
       try {
         const payload = { action, note, start_datetime, end_datetime, timezone };
-        const result = await api(`/vendor/bookings/${id}/action`, {
+        await api(`/vendor/bookings/${id}/action`, {
           method: 'POST',
           body: JSON.stringify(payload)
         });
         
         await loadAppointments();
         
-        // User-friendly success messages
         if (action === 'reschedule') {
           alert('✓ Booking rescheduled successfully.\n\nThe customer will receive a notification about the new time.');
         } else if (action === 'refund') {
@@ -449,8 +439,6 @@
         const msg = err.message || 'Action failed';
         if (msg.includes('conflict')) {
           alert('⚠️ Cannot reschedule: the selected time conflicts with another booking.\n\nPlease choose a different time.');
-        } else if (msg.includes('refund')) {
-          alert('⚠️ Refund failed: ' + msg);
         } else {
           alert('⚠️ Action failed: ' + msg);
         }

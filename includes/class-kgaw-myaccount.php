@@ -19,7 +19,7 @@ class MyAccount {
   }
 
   public static function menu_item($items) {
-    // Put it near subscriptions/orders
+        // Put it near subscriptions/orders
     $new = [];
     foreach ($items as $k => $v) {
       $new[$k] = $v;
@@ -46,40 +46,60 @@ class MyAccount {
       return;
     }
 
-    echo '<table class="shop_table shop_table_responsive">';
-    echo '<thead><tr><th>Date</th><th>Business</th><th>Service</th><th>Status</th><th>Type</th><th>Actions</th></tr></thead><tbody>';
+    echo '<table class="shop_table shop_table_responsive koopo-appts-table">';
+    echo '<thead><tr>';
+    echo '<th>Date & Time</th>';
+    echo '<th>Business</th>';
+    echo '<th>Service</th>';
+    echo '<th>Duration</th>';
+    echo '<th>Status</th>';
+    echo '<th>Actions</th>';
+    echo '</tr></thead><tbody>';
 
     foreach ($rows as $b) {
       $listing_title = get_the_title((int)$b->listing_id);
       $service_title = get_the_title((int)$b->service_id);
 
-      $type = ($b->payment_type === 'membership') ? 'Membership' : 'Paid';
-      $type_badge = ($type === 'Membership')
-        ? '<span class="koopo-badge koopo-badge--membership">Membership</span>'
-        : '<span class="koopo-badge koopo-badge--paid">Paid</span>';
-
-      $status_badge = '<span class="koopo-badge koopo-badge--' . esc_attr($b->status) . '">' . esc_html($b->status) . '</span>';
-
+      // Format datetime with timezone
+      $tz = !empty($b->timezone) ? (string)$b->timezone : '';
+      $datetime_display = Date_Formatter::format((string)$b->start_datetime, $tz, 'relative');
       
-$actions = '';
-if ((string) $b->status === 'pending_payment') {
-  $pay_url = self::pay_now_url((int) $b->id);
-  $actions = '<a class="button" href="' . esc_url($pay_url) . '">' . esc_html__('Pay now', 'koopo') . '</a>';
-}
+      // Calculate duration
+      $start_ts = strtotime((string)$b->start_datetime);
+      $end_ts = strtotime((string)$b->end_datetime);
+      $duration_mins = ($end_ts - $start_ts) / 60;
+      $duration_display = Date_Formatter::format_duration((int)$duration_mins);
 
-if (Bookings::customer_can_cancel($b)) {
-  $cancel_url = self::cancel_booking_url((int) $b->id);
-  $cancel_btn = '<a class="button" href="' . esc_url($cancel_url) . '" onclick="return confirm(\'Cancel this booking?\');">' . esc_html__('Cancel', 'koopo') . '</a>';
-  $actions = $actions ? ($actions . ' ' . $cancel_btn) : $cancel_btn;
-}
+      // Status badge
+      $status = (string)$b->status;
+      $status_class = 'koopo-badge--' . sanitize_html_class($status);
+      $status_label = ucfirst(str_replace('_', ' ', $status));
+      $status_badge = '<span class="koopo-badge ' . esc_attr($status_class) . '">' . esc_html($status_label) . '</span>';
 
-echo '<tr>';
-      echo '<td>' . esc_html($b->start_datetime) . '</td>';
-      echo '<td>' . esc_html($listing_title) . '</td>';
-      echo '<td>' . esc_html($service_title) . '</td>';
-      echo '<td>' . $status_badge . '</td>';
-      echo '<td>' . $type_badge . '</td>';
-      echo '<td>' . $actions . '</td>';
+      // Actions
+      $actions = '';
+      if ($status === 'pending_payment') {
+        $pay_url = self::pay_now_url((int)$b->id);
+        $actions = '<a class="button" href="' . esc_url($pay_url) . '">' . esc_html__('Pay now', 'koopo') . '</a>';
+      }
+
+      if (Bookings::customer_can_cancel($b)) {
+        $cancel_url = self::cancel_booking_url((int)$b->id);
+        $cancel_btn = '<a class="button" href="' . esc_url($cancel_url) . '" onclick="return confirm(\'Cancel this booking?\');">' . esc_html__('Cancel', 'koopo') . '</a>';
+        $actions = $actions ? ($actions . ' ' . $cancel_btn) : $cancel_btn;
+      }
+
+      if (!$actions) {
+        $actions = '—';
+      }
+
+      echo '<tr>';
+      echo '<td data-title="Date & Time">' . esc_html($datetime_display) . '</td>';
+      echo '<td data-title="Business">' . esc_html($listing_title) . '</td>';
+      echo '<td data-title="Service">' . esc_html($service_title) . '</td>';
+      echo '<td data-title="Duration">' . esc_html($duration_display) . '</td>';
+      echo '<td data-title="Status">' . $status_badge . '</td>';
+      echo '<td data-title="Actions">' . $actions . '</td>';
       echo '</tr>';
     }
 
@@ -107,23 +127,22 @@ echo '<tr>';
 /**
  * Builds a signed “Cancel” link for a booking (customer-side).
  */
-public static function cancel_booking_url(int $booking_id): string {
-  $base = function_exists('wc_get_account_endpoint_url')
-    ? wc_get_account_endpoint_url('koopo-appointments')
-    : home_url('/my-account/koopo-appointments/');
+  public static function cancel_booking_url(int $booking_id): string {
+    $base = function_exists('wc_get_account_endpoint_url')
+      ? wc_get_account_endpoint_url('koopo-appointments')
+      : home_url('/my-account/koopo-appointments/');
 
-  return add_query_arg([
-    'koopo_cancel_booking' => $booking_id,
-    '_wpnonce'             => wp_create_nonce('koopo_cancel_booking_' . $booking_id),
-  ], $base);
-}
+    return add_query_arg([
+      'koopo_cancel_booking' => $booking_id,
+      '_wpnonce'             => wp_create_nonce('koopo_cancel_booking_' . $booking_id),
+    ], $base);
+  }
 
-
-  /**
+/**
    * Handles the “Pay now” flow from the My Account page.
    * Prepares cart using the standard Dokan/Woo checkout pipeline.
    */
-  public static function maybe_handle_pay_now() {
+    public static function maybe_handle_pay_now() {
     if (!is_user_logged_in()) return;
     if (!function_exists('is_account_page') || !is_account_page()) return;
 
@@ -147,7 +166,6 @@ public static function cancel_booking_url(int $booking_id): string {
     exit;
   }
 
-  
   public static function maybe_handle_cancel_booking() {
     if (!is_user_logged_in()) return;
     if (empty($_GET['koopo_cancel_booking'])) return;
@@ -189,13 +207,14 @@ public static function cancel_booking_url(int $booking_id): string {
       }
     }
 
-    // Redirect back to appointments page.
+        // Redirect back to appointments page.
+
     $url = wc_get_account_endpoint_url('koopo-appointments');
     wp_safe_redirect($url);
     exit;
   }
 
-public static function enqueue_styles() {
+  public static function enqueue_styles() {
     if (!function_exists('is_account_page') || !is_account_page()) return;
     // Only load when our endpoint is being viewed.
     global $wp;

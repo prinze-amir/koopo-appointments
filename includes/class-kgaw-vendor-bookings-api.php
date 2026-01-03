@@ -47,6 +47,7 @@ class Vendor_Bookings_API {
     return current_user_can('manage_options');
   }
 
+
   public static function list_bookings(\WP_REST_Request $req) {
     global $wpdb;
 
@@ -89,6 +90,19 @@ class Vendor_Bookings_API {
       $service_title = $r['service_id'] ? get_the_title((int)$r['service_id']) : '';
       $customer_name = $r['customer_id'] ? (get_userdata((int)$r['customer_id'])->display_name ?? '') : '';
 
+      // Get timezone for formatting
+      $tz = !empty($r['timezone']) ? (string)$r['timezone'] : '';
+
+      // Format dates for display
+      $start_formatted = Date_Formatter::format($r['start_datetime'], $tz, 'short');
+      $end_formatted = Date_Formatter::format($r['end_datetime'], $tz, 'time');
+
+      // Calculate duration
+      $start_ts = strtotime($r['start_datetime']);
+      $end_ts = strtotime($r['end_datetime']);
+      $duration_mins = ($end_ts - $start_ts) / 60;
+      $duration_formatted = Date_Formatter::format_duration((int)$duration_mins);
+
       $items[] = [
         'id' => (int) $r['id'],
         'listing_id' => (int) $r['listing_id'],
@@ -97,13 +111,22 @@ class Vendor_Bookings_API {
         'service_title' => $service_title ?: '',
         'customer_id' => (int) $r['customer_id'],
         'customer_name' => $customer_name ?: '',
+        
+        // Raw values (for reschedule form pre-fill)
         'start_datetime' => $r['start_datetime'],
         'end_datetime' => $r['end_datetime'],
+        
+        // Formatted values (for display)
+        'start_datetime_formatted' => $start_formatted,
+        'end_datetime_formatted' => $end_formatted,
+        'duration_formatted' => $duration_formatted,
+        
         'status' => $r['status'],
         'price' => isset($r['price']) ? (float) $r['price'] : 0.0,
         'currency' => $r['currency'] ?? '',
         'wc_order_id' => isset($r['wc_order_id']) ? (int) $r['wc_order_id'] : 0,
         'created_at' => $r['created_at'] ?? '',
+        'timezone' => $tz,
       ];
     }
 
