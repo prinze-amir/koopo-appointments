@@ -75,7 +75,11 @@ final class Koopo_Appointments {
     require_once __DIR__ . '/includes/class-kgaw-access.php';
     require_once __DIR__ . '/includes/class-kgaw-pack-features-admin.php';
     require_once __DIR__ . '/includes/class-kgaw-dokan-pack-adapter.php';
-
+    require_once __DIR__ . '/includes/class-kgaw-customer-bookings-api.php';
+    require_once __DIR__ . '/includes/class-kgaw-customer-dashboard.php';
+    
+      Koopo_Appointments\Customer_Bookings_API::init();
+      Koopo_Appointments\Customer_Dashboard::init();
     Koopo_Appointments\Dokan_Pack_Adapter::init();
     Koopo_Appointments\Pack_Features_Admin::init();
     Koopo_Appointments\BuddyBoss_Appointments::init();

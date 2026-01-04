@@ -6,12 +6,12 @@ defined('ABSPATH') || exit;
 class MyAccount {
 
   public static function init() {
-    add_action('init', [__CLASS__, 'add_endpoint']);
-    add_filter('woocommerce_account_menu_items', [__CLASS__, 'menu_item']);
-    add_action('woocommerce_account_koopo-appointments_endpoint', [__CLASS__, 'render']);
-    add_action('template_redirect', [__CLASS__, 'maybe_handle_pay_now']);
-    add_action('template_redirect', [__CLASS__, 'maybe_handle_cancel_booking']);
-    add_action('wp_enqueue_scripts', [__CLASS__, 'enqueue_styles']);
+    //add_action('init', [__CLASS__, 'add_endpoint']);
+   // add_filter('woocommerce_account_menu_items', [__CLASS__, 'menu_item']);
+   // add_action('woocommerce_account_koopo-appointments_endpoint', [__CLASS__, 'render']);
+   // add_action('template_redirect', [__CLASS__, 'maybe_handle_pay_now']);
+  //  add_action('template_redirect', [__CLASS__, 'maybe_handle_cancel_booking']);
+ //   add_action('wp_enqueue_scripts', [__CLASS__, 'enqueue_styles']);
   }
 
   public static function add_endpoint() {
