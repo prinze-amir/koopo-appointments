@@ -220,6 +220,13 @@
     if (st === 'confirmed') {
       html += `<button class="koopo-btn koopo-btn--sm koopo-appt-action" data-action="reschedule" data-id="${id}">Reschedule</button> `;
     }
+   
+
+    // Show Refund when there is a WooCommerce order and the booking is in a refundable state.
+    // (Actual eligibility is validated server-side via /refund-info.)
+    if (b.wc_order_id && st !== 'refunded' && (st === 'confirmed' || st === 'cancelled')) {
+      html += `<button class="koopo-btn koopo-btn--sm koopo-btn--danger koopo-appt-action" data-action="refund" data-id="${id}">Refund</button> `;
+    }    
 
     if (b.wc_order_id) {
       html += `<button class="koopo-btn koopo-btn--sm koopo-appt-action" data-action="note" data-id="${id}">Add Note</button>`;
@@ -358,26 +365,16 @@
         note = prompt('Optional: add a cancellation note for the customer/admin (leave blank for none).', '') || '';
         const ok = confirm('Cancel this booking? If it was already paid, you may need to issue a refund separately.');
         if (!ok) return;
-      }
-
-      if (action === 'confirm') {
+      } else if(action === 'confirm') {
         const ok = confirm('Manually confirm this booking? This should only be used if payment was verified outside the system.');
         if (!ok) return;
-      }
-
-      if (action === 'note') {
+      } else if (action === 'note') {
         note = prompt('Enter an internal note for this booking/order:', '') || '';
         if (!note.trim()) return;
-      }
-
-
-      if (action === 'refund') {
-        note = prompt('Refund reason (optional):', '') || '';
-        const ok = confirm('Issue a refund for this booking?\n\nThis will:\n• Cancel the booking\n• Mark order as refunded\n• Release the time slot\n\nYou may need to process the payment gateway refund separately in WooCommerce.');
-        if (!ok) return;
-      }
+      } else { return;}
 
       $btn.prop('disabled', true);
+      
       try {
         const payload = { action, note, start_datetime, end_datetime, timezone };
         await api(`/vendor/bookings/${id}/action`, {
@@ -387,11 +384,7 @@
         
         await loadAppointments();
         
-        if (action === 'reschedule') {
-          alert('✓ Booking rescheduled successfully.\n\nThe customer will receive a notification about the new time.');
-        } else if (action === 'refund') {
-          alert('✓ Booking marked as refunded and order updated.\n\nPlease verify the payment gateway refund in WooCommerce → Orders if needed.');
-        } else if (action === 'cancel') {
+        if (action === 'cancel') {
           alert('✓ Booking cancelled successfully.');
         } else if (action === 'confirm') {
           alert('✓ Booking confirmed.');
