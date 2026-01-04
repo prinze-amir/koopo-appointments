@@ -818,11 +818,32 @@ let rescheduleState = {
         return;
       }
 
-      // Group slots by time of day
-      const groups = { Morning: [], Afternoon: [], Evening: [] };
-      
+      // Normalize + de-dupe + sort slots (API may return duplicates or unsorted results)
+      const toDateSafe = (s) => {
+        if (!s) return null;
+        // Support "YYYY-MM-DD HH:MM:SS" and ISO strings
+        const isoish = (typeof s === 'string' && s.includes(' ') && !s.includes('T')) ? s.replace(' ', 'T') : s;
+        const d = new Date(isoish);
+        return isNaN(d.getTime()) ? null : d;
+      };
+
+      const uniqMap = new Map();
       slots.forEach(slot => {
-        const hour = parseInt(slot.start.split(' ')[1].split(':')[0]);
+        const key = `${slot.start || ''}|${slot.end || ''}`;
+        if (!uniqMap.has(key)) uniqMap.set(key, slot);
+      });
+
+      const uniqueSlots = Array.from(uniqMap.values()).sort((a, b) => {
+        const da = toDateSafe(a.start);
+        const db = toDateSafe(b.start);
+        return (da ? da.getTime() : 0) - (db ? db.getTime() : 0);
+      });
+
+      // Group slots by time of day based on local hour
+      const groups = { Morning: [], Afternoon: [], Evening: [] };
+      uniqueSlots.forEach(slot => {
+        const d = toDateSafe(slot.start);
+        const hour = d ? d.getHours() : 0; // 0-23
         const period = hour < 12 ? 'Morning' : hour < 17 ? 'Afternoon' : 'Evening';
         groups[period].push(slot);
       });

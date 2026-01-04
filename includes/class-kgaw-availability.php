@@ -65,9 +65,13 @@ class Availability {
     if (!$duration) $duration = 30;
 
     $interval = (int) $settings['slot_interval'];
+    // If not set, fall back to the service duration.
     if ($interval <= 0) $interval = $duration;
 
-    $busy = self::get_busy_ranges($listing_id, $date);
+    // If an interval is larger than the service duration, it will skip possible start times
+    // (e.g., 30-min service showing only hourly slots). Clamp to duration.
+    if ($interval > $duration) $interval = $duration;
+$busy = self::get_busy_ranges($listing_id, $date);
 
     // Apply buffers to busy ranges
     $buffer_before = (int)$settings['buffer_before'];
@@ -103,6 +107,20 @@ class Availability {
     }));
 
     $slots = array_merge($slots, $rangeSlots);
+    }
+
+
+    // De-duplicate and sort slots (prevents duplicated ranges or overlapping hour blocks producing duplicates)
+    if (!empty($slots)) {
+      $uniq = [];
+      foreach ($slots as $s) {
+        $k = $s['start'] . '|' . $s['end'];
+        $uniq[$k] = $s;
+      }
+      $slots = array_values($uniq);
+      usort($slots, function($a, $b) {
+        return strtotime($a['start']) <=> strtotime($b['start']);
+      });
     }
 
     // Remove overlaps with busy bookings

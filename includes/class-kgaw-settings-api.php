@@ -161,7 +161,42 @@ class Settings_API {
 
         $out[$day][] = [$a, $b];
       }
-    }
+    
+      // Sort + de-duplicate + merge overlaps to prevent duplicate/overlapping ranges
+      if (!empty($out[$day])) {
+        usort($out[$day], function($x, $y) {
+          return self::to_minutes($x[0]) <=> self::to_minutes($y[0]);
+        });
+
+        $merged = [];
+        foreach ($out[$day] as $rng) {
+          if (empty($merged)) {
+            $merged[] = $rng;
+            continue;
+          }
+          $lastIdx = count($merged) - 1;
+          $last = $merged[$lastIdx];
+
+          // Exact duplicate
+          if ($last[0] === $rng[0] && $last[1] === $rng[1]) {
+            continue;
+          }
+
+          $lastStart = self::to_minutes($last[0]);
+          $lastEnd   = self::to_minutes($last[1]);
+          $curStart  = self::to_minutes($rng[0]);
+          $curEnd    = self::to_minutes($rng[1]);
+
+          // Overlap or adjacency -> merge
+          if ($curStart <= $lastEnd) {
+            $merged[$lastIdx][1] = ($curEnd > $lastEnd) ? $rng[1] : $last[1];
+          } else {
+            $merged[] = $rng;
+          }
+        }
+        $out[$day] = $merged;
+      }
+}
     return $out;
   }
 }

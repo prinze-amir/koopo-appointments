@@ -406,12 +406,12 @@ public static function cancel_booking_safely(int $booking_id, string $new_status
     global $wpdb;
     $table = DB::table();
 
-    $booking = self::get_booking($booking_id);
+    $booking = self::get_booking(booking_id: $booking_id);
     if (!$booking) {
       return false;
     }
-
-    $listing_id = (int) $booking['listing_id'];
+    
+    $listing_id = (int) $booking->listing_id;
 
     // Basic validation
     $new_start = sanitize_text_field($new_start);
