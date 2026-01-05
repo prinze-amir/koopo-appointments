@@ -55,9 +55,16 @@ final class Koopo_Appointments {
     require_once __DIR__ . '/includes/class-kgaw-cart.php';
     require_once __DIR__ . '/includes/class-kgaw-checkout-cart.php';
     require_once __DIR__ . '/includes/class-kgaw-ui.php';
+    //Vendor facing classes
     require_once __DIR__ . '/includes/class-kgaw-services-list.php';
     require_once __DIR__ . '/includes/class-kgaw-vendor-listings-api.php';
-    
+    //Admin Settings 
+    require_once __DIR__ . '/includes/class-kgaw-admin-settings.php';
+    require_once __DIR__ . '/includes/class-kgaw-admin-dashboard.php';
+    require_once __DIR__ . '/includes/class-kgaw-analytics-dashboard.php';
+    require_once __DIR__ . '/includes/class-kgaw-automated-reminders.php';
+
+
     // Commit 20: Enhanced Refund Tooling
     require_once __DIR__ . '/includes/class-kgaw-refund-policy.php';
     require_once __DIR__ . '/includes/class-kgaw-refund-processor.php';
@@ -68,13 +75,13 @@ final class Koopo_Appointments {
     require_once __DIR__ . '/includes/class-kgaw-dokan-dashboard.php';
     require_once __DIR__ . '/includes/class-kgaw-settings-ui-shortcodes.php';
     require_once __DIR__ . '/includes/class-kgaw-settings-assets.php';
-    require_once __DIR__ . '/includes/class-kgaw-admin-settings.php';
     require_once __DIR__ . '/includes/class-kgaw-features.php';
     require_once __DIR__ . '/includes/class-kgaw-myaccount.php';
     require_once __DIR__ . '/includes/class-kgaw-buddyboss-appointments.php';
     require_once __DIR__ . '/includes/class-kgaw-access.php';
     require_once __DIR__ . '/includes/class-kgaw-pack-features-admin.php';
     require_once __DIR__ . '/includes/class-kgaw-dokan-pack-adapter.php';
+    //customer front facing classes
     require_once __DIR__ . '/includes/class-kgaw-customer-bookings-api.php';
     require_once __DIR__ . '/includes/class-kgaw-customer-dashboard.php';
     
@@ -112,6 +119,14 @@ final class Koopo_Appointments {
     Koopo_Appointments\Checkout::init();
     Koopo_Appointments\Order_Hooks::init();
     Koopo_Appointments\Notifications::init();
+//admin settings dashboard
+    Koopo_Appointments\Admin_Dashboard::init();
+    Koopo_Appointments\Analytics_Dashboard::init();
+    Koopo_Appointments\Automated_Reminders::init();
+    // Commit 20: Enhanced Refund Tooling
+    //Koopo_Appointments\Refund_Policy::init();
+    //Koopo_Appointments\Refund_Processor::init();
+
   }
 }
 

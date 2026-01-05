@@ -76,7 +76,9 @@ jQuery(document).ready(function($) {
     date_from: '',
     date_to: '',
     search: '',
-    page: 1
+    page: 1,
+    orderby: '',
+    order: 'asc'
   };
 
   function loadBookings() {
@@ -106,8 +108,14 @@ jQuery(document).ready(function($) {
     let html = '<table class="wp-list-table widefat fixed striped">';
     html += '<thead><tr>';
     html += '<td class="check-column"><input type="checkbox" id="koopo-select-all" /></td>';
-    html += '<th>ID</th><th>Customer</th><th>Vendor</th><th>Service</th><th>Date/Time</th>';
-    html += '<th>Duration</th><th>Status</th><th>Price</th><th>Order</th><th>Actions</th>';
+    html += '<th>ID</th>';
+    html += '<th class="sortable" data-sort="customer">Customer <span class="sorting-indicator"></span></th>';
+    html += '<th class="sortable" data-sort="vendor">Vendor <span class="sorting-indicator"></span></th>';
+    html += '<th>Service</th>';
+    html += '<th class="sortable" data-sort="date">Date/Time <span class="sorting-indicator"></span></th>';
+    html += '<th>Duration</th><th>Status</th><th>Price</th>';
+    html += '<th class="sortable" data-sort="created">Created <span class="sorting-indicator"></span></th>';
+    html += '<th>Order</th><th>Actions</th>';
     html += '</tr></thead><tbody>';
 
     items.forEach(function(item) {
@@ -122,13 +130,26 @@ jQuery(document).ready(function($) {
       html += '<td>' + item.duration_formatted + '</td>';
       html += '<td><span class="koopo-status-badge koopo-status--' + item.status + '">' + item.status + '</span></td>';
       html += '<td>$' + item.price.toFixed(2) + '</td>';
+      html += '<td>' + item.created_formatted + '<br><small class="description">' + item.created_relative + '</small></td>';
       html += '<td>' + (item.wc_order_id ? '<a href="post.php?post=' + item.wc_order_id + '&action=edit">#' + item.wc_order_id + '</a>' : '—') + '</td>';
-      html += '<td><a href="admin.php?page=koopo-booking-detail&id=' + item.id + '">View</a></td>';
+      html += '<td>';
+      html += '<button class="button button-small koopo-quick-view" data-booking="' + item.id + '">Quick View</button> ';
+      if (item.wc_order_id) {
+        html += '<a href="post.php?post=' + item.wc_order_id + '&action=edit" class="button button-small">View Order</a>';
+      }
+      html += '</td>';
       html += '</tr>';
     });
 
     html += '</tbody></table>';
     $('#koopo-bookings-table-container').html(html);
+    
+    // Update sorting indicators
+    $('.sortable').removeClass('sorted-asc sorted-desc');
+    if (currentFilters.orderby) {
+      const sortedCol = $('.sortable[data-sort="' + currentFilters.orderby + '"]');
+      sortedCol.addClass(currentFilters.order === 'asc' ? 'sorted-asc' : 'sorted-desc');
+    }
   }
 
   function renderPagination(pagination) {
@@ -187,6 +208,23 @@ jQuery(document).ready(function($) {
 
   $(document).on('change', '#koopo-select-all', function() {
     $('.koopo-booking-checkbox').prop('checked', $(this).is(':checked'));
+  });
+
+  // Sorting handler
+  $(document).on('click', '.sortable', function() {
+    const sortBy = $(this).data('sort');
+    
+    if (currentFilters.orderby === sortBy) {
+      // Toggle order
+      currentFilters.order = currentFilters.order === 'asc' ? 'desc' : 'asc';
+    } else {
+      // New column
+      currentFilters.orderby = sortBy;
+      currentFilters.order = 'asc';
+    }
+    
+    currentFilters.page = 1; // Reset to first page
+    loadBookings();
   });
 
   $('#koopo-bulk-apply').on('click', function() {
@@ -274,5 +312,206 @@ jQuery(document).ready(function($) {
 
   // Initial load
   loadBookings();
+});
+</script>
+
+<!-- Quick View Modal -->
+<div id="koopo-quick-view-modal" style="display:none;">
+  <div class="koopo-modal-overlay"></div>
+  <div class="koopo-modal-content">
+    <div class="koopo-modal-header">
+      <h2>Booking Details</h2>
+      <button class="koopo-modal-close">&times;</button>
+    </div>
+    <div class="koopo-modal-body" id="koopo-modal-booking-details">
+      <div class="koopo-loading"><div class="koopo-spinner"></div></div>
+    </div>
+  </div>
+</div>
+
+<style>
+.koopo-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0,0,0,0.7);
+  z-index: 100000;
+}
+
+.koopo-modal-content {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+  max-width: 600px;
+  width: 90%;
+  max-height: 80vh;
+  overflow: hidden;
+  z-index: 100001;
+}
+
+.koopo-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px;
+  border-bottom: 1px solid #ddd;
+}
+
+.koopo-modal-header h2 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.koopo-modal-close {
+  background: none;
+  border: none;
+  font-size: 32px;
+  cursor: pointer;
+  color: #666;
+  padding: 0;
+  width: 32px;
+  height: 32px;
+  line-height: 1;
+}
+
+.koopo-modal-close:hover {
+  color: #d63638;
+}
+
+.koopo-modal-body {
+  padding: 20px;
+  overflow-y: auto;
+  max-height: calc(80vh - 80px);
+}
+
+.koopo-detail-row {
+  display: flex;
+  padding: 12px 0;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.koopo-detail-row:last-child {
+  border-bottom: none;
+}
+
+.koopo-detail-label {
+  font-weight: 600;
+  width: 150px;
+  color: #666;
+}
+
+.koopo-detail-value {
+  flex: 1;
+  color: #333;
+}
+</style>
+
+<script>
+jQuery(document).ready(function($) {
+  // Quick view handler
+  $(document).on('click', '.koopo-quick-view', function() {
+    const bookingId = $(this).data('booking');
+    showQuickView(bookingId);
+  });
+
+  // Close modal handlers
+  $(document).on('click', '.koopo-modal-close, .koopo-modal-overlay', function() {
+    $('#koopo-quick-view-modal').hide();
+  });
+
+  function showQuickView(bookingId) {
+    $('#koopo-quick-view-modal').show();
+    $('#koopo-modal-booking-details').html('<div class="koopo-loading"><div class="koopo-spinner"></div></div>');
+
+    $.ajax({
+      url: KOOPO_ADMIN.api_url + '/admin/bookings?search=' + bookingId,
+      headers: { 'X-WP-Nonce': KOOPO_ADMIN.nonce },
+      success: function(data) {
+        if (data.items && data.items.length > 0) {
+          renderQuickView(data.items[0]);
+        } else {
+          $('#koopo-modal-booking-details').html('<p>Booking not found.</p>');
+        }
+      },
+      error: function() {
+        $('#koopo-modal-booking-details').html('<p>Error loading booking details.</p>');
+      }
+    });
+  }
+
+  function renderQuickView(booking) {
+    let html = '';
+    
+    html += '<div class="koopo-detail-row">';
+    html += '<div class="koopo-detail-label">Booking ID:</div>';
+    html += '<div class="koopo-detail-value"><strong>#' + booking.id + '</strong></div>';
+    html += '</div>';
+
+    html += '<div class="koopo-detail-row">';
+    html += '<div class="koopo-detail-label">Status:</div>';
+    html += '<div class="koopo-detail-value"><span class="koopo-status-badge koopo-status--' + booking.status + '">' + booking.status + '</span></div>';
+    html += '</div>';
+
+    html += '<div class="koopo-detail-row">';
+    html += '<div class="koopo-detail-label">Customer:</div>';
+    html += '<div class="koopo-detail-value">' + booking.customer_name + '<br><small>' + booking.customer_email + '</small></div>';
+    html += '</div>';
+
+    html += '<div class="koopo-detail-row">';
+    html += '<div class="koopo-detail-label">Vendor:</div>';
+    html += '<div class="koopo-detail-value">' + booking.vendor_name + '</div>';
+    html += '</div>';
+
+    html += '<div class="koopo-detail-row">';
+    html += '<div class="koopo-detail-label">Service:</div>';
+    html += '<div class="koopo-detail-value">' + booking.service_title + '</div>';
+    html += '</div>';
+
+    html += '<div class="koopo-detail-row">';
+    html += '<div class="koopo-detail-label">Location:</div>';
+    html += '<div class="koopo-detail-value">' + booking.listing_title + '</div>';
+    html += '</div>';
+
+    html += '<div class="koopo-detail-row">';
+    html += '<div class="koopo-detail-label">Date & Time:</div>';
+    html += '<div class="koopo-detail-value">' + booking.start_formatted + '</div>';
+    html += '</div>';
+
+    html += '<div class="koopo-detail-row">';
+    html += '<div class="koopo-detail-label">Duration:</div>';
+    html += '<div class="koopo-detail-value">' + booking.duration_formatted + '</div>';
+    html += '</div>';
+
+    html += '<div class="koopo-detail-row">';
+    html += '<div class="koopo-detail-label">Price:</div>';
+    html += '<div class="koopo-detail-value"><strong>$' + booking.price.toFixed(2) + '</strong></div>';
+    html += '</div>';
+
+    html += '<div class="koopo-detail-row">';
+    html += '<div class="koopo-detail-label">Booked:</div>';
+    html += '<div class="koopo-detail-value">' + booking.created_formatted + '<br><small class="description">' + booking.created_relative + '</small></div>';
+    html += '</div>';
+
+    if (booking.wc_order_id) {
+      html += '<div class="koopo-detail-row">';
+      html += '<div class="koopo-detail-label">WooCommerce Order:</div>';
+      html += '<div class="koopo-detail-value"><a href="post.php?post=' + booking.wc_order_id + '&action=edit" target="_blank">#' + booking.wc_order_id + '</a></div>';
+      html += '</div>';
+    }
+
+    html += '<div style="margin-top: 20px; text-align: right;">';
+    if (booking.wc_order_id) {
+      html += '<a href="post.php?post=' + booking.wc_order_id + '&action=edit" class="button button-primary">View Full Order</a>';
+    }
+    html += '</div>';
+
+    $('#koopo-modal-booking-details').html(html);
+  }
 });
 </script>

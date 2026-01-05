@@ -219,6 +219,11 @@ class Admin_Dashboard {
     $search = sanitize_text_field((string) $request->get_param('search'));
     $date_from = sanitize_text_field((string) $request->get_param('date_from'));
     $date_to = sanitize_text_field((string) $request->get_param('date_to'));
+    
+    // Sorting parameters
+    $orderby = sanitize_key($request->get_param('orderby') ?? '');
+    $order = strtoupper(sanitize_key($request->get_param('order') ?? 'ASC'));
+    $order = in_array($order, ['ASC', 'DESC']) ? $order : 'ASC';
 
     $where = '1=1';
     $params = [];
@@ -248,8 +253,23 @@ class Admin_Dashboard {
     $sql_count = "SELECT COUNT(*) FROM {$table} WHERE {$where}";
     $total = (int) $wpdb->get_var($params ? $wpdb->prepare($sql_count, $params) : $sql_count);
 
+    // Build ORDER BY clause
+    $order_clause = 'ORDER BY created_at DESC'; // Default
+    
+    if ($orderby === 'date') {
+      $order_clause = "ORDER BY start_datetime {$order}";
+    } elseif ($orderby === 'customer') {
+      // For customer name, we need to join with users table
+      $order_clause = "ORDER BY (SELECT display_name FROM {$wpdb->users} WHERE ID = {$table}.customer_id) {$order}";
+    } elseif ($orderby === 'vendor') {
+      // For vendor name, we need to join with users table  
+      $order_clause = "ORDER BY (SELECT display_name FROM {$wpdb->users} WHERE ID = {$table}.listing_author_id) {$order}";
+    } elseif ($orderby === 'created') {
+      $order_clause = "ORDER BY created_at {$order}";
+    }
+
     $offset = ($page - 1) * $per_page;
-    $sql_items = "SELECT * FROM {$table} WHERE {$where} ORDER BY created_at DESC LIMIT %d OFFSET %d";
+    $sql_items = "SELECT * FROM {$table} WHERE {$where} {$order_clause} LIMIT %d OFFSET %d";
     $params[] = $per_page;
     $params[] = $offset;
 
@@ -285,6 +305,11 @@ class Admin_Dashboard {
     $start_formatted = Date_Formatter::format($row['start_datetime'], $tz, 'full');
     $duration_mins = (strtotime($row['end_datetime']) - strtotime($row['start_datetime'])) / 60;
     $duration_formatted = Date_Formatter::format_duration((int) $duration_mins);
+    
+    // Format created date
+    $created_timestamp = strtotime($row['created_at']);
+    $created_formatted = Date_Formatter::format($row['created_at'], $tz, 'full');
+    $created_relative = human_time_diff($created_timestamp, current_time('timestamp')) . ' ago';
 
     return [
       'id' => (int) $row['id'],
@@ -301,6 +326,8 @@ class Admin_Dashboard {
       'currency' => $row['currency'] ?? 'USD',
       'wc_order_id' => (int) ($row['wc_order_id'] ?? 0),
       'created_at' => $row['created_at'],
+      'created_formatted' => $created_formatted,
+      'created_relative' => $created_relative,
     ];
   }
 

@@ -373,3 +373,66 @@
     height: 300px;
   }
 }
+
+/* === Sortable Columns === */
+.sortable {
+  cursor: pointer;
+  user-select: none;
+  position: relative;
+  padding-right: 20px !important;
+}
+
+.sortable:hover {
+  background-color: #f0f0f0;
+}
+
+.sorting-indicator {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  opacity: 0.3;
+}
+
+.sorting-indicator::before {
+  content: '';
+  position: absolute;
+  left: -4px;
+  top: -8px;
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-bottom: 4px solid #666;
+}
+
+.sorting-indicator::after {
+  content: '';
+  position: absolute;
+  left: -4px;
+  top: 2px;
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 4px solid #666;
+}
+
+.sortable.sorted-asc .sorting-indicator::before {
+  border-bottom-color: #2c7a3c;
+  opacity: 1;
+}
+
+.sortable.sorted-desc .sorting-indicator::after {
+  border-top-color: #2c7a3c;
+  opacity: 1;
+}
+
+.sortable.sorted-asc .sorting-indicator::after,
+.sortable.sorted-desc .sorting-indicator::before {
+  opacity: 0.3;
+}
