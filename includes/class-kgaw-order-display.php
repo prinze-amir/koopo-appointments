@@ -12,16 +12,19 @@ class Order_Display {
   public static function init(): void {
     // Add booking details to thank you page
     add_action('woocommerce_thankyou', [__CLASS__, 'display_booking_details'], 10, 1);
-    
+
     // Add booking details to view order page (My Account)
     add_action('woocommerce_order_details_after_order_table', [__CLASS__, 'display_booking_details'], 10, 1);
-    
+
     // Add booking details to admin order screen
     add_action('woocommerce_admin_order_data_after_billing_address', [__CLASS__, 'display_admin_booking_details'], 10, 1);
-    
+
     // Add booking info to order item meta display
     add_filter('woocommerce_order_item_display_meta_key', [__CLASS__, 'format_meta_key'], 10, 3);
     add_filter('woocommerce_order_item_display_meta_value', [__CLASS__, 'format_meta_value'], 10, 3);
+
+    // Add booking details to WooCommerce emails
+    add_action('woocommerce_email_order_details', [__CLASS__, 'display_booking_details_in_email'], 15, 4);
   }
 
   /**
@@ -213,5 +216,46 @@ class Order_Display {
     }
 
     return $display_value;
+  }
+
+  /**
+   * Display booking details in WooCommerce emails
+   */
+  public static function display_booking_details_in_email($order, $sent_to_admin = false, $plain_text = false, $email = null): void {
+
+    if (is_numeric($order)) {
+      $order = wc_get_order($order);
+    }
+
+    if (!$order) {
+      return;
+    }
+
+    // Get booking for this order
+    global $wpdb;
+    $table = DB::table();
+    $order_id = $order->get_id();
+
+    $booking = $wpdb->get_row($wpdb->prepare(
+      "SELECT * FROM {$table} WHERE wc_order_id = %d LIMIT 1",
+      $order_id
+    ));
+
+    if (!$booking) {
+      return;
+    }
+
+    // Calculate duration
+    $start_ts = strtotime($booking->start_datetime);
+    $end_ts = strtotime($booking->end_datetime);
+    $duration_minutes = ($end_ts - $start_ts) / 60;
+    $booking->duration_minutes = (int) $duration_minutes;
+
+    // Load email template
+    $template_path = KOOPO_APPT_PATH . 'templates/woocommerce/emails/booking-details.php';
+
+    if (file_exists($template_path)) {
+      include $template_path;
+    }
   }
 }

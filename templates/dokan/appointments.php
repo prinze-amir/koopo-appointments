@@ -28,6 +28,42 @@ defined('ABSPATH') || exit;
         <option value="refunded">Refunded</option>
       </select>
     </div>
+
+    <div class="koopo-field">
+      <label for="koopo-appointments-search">Search Customer</label>
+      <input type="text" id="koopo-appointments-search" class="koopo-input" placeholder="Search by name, email, or phone..." />
+    </div>
+
+    <div class="koopo-field">
+      <label for="koopo-appointments-month">Month</label>
+      <select id="koopo-appointments-month" class="koopo-select">
+        <option value="">All Months</option>
+        <option value="1">January</option>
+        <option value="2">February</option>
+        <option value="3">March</option>
+        <option value="4">April</option>
+        <option value="5">May</option>
+        <option value="6">June</option>
+        <option value="7">July</option>
+        <option value="8">August</option>
+        <option value="9">September</option>
+        <option value="10">October</option>
+        <option value="11">November</option>
+        <option value="12">December</option>
+      </select>
+    </div>
+
+    <div class="koopo-field">
+      <label for="koopo-appointments-year">Year</label>
+      <select id="koopo-appointments-year" class="koopo-select">
+        <option value="">All Years</option>
+      </select>
+    </div>
+
+    <div class="koopo-field">
+      <label style="opacity: 0;">Export</label>
+      <button id="koopo-appointments-export" class="koopo-btn koopo-btn--secondary" style="width: 100%;">Export to CSV</button>
+    </div>
   </div>
 
   <div id="koopo-appointments-table" class="koopo-card koopo-table-wrap">

@@ -95,6 +95,12 @@ private static function release_lock(int $listing_id): void {
       'timezone'        => $timezone,
       'currency'        => $currency,
       'price'           => isset($data['price']) ? (float) $data['price'] : null,
+      // Customer information fields
+      'customer_name'   => isset($data['customer_name']) ? sanitize_text_field($data['customer_name']) : '',
+      'customer_email'  => isset($data['customer_email']) ? sanitize_email($data['customer_email']) : '',
+      'customer_phone'  => isset($data['customer_phone']) ? sanitize_text_field($data['customer_phone']) : '',
+      'customer_notes'  => isset($data['customer_notes']) ? sanitize_textarea_field($data['customer_notes']) : '',
+      'booking_for_other' => isset($data['booking_for_other']) ? (bool)$data['booking_for_other'] : false,
     ];
 
     try {
@@ -193,7 +199,26 @@ private static function release_lock(int $listing_id): void {
         throw new \Exception('Failed to create booking.');
       }
 
-      return (int) $wpdb->insert_id;
+      $booking_id = (int) $wpdb->insert_id;
+
+      // Store additional customer information as custom fields (using options table with prefix)
+      if (!empty($data['customer_name'])) {
+        update_option("koopo_booking_{$booking_id}_customer_name", $data['customer_name']);
+      }
+      if (!empty($data['customer_email'])) {
+        update_option("koopo_booking_{$booking_id}_customer_email", $data['customer_email']);
+      }
+      if (!empty($data['customer_phone'])) {
+        update_option("koopo_booking_{$booking_id}_customer_phone", $data['customer_phone']);
+      }
+      if (!empty($data['customer_notes'])) {
+        update_option("koopo_booking_{$booking_id}_customer_notes", $data['customer_notes']);
+      }
+      if (isset($data['booking_for_other']) && $data['booking_for_other']) {
+        update_option("koopo_booking_{$booking_id}_booking_for_other", '1');
+      }
+
+      return $booking_id;
 
     } finally {
       self::release_lock($listing_id);

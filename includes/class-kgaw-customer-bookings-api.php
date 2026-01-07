@@ -54,6 +54,13 @@ class Customer_Bookings_API {
         'note' => ['type' => 'string', 'required' => false],
       ],
     ]);
+
+    // Get current user profile info for pre-filling forms
+    register_rest_route('koopo/v1', '/customer/profile', [
+      'methods'  => 'GET',
+      'callback' => [__CLASS__, 'get_profile'],
+      'permission_callback' => [__CLASS__, 'is_customer_logged_in'],
+    ]);
   }
 
   /**
@@ -304,6 +311,56 @@ class Customer_Bookings_API {
     return rest_ensure_response([
       'ok' => true,
       'message' => 'Reschedule request sent to vendor. They will contact you with available times.',
+    ]);
+  }
+
+  /**
+   * Get current user profile information for pre-filling booking forms
+   */
+  public static function get_profile(\WP_REST_Request $request) {
+    $user_id = get_current_user_id();
+    $user = get_userdata($user_id);
+
+    if (!$user) {
+      return new \WP_Error('user_not_found', 'User not found', ['status' => 404]);
+    }
+
+    // Get user billing info from WooCommerce if available
+    $billing_name = '';
+    $billing_email = '';
+    $billing_phone = '';
+
+    if (function_exists('get_user_meta')) {
+      $first_name = get_user_meta($user_id, 'first_name', true);
+      $last_name = get_user_meta($user_id, 'last_name', true);
+
+      if ($first_name || $last_name) {
+        $billing_name = trim($first_name . ' ' . $last_name);
+      }
+
+      // Try WooCommerce billing fields
+      $billing_first = get_user_meta($user_id, 'billing_first_name', true);
+      $billing_last = get_user_meta($user_id, 'billing_last_name', true);
+      if ($billing_first || $billing_last) {
+        $billing_name = trim($billing_first . ' ' . $billing_last);
+      }
+
+      $billing_email = get_user_meta($user_id, 'billing_email', true);
+      $billing_phone = get_user_meta($user_id, 'billing_phone', true);
+    }
+
+    // Fallback to WordPress defaults
+    if (empty($billing_name)) {
+      $billing_name = $user->display_name;
+    }
+    if (empty($billing_email)) {
+      $billing_email = $user->user_email;
+    }
+
+    return rest_ensure_response([
+      'name' => $billing_name,
+      'email' => $billing_email,
+      'phone' => $billing_phone,
     ]);
   }
 

@@ -180,10 +180,24 @@
   // ---------- Appointments (Bookings) page ----------
   const $apptPicker = $('#koopo-appointments-picker');
   const $apptStatus = $('#koopo-appointments-status');
+  const $apptSearch = $('#koopo-appointments-search');
+  const $apptMonth = $('#koopo-appointments-month');
+  const $apptYear = $('#koopo-appointments-year');
+  const $apptExport = $('#koopo-appointments-export');
   const $apptTable  = $('#koopo-appointments-table');
   const $apptPager  = $('#koopo-appointments-pagination');
 
-  const apptState = { listingId: null, status: 'all', page: 1, perPage: 20, totalPages: 1 };
+  const apptState = { listingId: null, status: 'all', search: '', month: '', year: '', page: 1, perPage: 20, totalPages: 1 };
+
+  // Populate year dropdown with current and future years
+  function populateYearDropdown() {
+    if (!$apptYear.length) return;
+    const currentYear = new Date().getFullYear();
+    for (let i = currentYear - 2; i <= currentYear + 2; i++) {
+      $apptYear.append(`<option value="${i}">${i}</option>`);
+    }
+  }
+  populateYearDropdown();
 
   function badgeForStatus(status){
     const s = String(status||'').toLowerCase();
@@ -262,12 +276,18 @@
     }
     $apptTable.html('<div class="koopo-muted">Loading…</div>');
     try {
-      const qs = new URLSearchParams({
+      const params = {
         listing_id: apptState.listingId,
         status: apptState.status || 'all',
         page: String(apptState.page),
         per_page: String(apptState.perPage),
-      });
+      };
+
+      if (apptState.search) params.search = apptState.search;
+      if (apptState.month) params.month = apptState.month;
+      if (apptState.year) params.year = apptState.year;
+
+      const qs = new URLSearchParams(params);
       const data = await api(`/vendor/bookings?${qs.toString()}`, { method: 'GET' });
       const items = data.items || [];
       apptState.totalPages = (data.pagination && data.pagination.total_pages) ? Number(data.pagination.total_pages) : 1;
@@ -292,6 +312,8 @@
         const endTimeDisplay = b.end_datetime_formatted || '';
         const durationDisplay = b.duration_formatted || '—';
 
+        const bookedAtDisplay = b.created_at_formatted || escapeHtml(b.created_at || '—');
+
         return `
           <tr ${rowClass} data-start="${escapeHtml(b.start_datetime)}" data-end="${escapeHtml(b.end_datetime)}">
             <td>#${b.id}</td>
@@ -301,6 +323,7 @@
               <strong>${dateTimeDisplay}</strong><br>
               <span style="opacity:0.7;font-size:12px;">to ${endTimeDisplay} (${durationDisplay})</span>
             </td>
+            <td style="font-size:13px;opacity:0.8;">${bookedAtDisplay}</td>
             <td>${badgeForStatus(b.status)}</td>
             <td>${fmtMoney(b.price, b.currency)}</td>
             <td>${orderLink}</td>
@@ -317,6 +340,7 @@
               <th>Customer</th>
               <th>Service</th>
               <th>When</th>
+              <th>Booked On</th>
               <th>Status</th>
               <th>Total</th>
               <th>Order</th>
@@ -347,7 +371,73 @@
       apptState.page = 1;
       loadAppointments();
     });
-    
+
+    // Search with debounce
+    let searchTimeout;
+    $apptSearch.on('input', function(){
+      clearTimeout(searchTimeout);
+      const val = $(this).val().trim();
+      searchTimeout = setTimeout(function(){
+        apptState.search = val;
+        apptState.page = 1;
+        loadAppointments();
+      }, 500);
+    });
+
+    // Month filter
+    $apptMonth.on('change', function(){
+      apptState.month = $(this).val() || '';
+      apptState.page = 1;
+      loadAppointments();
+    });
+
+    // Year filter
+    $apptYear.on('change', function(){
+      apptState.year = $(this).val() || '';
+      apptState.page = 1;
+      loadAppointments();
+    });
+
+    // CSV Export
+    $apptExport.on('click', async function(){
+      if (!apptState.listingId) {
+        alert('Please select a listing first.');
+        return;
+      }
+
+      const $btn = $(this);
+      $btn.prop('disabled', true).text('Exporting...');
+
+      try {
+        const params = {
+          listing_id: apptState.listingId,
+          status: apptState.status || 'all',
+          export: 'csv',
+        };
+
+        if (apptState.search) params.search = apptState.search;
+        if (apptState.month) params.month = apptState.month;
+        if (apptState.year) params.year = apptState.year;
+
+        const qs = new URLSearchParams(params);
+        const url = `${KOOPO_APPT_VENDOR.rest}/vendor/bookings/export?${qs.toString()}`;
+
+        // Create download link
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `appointments-${apptState.listingId}-${Date.now()}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+
+        alert('✓ CSV export started. Check your downloads.');
+      } catch (e) {
+        alert('Export failed: ' + (e.message || 'Unknown error'));
+      } finally {
+        $btn.prop('disabled', false).text('Export to CSV');
+      }
+    });
+
     // Commit 19+22: Enhanced vendor actions with formatted dates
     $apptTable.on('click', '.koopo-appt-action', async function(e){
       e.preventDefault();

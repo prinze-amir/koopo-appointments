@@ -47,8 +47,10 @@ final class Koopo_Appointments {
     require_once __DIR__ . '/includes/class-kgaw-bookings.php';
     require_once __DIR__ . '/includes/class-kgaw-checkout.php';
     require_once __DIR__ . '/includes/class-kgaw-order-hooks.php';
+    require_once __DIR__ . '/includes/class-kgaw-order-display.php';
     require_once __DIR__ . '/includes/class-kgaw-notifications.php';
     require_once __DIR__ . '/includes/class-kgaw-services-cpt.php';
+    require_once __DIR__ . '/includes/class-kgaw-service-categories.php';
     require_once __DIR__ . '/includes/class-kgaw-services-api.php';
     require_once __DIR__ . '/includes/class-kgaw-wc-service-product.php';
     require_once __DIR__ . '/includes/class-kgaw-product-guard.php';
@@ -114,10 +116,12 @@ final class Koopo_Appointments {
     Koopo_Appointments\Product_Guard::init();
     Koopo_Appointments\Services_API::init();
     Koopo_Appointments\Services_CPT::init();
+    Koopo_Appointments\Service_Categories::init();
     Koopo_Appointments\Bookings::init_cleanup_cron();
     Koopo_Appointments\Bookings::init();
     Koopo_Appointments\Checkout::init();
     Koopo_Appointments\Order_Hooks::init();
+    Koopo_Appointments\Order_Display::init();
     Koopo_Appointments\Notifications::init();
 //admin settings dashboard
     Koopo_Appointments\Admin_Dashboard::init();

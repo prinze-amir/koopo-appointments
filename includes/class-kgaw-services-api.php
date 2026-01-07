@@ -43,6 +43,13 @@ class Services_API {
       'callback' => [__CLASS__, 'delete_service'],
       'permission_callback' => fn() => is_user_logged_in(),
     ]);
+
+    // Get service categories
+    register_rest_route('koopo/v1', '/service-categories', [
+      'methods' => 'GET',
+      'callback' => [__CLASS__, 'get_categories'],
+      'permission_callback' => fn() => is_user_logged_in(),
+    ]);
   }
 
   private static function assert_owner($post_id) {
@@ -72,6 +79,7 @@ class Services_API {
     $buf_before  = absint($req->get_param('buffer_before'));
     $buf_after   = absint($req->get_param('buffer_after'));
     $instant     = !empty($req->get_param('instant')) ? '1' : '0';
+    $category_ids = $req->get_param('category_ids'); // array of term IDs
 
     if (!$title || !$duration) {
       return new \WP_REST_Response(['error' => 'title and duration_minutes are required'], 400);
@@ -108,6 +116,12 @@ class Services_API {
     update_post_meta($service_id, self::META_BUF_AFTER, $buf_after);
     update_post_meta($service_id, self::META_INSTANT, $instant);
 
+    // Assign categories
+    if (is_array($category_ids)) {
+      $category_ids = array_map('absint', $category_ids);
+      wp_set_object_terms($service_id, $category_ids, Service_Categories::TAXONOMY);
+    }
+
     // Backwards-compat (older keys used in earlier iterations)
     update_post_meta($service_id, '_koopo_price', $price);
     update_post_meta($service_id, '_koopo_duration_minutes', $duration);
@@ -139,6 +153,7 @@ class Services_API {
     $buf_before  = $req->get_param('buffer_before');
     $buf_after   = $req->get_param('buffer_after');
     $instant     = $req->get_param('instant');
+    $category_ids = $req->get_param('category_ids');
 
     if ($title) {
       wp_update_post(['ID' => $service_id, 'post_title' => $title]);
@@ -161,6 +176,12 @@ class Services_API {
     if ($buf_before !== null) update_post_meta($service_id, self::META_BUF_BEFORE, absint($buf_before));
     if ($buf_after !== null) update_post_meta($service_id, self::META_BUF_AFTER, absint($buf_after));
     if ($instant !== null) update_post_meta($service_id, self::META_INSTANT, (!empty($instant) ? '1' : '0'));
+
+    // Update categories
+    if ($category_ids !== null && is_array($category_ids)) {
+      $category_ids = array_map('absint', $category_ids);
+      wp_set_object_terms($service_id, $category_ids, Service_Categories::TAXONOMY);
+    }
 
     // Sync WC product
     $product_id = WC_Service_Product::create_or_update_for_service($service_id);
@@ -189,6 +210,17 @@ class Services_API {
     return new \WP_REST_Response([
       'deleted_service_id' => $service_id,
       'trashed_product_id' => $product_id ?: null,
+    ], 200);
+  }
+
+  /**
+   * Get all service categories
+   */
+  public static function get_categories(\WP_REST_Request $req) {
+    $categories = Service_Categories::get_all_categories();
+
+    return new \WP_REST_Response([
+      'categories' => $categories,
     ], 200);
   }
 }

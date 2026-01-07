@@ -1,0 +1,186 @@
+/* Prevent scroll behind modal */
+body.koopo-appt--modal-open {
+  overflow: hidden;
+}
+
+.koopo-appt__open {
+  cursor: pointer;
+}
+
+/* Overlay */
+.koopo-appt__overlay {
+  position: fixed;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(0,0,0,0.45);
+  z-index: 999999;
+}
+
+/* Open state */
+.koopo-appt__overlay.is-open {
+  display: flex;
+}
+
+/* Modal */
+.koopo-appt__modal {
+  width: 100%;
+  max-width: 520px;
+  background: #fff;
+  border-radius: 14px;
+  padding: 18px;
+  position: relative;
+  transform: translateY(12px);
+  opacity: 0;
+  transition: transform 180ms ease, opacity 180ms ease;
+}
+
+.koopo-appt__overlay.is-open .koopo-appt__modal {
+  transform: translateY(0);
+  opacity: 1;
+}
+
+.koopo-appt__close {
+  position: absolute;
+  right: 12px;
+  top: 8px;
+  font-size: 2rem !important;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color:#333;
+}
+
+.koopo-appt__label {
+  display: block;
+  margin: 10px 0;
+  font-weight: 600;
+}
+
+.koopo-appt__field {
+  width: 100%;
+  margin-top: 6px;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid #ddd;
+}
+
+.koopo-appt__summary {
+  margin: 12px 0;
+  padding: 10px;
+  border-radius: 12px;
+  background: #f7f7f7;
+}
+
+.koopo-appt__submit {
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: none;
+  cursor: pointer;
+}
+
+.koopo-appt__submit:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.koopo-appt__notice {
+  padding: 10px;
+  border-radius: 12px;
+  margin-bottom: 10px;
+}
+
+.koopo-appt__notice--hidden {
+  display: none;
+}
+
+.koopo-appt__notice--error {
+  background: #ffecec;
+  border: 1px solid #ffbdbd;
+}
+
+.koopo-appt__notice--success {
+  background: #eaffea;
+  border: 1px solid #bff0bf;
+}
+
+.koopo-appt__loading {
+  margin-top: 10px;
+  font-weight: 600;
+}
+
+.koopo-appt__loading--hidden {
+  display: none;
+}
+
+.koopo-appt__slots {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.koopo-appt__slot {
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid #ddd;
+  background: #fff;
+  cursor: pointer;
+}
+
+.koopo-appt__slot.is-selected {
+  border-color: #000;
+  transform: translateY(-1px);
+}
+
+.koopo-appt__slots-empty {
+  width: 100%;
+  padding: 10px;
+  border-radius: 12px;
+  background: #f7f7f7;
+  color:#3333;
+}
+
+.koopo-appt__datebar { display:flex; align-items:center; gap:10px; margin: 12px 0; }
+.koopo-appt__nav { width:36px; height:36px; border-radius:12px; border:1px solid #ddd; background:#fff; color:#3333;cursor:pointer; }
+
+.koopo-appt__week { display:flex; gap:8px; overflow:auto; padding-bottom:6px; flex:1; }
+.koopo-appt__day { min-width:92px; padding:10px; border-radius:14px; border:1px solid #ddd; background:#fff; color: #333; cursor:pointer; text-align:left; }
+.koopo-appt__day.is-selected { border-color:#000; transform: translateY(-1px); background: #39ee1f;}
+.koopo-appt__dayname { font-size:12px; opacity:0.75; }
+.koopo-appt__daynum { font-size:14px; font-weight:700; margin-top:2px; }
+
+.koopo-appt__slotgroup { margin-top: 12px; }
+.koopo-appt__slotgroup-title { font-weight: 700; margin-bottom: 8px; }
+.koopo-appt__slotgroup-grid { display:flex; flex-wrap:wrap; gap:8px; }
+
+.koopo-appt__slot { padding:10px 12px; border-radius:12px; border:1px solid #ddd; background:#fff; background: #39ee1f;cursor:pointer; }
+.koopo-appt__slot.is-selected { border-color:#000; transform: translateY(-1px); }
+
+.koopo-appt__slots--grouped { margin-top: 8px; }
+/* --- Hold window + login gate --- */
+.koopo-appt__hold-note {
+  margin: 10px 0 14px;
+  font-size: 13px;
+  line-height: 1.35;
+  opacity: 0.85;
+}
+
+.koopo-appt__login-required {
+  margin: 12px 0;
+  padding: 12px;
+  border: 1px solid rgba(0,0,0,0.12);
+  border-radius: 8px;
+}
+
+.koopo-appt__login-btn {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(0,0,0,0.25);
+  text-decoration: none;
+}

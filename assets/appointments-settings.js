@@ -445,6 +445,37 @@ function validateAll($mount){
     $(this).closest('.kas__range').remove();
     });
 
+  // Load vendor listings into dropdown on Dokan dashboard
+  async function loadVendorListings($select) {
+    try {
+      $select.empty().append(`<option value="">Select listing…</option>`);
+      const res = await fetch(`${KOOPO_APPT_SETTINGS.restUrl}/vendor/listings`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-WP-Nonce': KOOPO_APPT_SETTINGS.nonce
+        }
+      });
+      const listings = await res.json();
+      if (!res.ok) throw new Error('Failed to load listings');
+
+      listings.forEach(l => {
+        const title = String(l.title || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        $select.append(`<option value="${l.id}">${title}</option>`);
+      });
+    } catch(e) {
+      console.error('Failed to load vendor listings:', e);
+    }
+  }
+
+  // Initialize listing dropdown on page load if on Dokan dashboard
+  $(document).ready(function(){
+    const $dokanSelect = $('.koopo-appt-settings__listing[data-mode!="listing"]');
+    if ($dokanSelect.length) {
+      loadVendorListings($dokanSelect);
+    }
+  });
+
   // Dokan page: when vendor selects a listing, mount settings UI
   $(document).on('change', '.koopo-appt-settings__listing', function(){
     const listingId = parseInt($(this).val(), 10);

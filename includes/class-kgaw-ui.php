@@ -118,56 +118,122 @@ class UI {
 
           <div class="koopo-appt__header">
             <h3 class="koopo-appt__title">Book an Appointment</h3>
-            <div class="koopo-appt__subtitle">Select a service and time</div>
+            <div class="koopo-appt__steps">
+              <div class="koopo-appt__step koopo-appt__step--active" data-step="1">
+                <span class="koopo-appt__step-num">1</span>
+                <span class="koopo-appt__step-label">Select Date & Time</span>
+              </div>
+              <div class="koopo-appt__step" data-step="2">
+                <span class="koopo-appt__step-num">2</span>
+                <span class="koopo-appt__step-label">Your Information</span>
+              </div>
+            </div>
           </div>
 
           <div class="koopo-appt__body">
             <div class="koopo-appt__notice koopo-appt__notice--hidden"></div>
 
-            <label class="koopo-appt__label">
-              Service
-              <select class="koopo-appt__field koopo-appt__service">
-                <option value="">Loading services…</option>
-              </select>
-            </label>
-          <div class="koopo-appt__datebar">
-            <button type="button" class="koopo-appt__nav koopo-appt__prev" aria-label="Previous week">&lsaquo;</button>
-            <div class="koopo-appt__week"></div>
-            <button type="button" class="koopo-appt__nav koopo-appt__next" aria-label="Next week">&rsaquo;</button>
-          </div>
+            <!-- STEP 1: Date & Time Selection -->
+            <div class="koopo-appt__panel koopo-appt__panel--active" data-panel="1">
+              <label class="koopo-appt__label">
+                Service
+                <select class="koopo-appt__field koopo-appt__service">
+                  <option value="">Loading services…</option>
+                </select>
+              </label>
+              <div class="calendar-slots flex gap-3">
+                <div class="koopo-appt__calendar-section">
+                <div class="koopo-appt__calendar-header">
+                  <button type="button" class="koopo-appt__month-nav koopo-appt__month-prev" aria-label="Previous month">&lsaquo;</button>
+                  <div class="koopo-appt__month-title"></div>
+                  <button type="button" class="koopo-appt__month-nav koopo-appt__month-next" aria-label="Next month">&rsaquo;</button>
+                </div>
+                <div class="koopo-appt__calendar"></div>
+              </div>
 
-          <input type="hidden" class="koopo-appt__date" />
+              <input type="hidden" class="koopo-appt__date" />
 
-          <div class="koopo-appt__label">
-            Available Times
-            <div class="koopo-appt__slots koopo-appt__slots--grouped">
-              <div class="koopo-appt__slots-empty">Select a service to view availability.</div>
+              <div class="koopo-appt__label">
+                Available Times
+                <div class="koopo-appt__slots koopo-appt__slots--grouped">
+                  <div class="koopo-appt__slots-empty">Select a service to view availability.</div>
+                </div>
+              </div>
+              </div>
+              
+
+              <input type="hidden" class="koopo-appt__slot-start" />
+              <input type="hidden" class="koopo-appt__slot-end" />
+
+              <div class="koopo-appt__summary">
+                <div><strong>Service:</strong> <span class="koopo-appt__summary-service">—</span></div>
+                <div><strong>Date & Time:</strong> <span class="koopo-appt__summary-datetime">—</span></div>
+                <div><strong>Duration:</strong> <span class="koopo-appt__duration">—</span></div>
+                <div><strong>Price:</strong> <span class="koopo-appt__price">—</span></div>
+              </div>
+
+              <button type="button" class="koopo-appt__next-step" disabled>
+                Continue to Information
+              </button>
             </div>
-          </div>
 
-          <input type="hidden" class="koopo-appt__slot-start" />
-          <input type="hidden" class="koopo-appt__slot-end" />
+            <!-- STEP 2: Customer Information -->
+            <div class="koopo-appt__panel" data-panel="2">
+              <div class="koopo-appt__booking-for">
+                <label class="koopo-appt__checkbox-label">
+                  <input type="checkbox" class="koopo-appt__booking-for-other" />
+                  <span>Booking for someone else</span>
+                </label>
+              </div>
 
+              <div class="koopo-appt__form-grid">
+                <label class="koopo-appt__label">
+                  Name *
+                  <input type="text" class="koopo-appt__field koopo-appt__customer-name" required />
+                </label>
 
-            <div class="koopo-appt__summary">
-              <div><strong>Price:</strong> <span class="koopo-appt__price">—</span></div>
-              <div><strong>Duration:</strong> <span class="koopo-appt__duration">—</span></div>
+                <label class="koopo-appt__label">
+                  Email *
+                  <input type="email" class="koopo-appt__field koopo-appt__customer-email" required />
+                </label>
+
+                <label class="koopo-appt__label">
+                  Phone *
+                  <input type="tel" class="koopo-appt__field koopo-appt__customer-phone" required />
+                </label>
+              </div>
+
+              <label class="koopo-appt__label koopo-appt__label--full">
+                Additional Notes (Optional)
+                <textarea class="koopo-appt__field koopo-appt__customer-notes" rows="3" placeholder="Any special requests or information we should know..."></textarea>
+              </label>
+
+              <div class="koopo-appt__summary koopo-appt__summary--review">
+                <h4>Booking Summary</h4>
+                <div><strong>Service:</strong> <span class="koopo-appt__summary-service">—</span></div>
+                <div><strong>Date & Time:</strong> <span class="koopo-appt__summary-datetime">—</span></div>
+                <div><strong>Duration:</strong> <span class="koopo-appt__duration">—</span></div>
+                <div><strong>Price:</strong> <span class="koopo-appt__price">—</span></div>
+              </div>
+
+              <div class="koopo-appt__actions">
+                <button type="button" class="koopo-appt__prev-step">
+                  Back to Date & Time
+                </button>
+                <button type="button" class="koopo-appt__submit" disabled>
+                  Continue to Checkout
+                </button>
+              </div>
+
+              <div class="koopo-appt__hold-note">
+                <?php
+                  $mins = (int) apply_filters('koopo_appt_pending_expire_minutes', 10);
+                  echo esc_html(sprintf('Your selected time will be held for %d minutes while you complete checkout.', max(1, $mins)));
+                ?>
+              </div>
             </div>
 
-            <button type="button" class="koopo-appt__submit" disabled>
-              Continue to Checkout
-            </button>
-
-            
-
-            <div class="koopo-appt__hold-note">
-              <?php
-                $mins = (int) apply_filters('koopo_appt_pending_expire_minutes', 10);
-                echo esc_html(sprintf('Your selected time will be held for %d minutes while you complete checkout.', max(1, $mins)));
-              ?>
-            </div>
-
-<div class="koopo-appt__loading koopo-appt__loading--hidden">
+            <div class="koopo-appt__loading koopo-appt__loading--hidden">
               Processing…
             </div>
           </div>

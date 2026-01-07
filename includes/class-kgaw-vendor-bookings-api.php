@@ -21,8 +21,24 @@ class Vendor_Bookings_API {
       'args' => [
         'listing_id' => ['type' => 'integer', 'required' => false],
         'status'     => ['type' => 'string',  'required' => false],
+        'search'     => ['type' => 'string',  'required' => false],
+        'month'      => ['type' => 'string',  'required' => false],
+        'year'       => ['type' => 'string',  'required' => false],
         'page'       => ['type' => 'integer', 'required' => false, 'default' => 1],
         'per_page'   => ['type' => 'integer', 'required' => false, 'default' => 20],
+      ],
+    ]);
+
+    register_rest_route('koopo/v1', '/vendor/bookings/export', [
+      'methods'  => 'GET',
+      'callback' => [__CLASS__, 'export_bookings_csv'],
+      'permission_callback' => [__CLASS__, 'can_access'],
+      'args' => [
+        'listing_id' => ['type' => 'integer', 'required' => false],
+        'status'     => ['type' => 'string',  'required' => false],
+        'search'     => ['type' => 'string',  'required' => false],
+        'month'      => ['type' => 'string',  'required' => false],
+        'year'       => ['type' => 'string',  'required' => false],
       ],
     ]);
 
@@ -61,6 +77,9 @@ class Vendor_Bookings_API {
 
     $listing_id = absint($req->get_param('listing_id'));
     $status = sanitize_text_field((string) $req->get_param('status'));
+    $search = sanitize_text_field((string) $req->get_param('search'));
+    $month = sanitize_text_field((string) $req->get_param('month'));
+    $year = sanitize_text_field((string) $req->get_param('year'));
     $page = max(1, absint($req->get_param('page')));
     $per_page = min(100, max(1, absint($req->get_param('per_page'))));
 
@@ -74,6 +93,55 @@ class Vendor_Bookings_API {
     if ($status && $status !== 'all') {
       $where .= ' AND status = %s';
       $params[] = $status;
+    }
+
+    // Month filter
+    if ($month && is_numeric($month)) {
+      $where .= ' AND MONTH(start_datetime) = %d';
+      $params[] = (int) $month;
+    }
+
+    // Year filter
+    if ($year && is_numeric($year)) {
+      $where .= ' AND YEAR(start_datetime) = %d';
+      $params[] = (int) $year;
+    }
+
+    // Search filter (customer name, email, phone from booking meta)
+    $search_booking_ids = [];
+    if ($search) {
+      $search_term = '%' . $wpdb->esc_like($search) . '%';
+
+      // Search in options table for customer details
+      $search_sql = $wpdb->prepare(
+        "SELECT DISTINCT REPLACE(option_name, 'koopo_booking_', '') as booking_id
+         FROM {$wpdb->options}
+         WHERE (option_name LIKE 'koopo_booking_%%_customer_name'
+                OR option_name LIKE 'koopo_booking_%%_customer_email'
+                OR option_name LIKE 'koopo_booking_%%_customer_phone')
+         AND option_value LIKE %s",
+        $search_term
+      );
+
+      $search_results = $wpdb->get_col($search_sql);
+      if ($search_results) {
+        foreach ($search_results as $result) {
+          // Extract booking ID from option_name
+          $booking_id = (int) preg_replace('/[^0-9]/', '', $result);
+          if ($booking_id > 0) {
+            $search_booking_ids[] = $booking_id;
+          }
+        }
+      }
+
+      if (!empty($search_booking_ids)) {
+        $id_placeholders = implode(',', array_fill(0, count($search_booking_ids), '%d'));
+        $where .= " AND id IN ($id_placeholders)";
+        $params = array_merge($params, $search_booking_ids);
+      } else {
+        // If search term provided but no matches, return empty result
+        $where .= ' AND 1=0';
+      }
     }
 
     $sql_count = $wpdb->prepare("SELECT COUNT(*) FROM {$table} {$where}", $params);
@@ -104,6 +172,12 @@ class Vendor_Bookings_API {
       $duration_mins = ($end_ts - $start_ts) / 60;
       $duration_formatted = Date_Formatter::format_duration((int)$duration_mins);
 
+      // Format created_at for display
+      $created_at_formatted = '';
+      if (!empty($r['created_at'])) {
+        $created_at_formatted = Date_Formatter::format($r['created_at'], $tz, 'short');
+      }
+
       $items[] = [
         'id' => (int) $r['id'],
         'listing_id' => (int) $r['listing_id'],
@@ -122,6 +196,7 @@ class Vendor_Bookings_API {
         'currency' => $r['currency'] ?? '',
         'wc_order_id' => isset($r['wc_order_id']) ? (int) $r['wc_order_id'] : 0,
         'created_at' => $r['created_at'] ?? '',
+        'created_at_formatted' => $created_at_formatted,
         'timezone' => $tz,
       ];
     }
@@ -396,5 +471,165 @@ class Vendor_Bookings_API {
     }
 
     return new \WP_Error('koopo_bad_action', 'Unknown action: ' . $action, ['status' => 400]);
+  }
+
+  /**
+   * Export bookings to CSV
+   */
+  public static function export_bookings_csv(\WP_REST_Request $req) {
+    global $wpdb;
+
+    $vendor_id = get_current_user_id();
+    $table = DB::table();
+
+    $listing_id = absint($req->get_param('listing_id'));
+    $status = sanitize_text_field((string) $req->get_param('status'));
+    $search = sanitize_text_field((string) $req->get_param('search'));
+    $month = sanitize_text_field((string) $req->get_param('month'));
+    $year = sanitize_text_field((string) $req->get_param('year'));
+
+    $where = 'WHERE listing_author_id = %d';
+    $params = [$vendor_id];
+
+    if ($listing_id) {
+      $where .= ' AND listing_id = %d';
+      $params[] = $listing_id;
+    }
+    if ($status && $status !== 'all') {
+      $where .= ' AND status = %s';
+      $params[] = $status;
+    }
+
+    // Month filter
+    if ($month && is_numeric($month)) {
+      $where .= ' AND MONTH(start_datetime) = %d';
+      $params[] = (int) $month;
+    }
+
+    // Year filter
+    if ($year && is_numeric($year)) {
+      $where .= ' AND YEAR(start_datetime) = %d';
+      $params[] = (int) $year;
+    }
+
+    // Search filter (customer name, email, phone from booking meta)
+    $search_booking_ids = [];
+    if ($search) {
+      $search_term = '%' . $wpdb->esc_like($search) . '%';
+
+      // Search in options table for customer details
+      $search_sql = $wpdb->prepare(
+        "SELECT DISTINCT REPLACE(option_name, 'koopo_booking_', '') as booking_id
+         FROM {$wpdb->options}
+         WHERE (option_name LIKE 'koopo_booking_%%_customer_name'
+                OR option_name LIKE 'koopo_booking_%%_customer_email'
+                OR option_name LIKE 'koopo_booking_%%_customer_phone')
+         AND option_value LIKE %s",
+        $search_term
+      );
+
+      $search_results = $wpdb->get_col($search_sql);
+      if ($search_results) {
+        foreach ($search_results as $result) {
+          // Extract booking ID from option_name
+          $booking_id = (int) preg_replace('/[^0-9]/', '', $result);
+          if ($booking_id > 0) {
+            $search_booking_ids[] = $booking_id;
+          }
+        }
+      }
+
+      if (!empty($search_booking_ids)) {
+        $id_placeholders = implode(',', array_fill(0, count($search_booking_ids), '%d'));
+        $where .= " AND id IN ($id_placeholders)";
+        $params = array_merge($params, $search_booking_ids);
+      } else {
+        // If search term provided but no matches, return empty result
+        $where .= ' AND 1=0';
+      }
+    }
+
+    // Get all bookings (no pagination for export)
+    $sql_items = $wpdb->prepare(
+      "SELECT * FROM {$table} {$where} ORDER BY start_datetime DESC",
+      $params
+    );
+
+    $rows = $wpdb->get_results($sql_items, ARRAY_A) ?: [];
+
+    // Set headers for CSV download
+    header('Content-Type: text/csv; charset=utf-8');
+    header('Content-Disposition: attachment; filename="appointments-export-' . date('Y-m-d-His') . '.csv"');
+    header('Pragma: no-cache');
+    header('Expires: 0');
+
+    // Open output stream
+    $output = fopen('php://output', 'w');
+
+    // CSV Headers
+    fputcsv($output, [
+      'Booking ID',
+      'Customer Name',
+      'Customer Email',
+      'Customer Phone',
+      'Service',
+      'Listing',
+      'Date',
+      'Time',
+      'Duration',
+      'Status',
+      'Price',
+      'Currency',
+      'Order ID',
+      'Booked On',
+      'Timezone',
+    ]);
+
+    // CSV Rows
+    foreach ($rows as $r) {
+      $listing_title = $r['listing_id'] ? get_the_title((int)$r['listing_id']) : '';
+      $service_title = $r['service_id'] ? get_the_title((int)$r['service_id']) : '';
+
+      // Get customer details from booking meta
+      $customer_name = get_option("koopo_booking_{$r['id']}_customer_name", '');
+      $customer_email = get_option("koopo_booking_{$r['id']}_customer_email", '');
+      $customer_phone = get_option("koopo_booking_{$r['id']}_customer_phone", '');
+
+      $tz = !empty($r['timezone']) ? (string)$r['timezone'] : '';
+
+      $start_formatted = Date_Formatter::format($r['start_datetime'], $tz, 'full');
+      $end_formatted = Date_Formatter::format($r['end_datetime'], $tz, 'time');
+
+      $start_ts = strtotime($r['start_datetime']);
+      $end_ts = strtotime($r['end_datetime']);
+      $duration_mins = ($end_ts - $start_ts) / 60;
+      $duration_formatted = Date_Formatter::format_duration((int)$duration_mins);
+
+      $created_at_formatted = '';
+      if (!empty($r['created_at'])) {
+        $created_at_formatted = Date_Formatter::format($r['created_at'], $tz, 'full');
+      }
+
+      fputcsv($output, [
+        $r['id'],
+        $customer_name,
+        $customer_email,
+        $customer_phone,
+        $service_title,
+        $listing_title,
+        date('Y-m-d', $start_ts),
+        date('H:i', $start_ts) . ' - ' . date('H:i', $end_ts),
+        $duration_formatted,
+        ucfirst(str_replace('_', ' ', $r['status'])),
+        isset($r['price']) ? number_format((float) $r['price'], 2, '.', '') : '0.00',
+        $r['currency'] ?? '',
+        isset($r['wc_order_id']) ? $r['wc_order_id'] : '',
+        $created_at_formatted,
+        $tz,
+      ]);
+    }
+
+    fclose($output);
+    exit;
   }
 }
