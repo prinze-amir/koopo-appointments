@@ -13,12 +13,26 @@ class Service_Categories {
 
   public static function init() {
     add_action('init', [__CLASS__, 'register_taxonomy']);
+    add_action('admin_menu', [__CLASS__, 'add_admin_menu'], 99);
     add_action('koopo_service_category_add_form_fields', [__CLASS__, 'add_icon_field']);
     add_action('koopo_service_category_edit_form_fields', [__CLASS__, 'edit_icon_field']);
     add_action('created_koopo_service_category', [__CLASS__, 'save_icon_field']);
     add_action('edited_koopo_service_category', [__CLASS__, 'save_icon_field']);
     add_filter('manage_edit-koopo_service_category_columns', [__CLASS__, 'add_icon_column']);
     add_filter('manage_koopo_service_category_custom_column', [__CLASS__, 'render_icon_column'], 10, 3);
+  }
+
+  /**
+   * Add admin menu for service categories
+   */
+  public static function add_admin_menu() {
+    add_submenu_page(
+      'koopo-appointments',
+      'Service Categories',
+      'Service Categories',
+      'manage_options',
+      'edit-tags.php?taxonomy=koopo_service_category&post_type=koopo_service'
+    );
   }
 
   public static function register_taxonomy() {
@@ -42,11 +56,13 @@ class Service_Categories {
     register_taxonomy(self::TAXONOMY, Services_CPT::POST_TYPE, [
       'labels' => $labels,
       'public' => false,
+      'publicly_queryable' => false,
       'show_ui' => true,
-      'show_in_menu' => true,
-      'show_admin_column' => true,
+      'show_in_menu' => false, // We handle menu manually
+      'show_admin_column' => false,
       'hierarchical' => true,
       'show_in_rest' => true,
+      'rewrite' => false,
       'capabilities' => [
         'manage_terms' => 'manage_options', // Only admins can manage
         'edit_terms'   => 'manage_options',
@@ -61,11 +77,15 @@ class Service_Categories {
    * Add icon field to category add form
    */
   public static function add_icon_field() {
+    wp_enqueue_media();
     ?>
     <div class="form-field term-icon-wrap">
-      <label for="category-icon">Icon URL</label>
-      <input type="url" name="category_icon" id="category-icon" value="" size="40" placeholder="https://example.com/icon.svg">
-      <p class="description">Enter the URL of an icon (SVG, PNG, or JPG) to represent this category. Recommended size: 64x64px.</p>
+      <label for="category-icon">Category Icon</label>
+      <div style="display: flex; gap: 10px; align-items: flex-start;">
+        <input type="url" name="category_icon" id="category-icon" value="" size="40" placeholder="https://example.com/icon.svg" style="flex: 1;">
+        <button type="button" class="button button-secondary" id="category-icon-upload">Upload Icon</button>
+      </div>
+      <p class="description">Upload an icon (SVG, PNG, or JPG) from your media library. Recommended size: 64x64px.</p>
     </div>
 
     <div class="form-field term-icon-preview-wrap">
@@ -77,6 +97,35 @@ class Service_Categories {
 
     <script>
       jQuery(document).ready(function($) {
+        let mediaUploader;
+
+        $('#category-icon-upload').on('click', function(e) {
+          e.preventDefault();
+
+          if (mediaUploader) {
+            mediaUploader.open();
+            return;
+          }
+
+          mediaUploader = wp.media({
+            title: 'Choose Category Icon',
+            button: {
+              text: 'Use this icon'
+            },
+            library: {
+              type: ['image/svg+xml', 'image/png', 'image/jpeg', 'image/jpg']
+            },
+            multiple: false
+          });
+
+          mediaUploader.on('select', function() {
+            const attachment = mediaUploader.state().get('selection').first().toJSON();
+            $('#category-icon').val(attachment.url).trigger('input');
+          });
+
+          mediaUploader.open();
+        });
+
         $('#category-icon').on('input', function() {
           const url = $(this).val();
           const $preview = $('#category-icon-preview');
@@ -96,15 +145,19 @@ class Service_Categories {
    * Add icon field to category edit form
    */
   public static function edit_icon_field($term) {
+    wp_enqueue_media();
     $icon_url = get_term_meta($term->term_id, 'icon_url', true);
     ?>
     <tr class="form-field term-icon-wrap">
       <th scope="row">
-        <label for="category-icon">Icon URL</label>
+        <label for="category-icon">Category Icon</label>
       </th>
       <td>
-        <input type="url" name="category_icon" id="category-icon" value="<?php echo esc_attr($icon_url); ?>" size="40" placeholder="https://example.com/icon.svg">
-        <p class="description">Enter the URL of an icon (SVG, PNG, or JPG) to represent this category. Recommended size: 64x64px.</p>
+        <div style="display: flex; gap: 10px; align-items: flex-start; max-width: 600px;">
+          <input type="url" name="category_icon" id="category-icon" value="<?php echo esc_attr($icon_url); ?>" size="40" placeholder="https://example.com/icon.svg" style="flex: 1;">
+          <button type="button" class="button button-secondary" id="category-icon-upload">Upload Icon</button>
+        </div>
+        <p class="description">Upload an icon (SVG, PNG, or JPG) from your media library. Recommended size: 64x64px.</p>
       </td>
     </tr>
 
@@ -113,7 +166,7 @@ class Service_Categories {
         <label>Icon Preview</label>
       </th>
       <td>
-        <div id="category-icon-preview" style="padding: 10px; background: #f5f5f5; border-radius: 4px; min-height: 80px; display: flex; align-items: center; justify-content: center;">
+        <div id="category-icon-preview" style="padding: 10px; background: #f5f5f5; border-radius: 4px; min-height: 80px; max-width: 120px; display: flex; align-items: center; justify-content: center;">
           <?php if ($icon_url): ?>
             <img src="<?php echo esc_url($icon_url); ?>" style="max-width: 64px; max-height: 64px;" alt="Category icon">
           <?php else: ?>
@@ -125,6 +178,35 @@ class Service_Categories {
 
     <script>
       jQuery(document).ready(function($) {
+        let mediaUploader;
+
+        $('#category-icon-upload').on('click', function(e) {
+          e.preventDefault();
+
+          if (mediaUploader) {
+            mediaUploader.open();
+            return;
+          }
+
+          mediaUploader = wp.media({
+            title: 'Choose Category Icon',
+            button: {
+              text: 'Use this icon'
+            },
+            library: {
+              type: ['image/svg+xml', 'image/png', 'image/jpeg', 'image/jpg']
+            },
+            multiple: false
+          });
+
+          mediaUploader.on('select', function() {
+            const attachment = mediaUploader.state().get('selection').first().toJSON();
+            $('#category-icon').val(attachment.url).trigger('input');
+          });
+
+          mediaUploader.open();
+        });
+
         $('#category-icon').on('input', function() {
           const url = $(this).val();
           const $preview = $('#category-icon-preview');

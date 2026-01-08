@@ -121,10 +121,14 @@ class UI {
             <div class="koopo-appt__steps">
               <div class="koopo-appt__step koopo-appt__step--active" data-step="1">
                 <span class="koopo-appt__step-num">1</span>
-                <span class="koopo-appt__step-label">Select Date & Time</span>
+                <span class="koopo-appt__step-label">Select Service</span>
               </div>
               <div class="koopo-appt__step" data-step="2">
                 <span class="koopo-appt__step-num">2</span>
+                <span class="koopo-appt__step-label">Date & Time</span>
+              </div>
+              <div class="koopo-appt__step" data-step="3">
+                <span class="koopo-appt__step-num">3</span>
                 <span class="koopo-appt__step-label">Your Information</span>
               </div>
             </div>
@@ -133,14 +137,16 @@ class UI {
           <div class="koopo-appt__body">
             <div class="koopo-appt__notice koopo-appt__notice--hidden"></div>
 
-            <!-- STEP 1: Date & Time Selection -->
+            <!-- STEP 1: Service Selection -->
             <div class="koopo-appt__panel koopo-appt__panel--active" data-panel="1">
-              <label class="koopo-appt__label">
-                Service
-                <select class="koopo-appt__field koopo-appt__service">
-                  <option value="">Loading services…</option>
-                </select>
-              </label>
+              <input type="hidden" class="koopo-appt__service" />
+              <div class="koopo-appt__services-grid">
+                <!-- Services will be loaded here dynamically -->
+              </div>
+            </div>
+
+            <!-- STEP 2: Date & Time Selection -->
+            <div class="koopo-appt__panel" data-panel="2">
               <div class="calendar-slots flex gap-3">
                 <div class="koopo-appt__calendar-section">
                 <div class="koopo-appt__calendar-header">
@@ -173,12 +179,12 @@ class UI {
               </div>
 
               <button type="button" class="koopo-appt__next-step" disabled>
-                Continue to Information
+                Continue to Your Information
               </button>
             </div>
 
-            <!-- STEP 2: Customer Information -->
-            <div class="koopo-appt__panel" data-panel="2">
+            <!-- STEP 3: Customer Information -->
+            <div class="koopo-appt__panel" data-panel="3">
               <div class="koopo-appt__booking-for">
                 <label class="koopo-appt__checkbox-label">
                   <input type="checkbox" class="koopo-appt__booking-for-other" />

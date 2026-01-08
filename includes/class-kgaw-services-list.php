@@ -55,6 +55,10 @@ class Services_List {
       $duration = get_post_meta($p->ID, Services_API::META_DURATION, true);
       if ($duration === '' || $duration === null) $duration = get_post_meta($p->ID, '_koopo_duration_minutes', true);
 
+      // Get category IDs
+      $terms = wp_get_object_terms($p->ID, Service_Categories::TAXONOMY, ['fields' => 'ids']);
+      $category_ids = is_array($terms) ? array_map('intval', $terms) : [];
+
       $out[] = [
         'id' => (int)$p->ID,
         'title' => get_the_title($p->ID),
@@ -68,6 +72,7 @@ class Services_List {
         'buffer_before' => (int) get_post_meta($p->ID, Services_API::META_BUF_BEFORE, true),
         'buffer_after' => (int) get_post_meta($p->ID, Services_API::META_BUF_AFTER, true),
         'instant' => (get_post_meta($p->ID, Services_API::META_INSTANT, true) === '1'),
+        'category_ids' => $category_ids,
       ];
     }
 

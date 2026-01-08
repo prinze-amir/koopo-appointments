@@ -99,7 +99,7 @@ final class Koopo_Appointments {
       Koopo_Appointments\Entitlements::init();
       Koopo_Appointments\Membership_UI::init();
     }
-
+    Koopo_Appointments\Service_Categories::init();
     Koopo_Appointments\Settings_Assets::init();
     Koopo_Appointments\Admin_Settings::init();
     Koopo_Appointments\MyAccount::init();

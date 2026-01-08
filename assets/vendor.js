@@ -78,7 +78,7 @@
     renderServices();
   }
 
-  function openModal(service){
+  async function openModal(service){
     state.editingServiceId = service ? service.id : null;
     $('#koopo-service-modal-title').text(service ? 'Edit Service' : 'Add Service');
     $('#koopo-service-name').val(service ? service.title : '');
@@ -92,12 +92,45 @@
     $('#koopo-service-buffer-after').val(service ? (service.buffer_after||0) : 0);
     $('#koopo-service-instant').prop('checked', !!(service && service.instant));
     $('#koopo-service-delete').toggle(!!service);
+
+    // Load categories with spinner
+    const $catSelect = $('#koopo-service-categories');
+    $catSelect.prop('disabled', true).html('<option value="">Loading categories...</option>');
+
+    try {
+      const data = await api('/service-categories', { method: 'GET' });
+      const categories = data.categories || [];
+
+      $catSelect.empty();
+      $catSelect.append('<option value="">Select a category...</option>');
+
+      categories.forEach(cat => {
+        $catSelect.append(`<option value="${cat.id}">${escapeHtml(cat.name)}</option>`);
+      });
+
+      $catSelect.prop('disabled', false);
+
+      // Set selected category when editing (single selection)
+      if (service && service.category_ids && service.category_ids.length > 0) {
+        $catSelect.val(service.category_ids[0]);
+      }
+    } catch (e) {
+      console.error('Failed to load categories:', e);
+      $catSelect.html('<option value="">Failed to load categories</option>');
+      $catSelect.prop('disabled', false);
+    }
+
     $modal.show();
   }
   function closeModal(){ $modal.hide(); }
 
   async function saveService(){
     if (!state.listingId) throw new Error('Select a listing first.');
+
+    // Get selected category ID (single selection)
+    const categoryId = $('#koopo-service-categories').val();
+    const categoryIds = categoryId ? [parseInt(categoryId, 10)] : [];
+
     const payload = {
       title: $('#koopo-service-name').val(),
       description: $('#koopo-service-description').val(),
@@ -110,6 +143,7 @@
       buffer_after: parseInt($('#koopo-service-buffer-after').val(),10) || 0,
       instant: $('#koopo-service-instant').is(':checked') ? 1 : 0,
       listing_id: state.listingId,
+      category_ids: categoryIds
     };
 
     if (!payload.title || !payload.duration_minutes) throw new Error('Service name and duration are required.');
@@ -138,14 +172,14 @@
       state.listingId = parseInt($(this).val(),10) || null;
       await refreshServices();
     });
-    $('#koopo-add-service').on('click', function(){
+    $('#koopo-add-service').on('click', async function(){
       if (!state.listingId) { alert('Select a listing first.'); return; }
-      openModal(null);
+      await openModal(null);
     });
-    $servicesGrid.on('click', '[data-service-id]', function(){
+    $servicesGrid.on('click', '[data-service-id]', async function(){
       const id = parseInt($(this).data('service-id'),10);
       const svc = state.services.find(s => s.id === id);
-      if (svc) openModal(svc);
+      if (svc) await openModal(svc);
     });
     $modal.on('click', '.koopo-modal__close, #koopo-service-cancel', closeModal);
     $('#koopo-service-save').on('click', function(){

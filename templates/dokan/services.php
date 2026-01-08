@@ -49,6 +49,14 @@
             </select>
           </label>
 
+          <label class="koopo-label koopo-label--full">
+            <?php esc_html_e('Category', 'appointments'); ?>
+            <select class="koopo-input" id="koopo-service-categories">
+              <option value=""><?php esc_html_e('Loading categories...', 'appointments'); ?></option>
+            </select>
+            <small class="koopo-help"><?php esc_html_e('Select a category for tax tagging purposes.', 'appointments'); ?></small>
+          </label>
+
           <div class="koopo-section-title"><?php esc_html_e('Service Duration & Price', 'appointments'); ?></div>
 
           <label class="koopo-label">

@@ -98,8 +98,10 @@
     // Update step indicators
     $root.find('.koopo-appt__step').removeClass('koopo-appt__step--active koopo-appt__step--completed');
     $root.find(`.koopo-appt__step[data-step="${step}"]`).addClass('koopo-appt__step--active');
-    if (step === 2) {
-      $root.find('.koopo-appt__step[data-step="1"]').addClass('koopo-appt__step--completed');
+
+    // Mark completed steps
+    for (let i = 1; i < step; i++) {
+      $root.find(`.koopo-appt__step[data-step="${i}"]`).addClass('koopo-appt__step--completed');
     }
 
     // Update panels
@@ -109,8 +111,14 @@
     // Clear notices when changing steps
     clearNotice($root);
 
-    // If going to step 2, pre-fill user info
+    // If going to step 2, render calendar
     if (step === 2) {
+      renderCalendar($root);
+      updateSummary($root);
+    }
+
+    // If going to step 3, pre-fill user info
+    if (step === 3) {
       prefillUserInfo($root);
       updateSummary($root);
     }
@@ -312,33 +320,71 @@
     const listingId = $root.data('listing-id') || KOOPO_APPT.listingId;
     const services = await api(`/services/by-listing/${listingId}`, { method: 'GET' });
 
-    const $sel = $root.find('.koopo-appt__service');
-    $sel.empty();
+    const $grid = $root.find('.koopo-appt__services-grid');
+    $grid.empty();
 
     if (!services.length) {
-      $sel.append(`<option value="">No services available</option>`);
+      $grid.html('<p style="text-align: center; padding: 40px 20px; color: #666;">No services available at this time.</p>');
       return [];
     }
 
-    $sel.append(`<option value="">Select a service</option>`);
+    // Render service cards
     services.forEach(s => {
-      $sel.append(`<option value="${s.id}" data-price="${s.price}" data-duration="${s.duration_minutes}" data-name="${s.title}">${s.title}</option>`);
+      const price = s.price !== undefined ? `${KOOPO_APPT.currency}${Number(s.price).toFixed(2)}` : 'N/A';
+      const duration = s.duration_minutes ? `${s.duration_minutes} min` : 'N/A';
+      const description = s.description || '';
+
+      const card = $(`
+        <div class="koopo-appt__service-card" data-service-id="${s.id}" data-price="${s.price}" data-duration="${s.duration_minutes}" data-name="${s.title}">
+          <div class="koopo-appt__service-card-header">
+            <h4 class="koopo-appt__service-card-title">${escapeHtml(s.title)}</h4>
+            <span class="koopo-appt__service-card-price">${price}</span>
+          </div>
+          ${description ? `<p class="koopo-appt__service-card-desc">${escapeHtml(description)}</p>` : ''}
+          <div class="koopo-appt__service-card-footer">
+            <span class="koopo-appt__service-card-duration">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M8 14.5C11.5899 14.5 14.5 11.5899 14.5 8C14.5 4.41015 11.5899 1.5 8 1.5C4.41015 1.5 1.5 4.41015 1.5 8C1.5 11.5899 4.41015 14.5 8 14.5Z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M8 4V8L10.5 9.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              ${duration}
+            </span>
+            <button type="button" class="koopo-appt__service-card-btn">Select</button>
+          </div>
+        </div>
+      `);
+
+      $grid.append(card);
     });
+
     return services;
+  }
+
+  function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
   }
 
   // Update summary display
   function updateSummary($root){
     const state = getState($root);
-    const $opt = $root.find('.koopo-appt__service option:selected');
-    const price = $opt.data('price');
-    const duration = $opt.data('duration');
-    const serviceName = $opt.data('name') || $opt.text();
+    const serviceId = $root.find('.koopo-appt__service').val();
+
+    let price, duration, serviceName;
+
+    if (serviceId) {
+      // Get service data from selected card or hidden input data
+      const $card = $root.find(`.koopo-appt__service-card--selected`);
+      if ($card.length) {
+        price = $card.data('price');
+        duration = $card.data('duration');
+        serviceName = $card.data('name');
+      }
+    }
 
     // Update service name
-    $root.find('.koopo-appt__summary-service').text(
-      serviceName && serviceName !== 'Select a service' ? serviceName : '—'
-    );
+    $root.find('.koopo-appt__summary-service').text(serviceName || '—');
 
     // Update date & time
     const dateTime = formatDateTime(state.selectedDate, state.selectedTimeLabel);
@@ -352,13 +398,13 @@
       (duration !== undefined) ? `${duration} min` : '—'
     );
 
-    // Enable/disable next button for step 1
-    const hasService = !!$root.find('.koopo-appt__service').val();
+    // Enable/disable next button for step 2
+    const hasService = !!serviceId;
     const hasDate = !!state.selectedDate;
     const hasSlot = !!$root.find('.koopo-appt__slot-start').val();
     $root.find('.koopo-appt__next-step').prop('disabled', !(hasService && hasDate && hasSlot));
 
-    // Enable/disable submit button for step 2
+    // Enable/disable submit button for step 3
     const hasName = !!$root.find('.koopo-appt__customer-name').val().trim();
     const hasEmail = !!$root.find('.koopo-appt__customer-email').val().trim();
     const hasPhone = !!$root.find('.koopo-appt__customer-phone').val().trim();
@@ -507,28 +553,40 @@
 
     try {
       await loadListingSettings($root);
-      const services = await loadServices($root);
+      await loadServices($root);
 
       // Remove spinner and show form content
       $panel1.find('.koopo-appt__spinner').remove();
       $panel1.children().show();
-
-      // Auto-select first service if available
-      if (services && services.length > 0) {
-        const $serviceSelect = $root.find('.koopo-appt__service');
-        $serviceSelect.val(services[0].id);
-        // Manually trigger the change to load calendar
-        $serviceSelect.trigger('change');
-      }
-
-      renderCalendar($root);
-      updateSummary($root);
     } catch (e) {
       // Remove spinner and show form content on error
       $panel1.find('.koopo-appt__spinner').remove();
       $panel1.children().show();
       showNotice($root, e.message || 'Failed to load booking UI.', 'error');
     }
+  });
+
+  // Service card selection
+  $(document).on('click', '.koopo-appt__service-card-btn', function(e){
+    e.stopPropagation();
+    const $card = $(this).closest('.koopo-appt__service-card');
+    const $root = $card.closest('.koopo-appt');
+
+    // Deselect all cards
+    $root.find('.koopo-appt__service-card').removeClass('koopo-appt__service-card--selected');
+
+    // Select this card
+    $card.addClass('koopo-appt__service-card--selected');
+
+    // Set the service ID in hidden input
+    const serviceId = $card.data('service-id');
+    $root.find('.koopo-appt__service').val(serviceId);
+
+    // Update summary
+    updateSummary($root);
+
+    // Move to step 2
+    goToStep($root, 2);
   });
 
   $(document).on('click', '.koopo-appt__close', function(){
@@ -573,19 +631,6 @@
     updateSummary($root);
   });
 
-  // Service selection
-  $(document).on('change', '.koopo-appt__service', function(){
-    const $root = $(this).closest('.koopo-appt');
-    const state = getState($root);
-    state.selectedService = $(this).val();
-    state.selectedServiceName = $(this).find('option:selected').data('name');
-
-    updateSummary($root);
-    if (state.selectedDate) {
-      loadSlots($root).catch(()=>{});
-    }
-  });
-
   // Slot selection
   $(document).on('click', '.koopo-appt__slot', function(){
     const $root = $(this).closest('.koopo-appt');
@@ -604,12 +649,16 @@
   // Step navigation
   $(document).on('click', '.koopo-appt__next-step', function(){
     const $root = $(this).closest('.koopo-appt');
-    goToStep($root, 2);
+    const state = getState($root);
+    // From step 2 to step 3
+    goToStep($root, state.currentStep + 1);
   });
 
   $(document).on('click', '.koopo-appt__prev-step', function(){
     const $root = $(this).closest('.koopo-appt');
-    goToStep($root, 1);
+    const state = getState($root);
+    // Go back one step
+    goToStep($root, state.currentStep - 1);
   });
 
   // Booking for someone else toggle
