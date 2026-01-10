@@ -24,6 +24,8 @@ class Vendor_Bookings_API {
         'search'     => ['type' => 'string',  'required' => false],
         'month'      => ['type' => 'string',  'required' => false],
         'year'       => ['type' => 'string',  'required' => false],
+        'range_start' => ['type' => 'string', 'required' => false],
+        'range_end'   => ['type' => 'string', 'required' => false],
         'page'       => ['type' => 'integer', 'required' => false, 'default' => 1],
         'per_page'   => ['type' => 'integer', 'required' => false, 'default' => 20],
       ],
@@ -50,6 +52,26 @@ class Vendor_Bookings_API {
         'action' => ['type' => 'string', 'required' => true],
         'note'   => ['type' => 'string', 'required' => false],
         'amount' => ['type' => 'number', 'required' => false], // NEW: for partial refunds
+      ],
+    ]);
+
+    register_rest_route('koopo/v1', '/vendor/bookings/create', [
+      'methods'  => 'POST',
+      'callback' => [__CLASS__, 'create_booking'],
+      'permission_callback' => [__CLASS__, 'can_access'],
+      'args' => [
+        'listing_id' => ['type' => 'integer', 'required' => true],
+        'service_id' => ['type' => 'integer', 'required' => true],
+        'start_datetime' => ['type' => 'string', 'required' => true],
+        'end_datetime' => ['type' => 'string', 'required' => true],
+        'timezone' => ['type' => 'string', 'required' => false],
+        'status' => ['type' => 'string', 'required' => false],
+        'customer_id' => ['type' => 'integer', 'required' => false],
+        'customer_email' => ['type' => 'string', 'required' => false],
+        'customer_name' => ['type' => 'string', 'required' => false],
+        'customer_phone' => ['type' => 'string', 'required' => false],
+        'customer_notes' => ['type' => 'string', 'required' => false],
+        'addon_ids' => ['type' => 'array', 'required' => false],
       ],
     ]);
 
@@ -81,7 +103,9 @@ class Vendor_Bookings_API {
     $month = sanitize_text_field((string) $req->get_param('month'));
     $year = sanitize_text_field((string) $req->get_param('year'));
     $page = max(1, absint($req->get_param('page')));
-    $per_page = min(100, max(1, absint($req->get_param('per_page'))));
+    $per_page = min(500, max(1, absint($req->get_param('per_page'))));
+    $range_start = sanitize_text_field((string) $req->get_param('range_start'));
+    $range_end = sanitize_text_field((string) $req->get_param('range_end'));
 
     $where = 'WHERE listing_author_id = %d';
     $params = [$vendor_id];
@@ -95,16 +119,25 @@ class Vendor_Bookings_API {
       $params[] = $status;
     }
 
-    // Month filter
-    if ($month && is_numeric($month)) {
-      $where .= ' AND MONTH(start_datetime) = %d';
-      $params[] = (int) $month;
+    if (!$range_start || !$range_end) {
+      // Month filter
+      if ($month && is_numeric($month)) {
+        $where .= ' AND MONTH(start_datetime) = %d';
+        $params[] = (int) $month;
+      }
+
+      // Year filter
+      if ($year && is_numeric($year)) {
+        $where .= ' AND YEAR(start_datetime) = %d';
+        $params[] = (int) $year;
+      }
     }
 
-    // Year filter
-    if ($year && is_numeric($year)) {
-      $where .= ' AND YEAR(start_datetime) = %d';
-      $params[] = (int) $year;
+    // Range filter (overrides month/year when both provided)
+    if ($range_start && $range_end) {
+      $where .= ' AND start_datetime BETWEEN %s AND %s';
+      $params[] = $range_start;
+      $params[] = $range_end;
     }
 
     // Search filter (customer name, email, phone from booking meta)
@@ -159,8 +192,35 @@ class Vendor_Bookings_API {
 
     foreach ($rows as $r) {
       $listing_title = $r['listing_id'] ? get_the_title((int)$r['listing_id']) : '';
-      $service_title = $r['service_id'] ? get_the_title((int)$r['service_id']) : '';
-      $customer_name = $r['customer_id'] ? (get_userdata((int)$r['customer_id'])->display_name ?? '') : '';
+      $service_id = (int) $r['service_id'];
+      $service_title = $service_id ? get_the_title($service_id) : '';
+      $service_color = $service_id ? (string) get_post_meta($service_id, Services_API::META_COLOR, true) : '';
+
+      $customer_name = '';
+      $customer_email = '';
+      $customer_phone = '';
+      $customer_avatar = '';
+      $customer_profile = '';
+      if (!empty($r['customer_id'])) {
+        $user = get_userdata((int)$r['customer_id']);
+        $customer_name = $user->display_name ?? '';
+        $customer_email = $user->user_email ?? '';
+        $customer_avatar = get_avatar_url((int)$r['customer_id'], ['size' => 64]) ?: '';
+        if (function_exists('bp_core_get_user_domain')) {
+          $customer_profile = bp_core_get_user_domain((int)$r['customer_id']);
+        } else {
+          $customer_profile = get_author_posts_url((int)$r['customer_id']);
+        }
+      }
+      $booking_id = (int) $r['id'];
+      if (!$customer_name) {
+        $customer_name = (string) get_option("koopo_booking_{$booking_id}_customer_name", '');
+      }
+      if (!$customer_email) {
+        $customer_email = (string) get_option("koopo_booking_{$booking_id}_customer_email", '');
+      }
+      $customer_phone = (string) get_option("koopo_booking_{$booking_id}_customer_phone", '');
+      $booking_for_other = (string) get_option("koopo_booking_{$booking_id}_booking_for_other", '') === '1';
 
       $tz = !empty($r['timezone']) ? (string)$r['timezone'] : '';
 
@@ -179,13 +239,20 @@ class Vendor_Bookings_API {
       }
 
       $items[] = [
-        'id' => (int) $r['id'],
+        'id' => $booking_id,
         'listing_id' => (int) $r['listing_id'],
         'listing_title' => $listing_title ?: '',
         'service_id' => (int) $r['service_id'],
         'service_title' => $service_title ?: '',
+        'service_color' => $service_color ?: '',
         'customer_id' => (int) $r['customer_id'],
         'customer_name' => $customer_name ?: '',
+        'customer_email' => $customer_email ?: '',
+        'customer_phone' => $customer_phone ?: '',
+        'customer_avatar' => $customer_avatar ?: '',
+        'customer_profile' => $customer_profile ?: '',
+        'customer_is_guest' => empty($r['customer_id']),
+        'booking_for_other' => $booking_for_other,
         'start_datetime' => $r['start_datetime'],
         'end_datetime' => $r['end_datetime'],
         'start_datetime_formatted' => $start_formatted,
@@ -471,6 +538,79 @@ class Vendor_Bookings_API {
     }
 
     return new \WP_Error('koopo_bad_action', 'Unknown action: ' . $action, ['status' => 400]);
+  }
+
+  /**
+   * Manual booking creation by vendor.
+   */
+  public static function create_booking(\WP_REST_Request $request) {
+    $listing_id = absint($request->get_param('listing_id'));
+    $service_id = absint($request->get_param('service_id'));
+    $start = sanitize_text_field((string) $request->get_param('start_datetime'));
+    $end = sanitize_text_field((string) $request->get_param('end_datetime'));
+
+    if (!$listing_id || !$service_id || !$start || !$end) {
+      return new \WP_REST_Response(['error' => 'listing_id, service_id, start_datetime, end_datetime are required'], 400);
+    }
+
+    $listing = get_post($listing_id);
+    if (!$listing || (int) $listing->post_author !== (int) get_current_user_id()) {
+      return new \WP_REST_Response(['error' => 'Invalid listing ownership'], 403);
+    }
+
+    $customer_id = absint($request->get_param('customer_id'));
+    $customer_email = sanitize_email((string) $request->get_param('customer_email'));
+    $customer_name = sanitize_text_field((string) $request->get_param('customer_name'));
+    $customer_phone = sanitize_text_field((string) $request->get_param('customer_phone'));
+    $customer_notes = sanitize_textarea_field((string) $request->get_param('customer_notes'));
+    $addon_ids = $request->get_param('addon_ids');
+    $addon_ids = is_array($addon_ids) ? array_map('absint', $addon_ids) : [];
+
+    if (!$customer_id && $customer_email) {
+      $user = get_user_by('email', $customer_email);
+      if ($user) {
+        $customer_id = (int) $user->ID;
+      }
+    }
+
+    if (!$customer_id && !$customer_name && !$customer_email) {
+      return new \WP_REST_Response(['error' => 'Provide a customer (existing user email/ID) or guest name/email'], 400);
+    }
+
+    $timezone = sanitize_text_field((string) $request->get_param('timezone'));
+    if ($timezone === '') {
+      $timezone = function_exists('wp_timezone_string') ? wp_timezone_string() : (string) get_option('timezone_string');
+    }
+    if ($timezone === '') {
+      $timezone = 'UTC';
+    }
+
+    $status = sanitize_text_field((string) $request->get_param('status'));
+    if (!in_array($status, ['confirmed', 'pending_payment'], true)) {
+      $status = 'confirmed';
+    }
+
+    $payload = [
+      'listing_id' => $listing_id,
+      'service_id' => $service_id,
+      'customer_id' => $customer_id,
+      'start_datetime' => $start,
+      'end_datetime' => $end,
+      'timezone' => $timezone,
+      'status' => $status,
+      'customer_name' => $customer_name,
+      'customer_email' => $customer_email,
+      'customer_phone' => $customer_phone,
+      'customer_notes' => $customer_notes,
+      'addon_ids' => $addon_ids,
+    ];
+
+    try {
+      $booking_id = Bookings::create_manual_booking($payload);
+      return new \WP_REST_Response(['booking_id' => $booking_id], 201);
+    } catch (\Throwable $e) {
+      return new \WP_REST_Response(['error' => $e->getMessage()], 400);
+    }
   }
 
   /**

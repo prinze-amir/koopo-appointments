@@ -147,6 +147,19 @@ private static function release_lock(int $listing_id): void {
       $price = is_numeric($meta_price) ? (float) $meta_price : 0.0;
     }
 
+    $addon_ids = isset($data['addon_ids']) && is_array($data['addon_ids']) ? array_map('absint', $data['addon_ids']) : [];
+    if (!empty($addon_ids)) {
+      foreach ($addon_ids as $addon_id) {
+        $addon_price = get_post_meta($addon_id, Services_API::META_PRICE, true);
+        if ($addon_price === '' || $addon_price === null) {
+          $addon_price = get_post_meta($addon_id, '_koopo_price', true);
+        }
+        if (is_numeric($addon_price)) {
+          $price += (float) $addon_price;
+        }
+      }
+    }
+
     // Only these statuses should block time
     $blocking_statuses = self::get_blocking_statuses($listing_id);
 
@@ -177,23 +190,29 @@ private static function release_lock(int $listing_id): void {
         throw new \Exception('That time was just booked. Please choose another slot.');
       }
 
-      // Insert booking as pending_payment
-      $inserted = $wpdb->insert($table, [
-        'listing_id'         => $listing_id,
-        'listing_author_id'  => $listing_author_id,
-        'service_id'         => (string) $service_id,
-        'customer_id'        => $customer_id,
-        'start_datetime'     => $start,
-        'end_datetime'       => $end,
-        'timezone'           => $timezone,
-        'price'              => (float) $price,
-        'currency'           => $currency,
-        'status'             => 'pending_payment',
-        'created_at'         => current_time('mysql'),
-        'updated_at'         => current_time('mysql'),
-      ], [
-        '%d','%d','%s','%d','%s','%s','%s','%f','%s','%s','%s','%s'
-      ]);
+    $status = isset($data['status']) ? sanitize_text_field((string) $data['status']) : 'pending_payment';
+    $allowed_statuses = ['pending_payment', 'confirmed'];
+    if (!in_array($status, $allowed_statuses, true)) {
+      $status = 'pending_payment';
+    }
+
+    // Insert booking
+    $inserted = $wpdb->insert($table, [
+      'listing_id'         => $listing_id,
+      'listing_author_id'  => $listing_author_id,
+      'service_id'         => (string) $service_id,
+      'customer_id'        => $customer_id,
+      'start_datetime'     => $start,
+      'end_datetime'       => $end,
+      'timezone'           => $timezone,
+      'price'              => (float) $price,
+      'currency'           => $currency,
+      'status'             => $status,
+      'created_at'         => current_time('mysql'),
+      'updated_at'         => current_time('mysql'),
+    ], [
+      '%d','%d','%s','%d','%s','%s','%s','%f','%s','%s','%s','%s'
+    ]);
 
       if (!$inserted) {
         throw new \Exception('Failed to create booking.');
@@ -217,12 +236,23 @@ private static function release_lock(int $listing_id): void {
       if (isset($data['booking_for_other']) && $data['booking_for_other']) {
         update_option("koopo_booking_{$booking_id}_booking_for_other", '1');
       }
+      if (!empty($addon_ids)) {
+        update_option("koopo_booking_{$booking_id}_addon_ids", wp_json_encode($addon_ids));
+      }
 
       return $booking_id;
 
     } finally {
       self::release_lock($listing_id);
     }
+  }
+
+  /**
+   * Create a booking initiated by a vendor (manual booking).
+   */
+  public static function create_manual_booking(array $data): int {
+    $data['status'] = $data['status'] ?? 'confirmed';
+    return self::create_booking_row($data);
   }
 
 public static function confirm_booking_safely(int $booking_id): array {

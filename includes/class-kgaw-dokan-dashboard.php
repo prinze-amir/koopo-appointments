@@ -89,6 +89,8 @@ public static function load_templates($query_vars) {
       'rest' => esc_url_raw(rest_url('koopo/v1')),
       'nonce' => wp_create_nonce('wp_rest'),
       'userId' => get_current_user_id(),
+      'admin_url' => admin_url(),
+      'currency_symbol' => function_exists('get_woocommerce_currency_symbol') ? get_woocommerce_currency_symbol() : '$',
     ]);
 
     // status badges reused (colors)

@@ -42,6 +42,14 @@
     services: [],
   };
 
+  function setServiceModalLoading(isLoading, message){
+    const $loading = $modal.find('.koopo-modal__loading');
+    if (!$loading.length) return;
+    if (message) $loading.find('.koopo-modal__loading-text').text(message);
+    $loading.toggle(!!isLoading);
+    $modal.find('.koopo-modal__card :input, .koopo-modal__card button').prop('disabled', !!isLoading);
+  }
+
   function renderServices(){
     if (!$servicesGrid.length) return;
     if (!state.listingId) {
@@ -54,13 +62,14 @@
     }
     const cards = state.services.map(s => {
       const badge = (s.status === 'inactive') ? '<span class="koopo-badge koopo-badge--gray">Inactive</span>' : '<span class="koopo-badge koopo-badge--green">Active</span>';
+      const addonBadge = s.is_addon ? '<span class="koopo-badge koopo-badge--purple">Add-on</span>' : '';
       const price = (s.price_label && s.price_label.trim()) ? escapeHtml(s.price_label) : `$${Number(s.price||0).toFixed(2)}`;
       const colorDot = s.color ? `<span class="koopo-dot" style="background:${escapeHtml(s.color)}"></span>` : '';
       return `
         <div class="koopo-card koopo-card--click" data-service-id="${s.id}">
           <div class="koopo-card__top">
             <div class="koopo-card__title">${colorDot}${escapeHtml(s.title)}</div>
-            ${badge}
+            <div class="koopo-card__badges">${badge}${addonBadge}</div>
           </div>
           <div class="koopo-card__meta">
             <div><strong>Price:</strong> ${price}</div>
@@ -80,6 +89,8 @@
 
   async function openModal(service){
     state.editingServiceId = service ? service.id : null;
+    $modal.show();
+    setServiceModalLoading(true, 'Loading service...');
     $('#koopo-service-modal-title').text(service ? 'Edit Service' : 'Add Service');
     $('#koopo-service-name').val(service ? service.title : '');
     $('#koopo-service-description').val(service ? (service.description||'') : '');
@@ -91,6 +102,7 @@
     $('#koopo-service-buffer-before').val(service ? (service.buffer_before||0) : 0);
     $('#koopo-service-buffer-after').val(service ? (service.buffer_after||0) : 0);
     $('#koopo-service-instant').prop('checked', !!(service && service.instant));
+    $('#koopo-service-addon').prop('checked', !!(service && service.is_addon));
     $('#koopo-service-delete').toggle(!!service);
 
     // Load categories with spinner
@@ -118,11 +130,14 @@
       console.error('Failed to load categories:', e);
       $catSelect.html('<option value="">Failed to load categories</option>');
       $catSelect.prop('disabled', false);
+    } finally {
+      setServiceModalLoading(false);
     }
-
-    $modal.show();
   }
-  function closeModal(){ $modal.hide(); }
+  function closeModal(){
+    setServiceModalLoading(false);
+    $modal.hide();
+  }
 
   async function saveService(){
     if (!state.listingId) throw new Error('Select a listing first.');
@@ -142,19 +157,25 @@
       buffer_before: parseInt($('#koopo-service-buffer-before').val(),10) || 0,
       buffer_after: parseInt($('#koopo-service-buffer-after').val(),10) || 0,
       instant: $('#koopo-service-instant').is(':checked') ? 1 : 0,
+      is_addon: $('#koopo-service-addon').is(':checked') ? 1 : 0,
       listing_id: state.listingId,
       category_ids: categoryIds
     };
 
     if (!payload.title || !payload.duration_minutes) throw new Error('Service name and duration are required.');
 
-    if (state.editingServiceId) {
-      await api(`/services/${state.editingServiceId}`, { method:'POST', body: JSON.stringify(payload) });
-    } else {
-      await api('/services', { method:'POST', body: JSON.stringify(payload) });
+    setServiceModalLoading(true, 'Saving service...');
+    try {
+      if (state.editingServiceId) {
+        await api(`/services/${state.editingServiceId}`, { method:'POST', body: JSON.stringify(payload) });
+      } else {
+        await api('/services', { method:'POST', body: JSON.stringify(payload) });
+      }
+      await refreshServices();
+      closeModal();
+    } finally {
+      setServiceModalLoading(false);
     }
-    await refreshServices();
-    closeModal();
   }
 
   async function deleteService(){
@@ -220,8 +241,27 @@
   const $apptExport = $('#koopo-appointments-export');
   const $apptTable  = $('#koopo-appointments-table');
   const $apptPager  = $('#koopo-appointments-pagination');
+  const $apptCalendar = $('#koopo-appointments-calendar');
+  const $calendarBody = $('#koopo-calendar-body');
+  const $calendarTitle = $apptCalendar.find('.koopo-calendar-title');
+  const $viewButtons = $('.koopo-view-btn');
+  const $calViewButtons = $('.koopo-cal-view');
+  const $calPrev = $apptCalendar.find('.koopo-cal-prev');
+  const $calNext = $apptCalendar.find('.koopo-cal-next');
+  const $calToday = $apptCalendar.find('.koopo-cal-today');
+  const $apptCreate = $('#koopo-appt-create');
+  const $apptCreateModal = $('#koopo-appt-create-modal');
+  const $apptDetailsModal = $('#koopo-appt-details-modal');
+  const $apptDetailsActions = $('#koopo-appt-details-actions');
 
-  const apptState = { listingId: null, status: 'all', search: '', month: '', year: '', page: 1, perPage: 20, totalPages: 1 };
+  const apptState = { listingId: null, status: 'all', search: '', month: '', year: '', page: 1, perPage: 20, totalPages: 1, view: 'table' };
+  const calendarState = { view: 'month', cursor: new Date(), items: [], mobileDay: null };
+  let apptServices = [];
+  let apptServiceMap = {};
+  let apptTimezone = '';
+  let apptItemsMap = {};
+  let apptAddons = [];
+  let selectedAddonIds = [];
 
   // Populate year dropdown with current and future years
   function populateYearDropdown() {
@@ -301,6 +341,467 @@
     $apptPager.html(html);
   }
 
+  function toYmd(date){
+    const d = new Date(date);
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  }
+
+  function toYmdHms(date){
+    const d = new Date(date);
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mi = String(d.getMinutes()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd} ${hh}:${mi}:00`;
+  }
+
+  function parseDateTime(str){
+    if (!str) return null;
+    const iso = String(str).replace(' ', 'T');
+    const d = new Date(iso);
+    return isNaN(d.getTime()) ? null : d;
+  }
+
+  function formatTime(str){
+    const d = parseDateTime(str);
+    if (!d) return '';
+    return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  }
+
+    function buildAvatarHtml(booking){
+      const name = booking.customer_name || booking.customer_email || 'Guest';
+      if (!booking.customer_avatar || !booking.customer_profile) {
+        return `<span>${escapeHtml(name)}</span>`;
+      }
+      return `
+      <a class="koopo-avatar" href="${escapeHtml(booking.customer_profile)}" target="_blank" rel="noopener">
+        <img class="koopo-avatar__img" src="${escapeHtml(booking.customer_avatar)}" alt="${escapeHtml(name)}" />
+        <span class="koopo-avatar__pop">View ${escapeHtml(name)}&#39;s profile</span>
+      </a>
+    `;
+  }
+
+  function buildAvatarWithNameHtml(booking){
+    const name = booking.customer_name || booking.customer_email || 'Guest';
+    if (!booking.customer_avatar || !booking.customer_profile) {
+      return `<span>${escapeHtml(name)}</span>`;
+    }
+    return `
+      <a class="koopo-avatar" href="${escapeHtml(booking.customer_profile)}" target="_blank" rel="noopener">
+        <img class="koopo-avatar__img" src="${escapeHtml(booking.customer_avatar)}" alt="${escapeHtml(name)}" />
+        <span>${escapeHtml(name)}</span>
+        <span class="koopo-avatar__pop">View ${escapeHtml(name)}&#39;s profile</span>
+      </a>
+    `;
+  }
+
+  function hexToRgba(hex, alpha){
+    const h = String(hex||'').replace('#','');
+    if (h.length !== 6) return `rgba(44,122,60,${alpha})`;
+    const r = parseInt(h.slice(0,2), 16);
+    const g = parseInt(h.slice(2,4), 16);
+    const b = parseInt(h.slice(4,6), 16);
+    return `rgba(${r},${g},${b},${alpha})`;
+  }
+
+  function setAppointmentsView(view){
+    apptState.view = view;
+    $viewButtons.removeClass('is-active');
+    $viewButtons.filter(`[data-view="${view}"]`).addClass('is-active');
+    if (view === 'calendar') {
+      $apptTable.hide();
+      $apptPager.hide();
+      $apptCalendar.show();
+      loadCalendar();
+    } else {
+      $apptCalendar.hide();
+      $apptTable.show();
+      $apptPager.show();
+      loadAppointments();
+    }
+  }
+
+  function setCalendarView(view){
+    calendarState.view = view;
+    $calViewButtons.removeClass('is-active');
+    $calViewButtons.filter(`[data-view="${view}"]`).addClass('is-active');
+    loadCalendar();
+  }
+
+  function formatHourLabel(h){
+    const hour = h % 12 || 12;
+    const ampm = h < 12 ? 'AM' : 'PM';
+    return `${hour} ${ampm}`;
+  }
+
+  function formatDurationLabel(minutes){
+    const mins = Math.max(0, Math.round(minutes));
+    if (mins < 60) return `${mins}m`;
+    const hours = Math.floor(mins / 60);
+    const rem = mins % 60;
+    return rem ? `${hours}h ${rem}m` : `${hours}h`;
+  }
+
+  function weekStart(date){
+    const d = new Date(date);
+    const day = d.getDay();
+    const diff = (day === 0 ? -6 : 1) - day;
+    d.setDate(d.getDate() + diff);
+    d.setHours(0,0,0,0);
+    return d;
+  }
+
+  function monthStart(date){
+    const d = new Date(date.getFullYear(), date.getMonth(), 1);
+    d.setHours(0,0,0,0);
+    return d;
+  }
+
+  function monthGridStart(date){
+    const start = monthStart(date);
+    const day = start.getDay();
+    start.setDate(start.getDate() - day);
+    return start;
+  }
+
+  function renderMonthView(items, cursor){
+    const start = monthGridStart(cursor);
+    const month = cursor.getMonth();
+    const today = toYmd(new Date());
+    const todayDow = new Date().getDay();
+
+    const byDate = {};
+    items.forEach(b => {
+      const d = String(b.start_datetime || '').slice(0,10);
+      if (!d) return;
+      if (!byDate[d]) byDate[d] = [];
+      byDate[d].push(b);
+    });
+
+    let html = '<div class="koopo-calendar-grid">';
+    const dayNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+    dayNames.forEach((name, idx) => {
+      const headClass = idx === todayDow ? 'koopo-calendar-day-head is-today' : 'koopo-calendar-day-head';
+      html += `<div class="${headClass}">${name}</div>`;
+    });
+    for (let i = 0; i < 42; i++) {
+      const d = new Date(start);
+      d.setDate(start.getDate() + i);
+      const dateKey = toYmd(d);
+      const dayItems = (byDate[dateKey] || []).slice().sort((a, b) => String(a.start_datetime).localeCompare(String(b.start_datetime)));
+      const isOutside = d.getMonth() !== month;
+      const isToday = dateKey === today;
+      html += `<div class="koopo-calendar-day ${isOutside ? 'is-outside' : ''} ${isToday ? 'is-today' : ''}">
+        <div class="koopo-calendar-day__num">${d.getDate()}</div>
+        ${dayItems.slice(0,3).map(b => {
+          const color = b.service_color || '#2c7a3c';
+          const bg = hexToRgba(color, 0.18);
+          const time = formatTime(b.start_datetime);
+          const customer = b.customer_name || b.customer_email || 'Guest';
+          const customerLabel = b.customer_is_guest ? `${customer} (Guest)` : customer;
+          const avatar = buildAvatarHtml(b);
+          return `<div class="koopo-cal-event" data-id="${b.id}" style="--event-color:${color};--event-bg:${bg}">
+            <div><strong>${escapeHtml(b.service_title || 'Appointment')}</strong></div>
+            <div class="koopo-cal-event__customer">${avatar}${b.customer_is_guest ? ' <span class="koopo-guest-badge">Guest</span>' : ''}</div>
+            <div class="koopo-cal-event__time">${escapeHtml(time)}</div>
+          </div>`;
+        }).join('')}
+        ${dayItems.length > 3 ? `<div class="koopo-cal-event__time">+${dayItems.length - 3} more</div>` : ''}
+      </div>`;
+    }
+    html += '</div>';
+    $calendarBody.html(html);
+  }
+
+  function renderWeekView(items, cursor){
+    if (window.matchMedia && window.matchMedia('(max-width: 640px)').matches) {
+      renderWeekViewMobile(items, cursor);
+      return;
+    }
+    const start = weekStart(cursor);
+    const days = [];
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(start);
+      d.setDate(start.getDate() + i);
+      days.push(d);
+    }
+
+    let header = '<div class="koopo-week-view">';
+    header += '<div class="koopo-week-header"><div class="koopo-week-header__time"></div>';
+    days.forEach(d => {
+      const isToday = toYmd(d) === toYmd(new Date());
+      header += `<div class="koopo-week-header__day ${isToday ? 'is-today' : ''}">${d.toLocaleDateString(undefined, { weekday:'long' })} ${d.getDate()}</div>`;
+    });
+    header += '</div>';
+    header += '<div class="koopo-week-body"><div class="koopo-week-time">';
+    for (let h = 0; h < 24; h++) {
+      header += `<div class="koopo-week-time__slot">${formatHourLabel(h)}</div>`;
+    }
+    header += '</div><div class="koopo-week-days">';
+
+    days.forEach(d => {
+      const dayKey = toYmd(d);
+      header += `<div class="koopo-week-day" data-day="${dayKey}"></div>`;
+    });
+    header += '</div></div></div>';
+    $calendarBody.html(header);
+
+    const hourHeight = 48;
+    items.forEach(b => {
+      const startDt = parseDateTime(b.start_datetime);
+      const endDt = parseDateTime(b.end_datetime);
+      if (!startDt || !endDt) return;
+      const dayKey = toYmd(startDt);
+      const $dayCol = $calendarBody.find(`.koopo-week-day[data-day="${dayKey}"]`);
+      if (!$dayCol.length) return;
+      const startMinutes = startDt.getHours() * 60 + startDt.getMinutes();
+      const endMinutes = endDt.getHours() * 60 + endDt.getMinutes();
+      const top = (startMinutes / 60) * hourHeight;
+      const height = Math.max(24, ((endMinutes - startMinutes) / 60) * hourHeight);
+      const color = b.service_color || '#2c7a3c';
+      const bg = hexToRgba(color, 0.18);
+      const avatar = '';
+      const eventHtml = `
+        <div class="koopo-cal-event" data-id="${b.id}" style="--event-color:${color};--event-bg:${bg};top:${top}px;height:${height}px;">
+          <div><strong>${escapeHtml(b.service_title || 'Appointment')}</strong></div>
+        </div>`;
+      $dayCol.append(eventHtml);
+    });
+  }
+
+  function renderWeekViewMobile(items, cursor){
+    const start = weekStart(cursor);
+    const days = [];
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(start);
+      d.setDate(start.getDate() + i);
+      days.push(d);
+    }
+
+    const todayKey = toYmd(new Date());
+    const defaultDay = days.find(d => toYmd(d) === todayKey) || days[0];
+    if (!calendarState.mobileDay) {
+      calendarState.mobileDay = toYmd(defaultDay);
+    }
+
+    const selectedKey = calendarState.mobileDay;
+    const selectedDate = days.find(d => toYmd(d) === selectedKey) || defaultDay;
+
+    const monthLabel = selectedDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    let html = `<div class="koopo-week-mobile">
+      <div class="koopo-week-mobile__top">
+        <div class="koopo-week-mobile__month">${monthLabel}</div>
+      </div>
+      <div class="koopo-week-mobile__days">`;
+
+    days.forEach(d => {
+      const key = toYmd(d);
+      const isActive = key === selectedKey;
+      html += `
+        <button type="button" class="koopo-week-mobile__day ${isActive ? 'is-active' : ''}" data-day="${key}">
+          <span class="koopo-week-mobile__day-name">${d.toLocaleDateString(undefined, { weekday: 'narrow' })}</span>
+          <span class="koopo-week-mobile__day-num">${String(d.getDate()).padStart(2,'0')}</span>
+        </button>`;
+    });
+
+    html += '</div>';
+
+    const dayItems = items
+      .filter(b => String(b.start_datetime || '').slice(0,10) === selectedKey)
+      .sort((a, b) => String(a.start_datetime).localeCompare(String(b.start_datetime)));
+
+    if (!dayItems.length) {
+      html += `<div class="koopo-week-mobile__empty">No appointments</div>`;
+    } else {
+      html += '<div class="koopo-week-mobile__list">';
+      dayItems.forEach(b => {
+        const startDt = parseDateTime(b.start_datetime);
+        const endDt = parseDateTime(b.end_datetime);
+        const time = formatTime(b.start_datetime);
+        const duration = (startDt && endDt) ? (endDt.getTime() - startDt.getTime()) / 60000 : 0;
+        const durationLabel = formatDurationLabel(duration);
+        const color = b.service_color || '#2c7a3c';
+        html += `
+          <div class="koopo-week-mobile__row" data-id="${b.id}">
+            <div class="koopo-week-mobile__time">${escapeHtml(time)}</div>
+            <div class="koopo-week-mobile__card" style="--event-color:${color}">
+              <div class="koopo-week-mobile__title">${escapeHtml(b.service_title || 'Appointment')}</div>
+              <div class="koopo-week-mobile__duration">${escapeHtml(durationLabel)}</div>
+            </div>
+          </div>`;
+      });
+      html += '</div>';
+    }
+
+    html += '</div>';
+    $calendarBody.html(html);
+  }
+
+  function renderDayView(items, cursor){
+    const dayKey = toYmd(cursor);
+    const todayKey = toYmd(new Date());
+    const html = '<div class="koopo-week-view koopo-day-view">' +
+      '<div class="koopo-week-header"><div class="koopo-week-header__time"></div>' +
+      `<div class="koopo-week-header__day ${dayKey === todayKey ? 'is-today' : ''}">${cursor.toLocaleDateString(undefined, { weekday:'long', month:'short', day:'numeric' })}</div>` +
+      '</div><div class="koopo-week-body"><div class="koopo-week-time">';
+    let body = '';
+    for (let h = 0; h < 24; h++) {
+      const isCurrent = dayKey === todayKey && new Date().getHours() === h;
+      body += `<div class="koopo-week-time__slot ${isCurrent ? 'is-current' : ''}">${formatHourLabel(h)}</div>`;
+    }
+    body += '</div><div class="koopo-week-days"><div class="koopo-week-day" data-day="' + dayKey + '"></div></div></div></div>';
+    $calendarBody.html(html + body);
+
+    const hourHeight = 48;
+    items.forEach(b => {
+      const startDt = parseDateTime(b.start_datetime);
+      const endDt = parseDateTime(b.end_datetime);
+      if (!startDt || !endDt) return;
+      const startMinutes = startDt.getHours() * 60 + startDt.getMinutes();
+      const endMinutes = endDt.getHours() * 60 + endDt.getMinutes();
+      const top = (startMinutes / 60) * hourHeight;
+      const height = Math.max(24, ((endMinutes - startMinutes) / 60) * hourHeight);
+      const color = b.service_color || '#2c7a3c';
+      const bg = hexToRgba(color, 0.18);
+      const customer = b.customer_name || b.customer_email || 'Guest';
+      const customerLabel = b.customer_is_guest ? `${customer} (Guest)` : customer;
+      const avatar = '';
+      const eventHtml = `
+        <div class="koopo-cal-event" data-id="${b.id}" style="--event-color:${color};--event-bg:${bg};top:${top}px;height:${height}px;">
+          <div><strong>${escapeHtml(b.service_title || 'Appointment')}</strong></div>
+          <div class="koopo-cal-event__customer">${escapeHtml(customerLabel)}</div>
+          <div class="koopo-cal-event__time">${escapeHtml(formatTime(b.start_datetime))}</div>
+        </div>`;
+      $calendarBody.find('.koopo-week-day').append(eventHtml);
+    });
+  }
+
+  function renderAgendaView(items, start, end){
+    const byDate = {};
+    items.forEach(b => {
+      const d = String(b.start_datetime || '').slice(0,10);
+      if (!d) return;
+      if (!byDate[d]) byDate[d] = [];
+      byDate[d].push(b);
+    });
+
+    const dates = [];
+    const cur = new Date(start);
+    const endDate = new Date(end);
+    while (cur <= endDate) {
+      dates.push(toYmd(cur));
+      cur.setDate(cur.getDate() + 1);
+    }
+
+    let html = '<div class="koopo-agenda">';
+    dates.forEach(dateKey => {
+      const dayItems = (byDate[dateKey] || []).slice().sort((a, b) => String(a.start_datetime).localeCompare(String(b.start_datetime)));
+      const label = new Date(dateKey + 'T00:00:00').toLocaleDateString(undefined, { weekday:'long', month:'short', day:'numeric' });
+      html += `<div class="koopo-agenda-day"><div class="koopo-agenda-day__title">${label}</div>`;
+      if (!dayItems.length) {
+        html += `<div class="koopo-agenda-empty">No appointments</div>`;
+      } else {
+        html += '<div class="koopo-agenda-list">';
+        dayItems.forEach(b => {
+          const time = formatTime(b.start_datetime);
+          const customer = b.customer_name || b.customer_email || 'Guest';
+          const customerLabel = b.customer_is_guest ? `${customer} (Guest)` : customer;
+          const color = b.service_color || '#2c7a3c';
+          html += `
+            <div class="koopo-agenda-item" data-id="${b.id}" style="--event-color:${color}">
+              <div class="koopo-agenda-item__time">${escapeHtml(time)}</div>
+              <div class="koopo-agenda-item__title">${escapeHtml(b.service_title || 'Appointment')}</div>
+              <div class="koopo-agenda-item__meta">${escapeHtml(customerLabel)}</div>
+            </div>`;
+        });
+        html += '</div>';
+      }
+      html += '</div>';
+    });
+    html += '</div>';
+    $calendarBody.html(html);
+  }
+
+  async function loadCalendar(){
+    if (!$apptCalendar.length) return;
+    if (!apptState.listingId) {
+      $calendarBody.html('<div class="koopo-muted">Pick a listing to load appointments.</div>');
+      return;
+    }
+
+    const view = calendarState.view;
+    const cursor = calendarState.cursor;
+
+    let rangeStart;
+    let rangeEnd;
+    if (view === 'month') {
+      const start = monthStart(cursor);
+      const end = new Date(start.getFullYear(), start.getMonth() + 1, 0);
+      end.setHours(23,59,59,999);
+      rangeStart = toYmdHms(start);
+      rangeEnd = toYmdHms(end);
+      $calendarTitle.text(cursor.toLocaleDateString(undefined, { month:'long', year:'numeric' }));
+    } else if (view === 'week') {
+      const start = weekStart(cursor);
+      const end = new Date(start);
+      end.setDate(start.getDate() + 6);
+      end.setHours(23,59,59,999);
+      rangeStart = toYmdHms(start);
+      rangeEnd = toYmdHms(end);
+      $calendarTitle.text(`${start.toLocaleDateString(undefined, { month:'short', day:'numeric' })} - ${end.toLocaleDateString(undefined, { month:'short', day:'numeric', year:'numeric' })}`);
+    } else if (view === 'agenda') {
+      const start = weekStart(cursor);
+      const end = new Date(start);
+      end.setDate(start.getDate() + 6);
+      end.setHours(23,59,59,999);
+      rangeStart = toYmdHms(start);
+      rangeEnd = toYmdHms(end);
+      $calendarTitle.text(`Agenda • ${start.toLocaleDateString(undefined, { month:'short', day:'numeric' })} - ${end.toLocaleDateString(undefined, { month:'short', day:'numeric', year:'numeric' })}`);
+    } else {
+      const start = new Date(cursor);
+      start.setHours(0,0,0,0);
+      const end = new Date(start);
+      end.setHours(23,59,59,999);
+      rangeStart = toYmdHms(start);
+      rangeEnd = toYmdHms(end);
+      $calendarTitle.text(cursor.toLocaleDateString(undefined, { weekday:'long', month:'long', day:'numeric', year:'numeric' }));
+    }
+
+    $calendarBody.html('<div class="koopo-loading-inline"><div class="koopo-spinner"></div><div>Loading calendar...</div></div>');
+    try {
+      const params = {
+        listing_id: apptState.listingId,
+        status: apptState.status || 'all',
+        per_page: '500',
+        range_start: rangeStart,
+        range_end: rangeEnd,
+      };
+      const qs = new URLSearchParams(params);
+      const data = await api(`/vendor/bookings?${qs.toString()}`, { method: 'GET' });
+      const items = data.items || [];
+      apptItemsMap = {};
+      items.forEach(b => { apptItemsMap[b.id] = b; });
+      calendarState.items = items;
+
+      if (view === 'month') renderMonthView(items, cursor);
+      if (view === 'week') renderWeekView(items, cursor);
+      if (view === 'day') renderDayView(items, cursor);
+      if (view === 'agenda') {
+        const start = weekStart(cursor);
+        const end = new Date(start);
+        end.setDate(start.getDate() + 6);
+        renderAgendaView(items, start, end);
+      }
+    } catch (e) {
+      $calendarBody.html('<div class="koopo-muted">Failed to load calendar.</div>');
+      console.error(e);
+    }
+  }
+
   async function loadAppointments(){
     if (!$apptTable.length) return;
     if (!apptState.listingId) {
@@ -308,7 +809,7 @@
       $apptPager.html('');
       return;
     }
-    $apptTable.html('<div class="koopo-muted">Loading…</div>');
+    $apptTable.html('<div class="koopo-loading-inline"><div class="koopo-spinner"></div><div>Loading appointments...</div></div>');
     try {
       const params = {
         listing_id: apptState.listingId,
@@ -325,6 +826,8 @@
       const data = await api(`/vendor/bookings?${qs.toString()}`, { method: 'GET' });
       const items = data.items || [];
       apptState.totalPages = (data.pagination && data.pagination.total_pages) ? Number(data.pagination.total_pages) : 1;
+      apptItemsMap = {};
+      items.forEach(b => { apptItemsMap[b.id] = b; });
 
       if (!items.length) {
         $apptTable.html('<div class="koopo-muted">No appointments found.</div>');
@@ -348,20 +851,28 @@
 
         const bookedAtDisplay = b.created_at_formatted || escapeHtml(b.created_at || '—');
 
+        const serviceColor = b.service_color ? escapeHtml(b.service_color) : '';
+        const serviceDot = `<span class="koopo-service-color" style="background:${serviceColor || '#e5e5e5'}"></span>`;
+        const serviceCell = `<span class="koopo-service-cell" style="--service-color:${serviceColor || '#e5e5e5'}">${serviceDot}${escapeHtml(b.service_title || '')}</span>`;
+        const guestBadge = b.customer_is_guest ? '<span class="koopo-guest-badge">Guest</span>' : '';
+        const customerName = b.customer_name || b.customer_email || '—';
+        const customerHtml = buildAvatarHtml(b);
+        const customerLabel = `${customerHtml}${b.customer_is_guest ? ' <span class="koopo-guest-badge">Guest</span>' : ''}${!b.customer_avatar ? ` ${escapeHtml(customerName)}` : ''}`;
+
         return `
-          <tr ${rowClass} data-start="${escapeHtml(b.start_datetime)}" data-end="${escapeHtml(b.end_datetime)}">
-            <td>#${b.id}</td>
-            <td>${escapeHtml(b.customer_name || '')}</td>
-            <td>${escapeHtml(b.service_title || '')}</td>
-            <td>
+          <tr ${rowClass} data-id="${b.id}" data-start="${escapeHtml(b.start_datetime)}" data-end="${escapeHtml(b.end_datetime)}">
+            <td data-label="Booking">#${b.id}</td>
+            <td data-label="Customer">${customerLabel}</td>
+            <td data-label="Service">${serviceCell}</td>
+            <td data-label="When">
               <strong>${dateTimeDisplay}</strong><br>
               <span style="opacity:0.7;font-size:12px;">to ${endTimeDisplay} (${durationDisplay})</span>
             </td>
-            <td style="font-size:13px;opacity:0.8;">${bookedAtDisplay}</td>
-            <td>${badgeForStatus(b.status)}</td>
-            <td>${fmtMoney(b.price, b.currency)}</td>
-            <td>${orderLink}</td>
-            <td>${actionsForBooking(b)}</td>
+            <td class="koopo-col-booked" data-label="Booked On" style="font-size:13px;opacity:0.8;">${bookedAtDisplay}</td>
+            <td data-label="Status">${badgeForStatus(b.status)}</td>
+            <td data-label="Total">${fmtMoney(b.price, b.currency)}</td>
+            <td class="koopo-col-order" data-label="Order">${orderLink}</td>
+            <td data-label="Actions">${actionsForBooking(b)}</td>
           </tr>
         `;
       }).join('');
@@ -374,10 +885,10 @@
               <th>Customer</th>
               <th>Service</th>
               <th>When</th>
-              <th>Booked On</th>
+              <th class="koopo-col-booked">Booked On</th>
               <th>Status</th>
               <th>Total</th>
-              <th>Order</th>
+              <th class="koopo-col-order">Order</th>
               <th>Actions</th>
             </tr>
           </thead>
@@ -394,16 +905,51 @@
   }
 
   if ($apptPicker.length) {
+    async function loadApptServices(listingId){
+      if (!listingId) return;
+      try {
+        const services = await api(`/services/by-listing/${listingId}`, { method:'GET' });
+        apptServices = (services || []).filter(s => !s.is_addon);
+        apptAddons = (services || []).filter(s => s.is_addon);
+        apptServiceMap = {};
+        (services || []).forEach(s => { apptServiceMap[s.id] = s; });
+        const $select = $('#koopo-appt-service');
+        if ($select.length) {
+          $select.html('<option value="">Select a service...</option>');
+          apptServices.forEach(s => {
+            $select.append(`<option value="${s.id}">${escapeHtml(s.title)}</option>`);
+          });
+        }
+        renderAddonOptions();
+      } catch (e) {
+        console.error('Failed to load services', e);
+      }
+    }
+
+    async function loadApptTimezone(listingId){
+      if (!listingId) return;
+      try {
+        const settings = await api(`/appointments/settings/${listingId}`, { method:'GET' });
+        apptTimezone = settings.timezone || '';
+      } catch (e) {
+        apptTimezone = '';
+      }
+    }
+
     loadVendorListings($apptPicker).catch(()=>{});
     $apptPicker.on('change', function(){
       apptState.listingId = $(this).val() || '';
       apptState.page = 1;
       loadAppointments();
+      if (apptState.view === 'calendar') loadCalendar();
+      loadApptServices(apptState.listingId);
+      loadApptTimezone(apptState.listingId);
     });
     $apptStatus.on('change', function(){
       apptState.status = $(this).val() || 'all';
       apptState.page = 1;
       loadAppointments();
+      if (apptState.view === 'calendar') loadCalendar();
     });
 
     // Search with debounce
@@ -431,6 +977,300 @@
       apptState.page = 1;
       loadAppointments();
     });
+
+    $viewButtons.on('click', function(){
+      const view = $(this).data('view');
+      if (view) setAppointmentsView(view);
+    });
+
+    $calViewButtons.on('click', function(){
+      const view = $(this).data('view');
+      if (view) setCalendarView(view);
+    });
+
+    $calPrev.on('click', function(){
+      const d = new Date(calendarState.cursor);
+      if (calendarState.view === 'month') d.setMonth(d.getMonth() - 1);
+      if (calendarState.view === 'week') d.setDate(d.getDate() - 7);
+      if (calendarState.view === 'day') d.setDate(d.getDate() - 1);
+      calendarState.cursor = d;
+      loadCalendar();
+    });
+
+    $calNext.on('click', function(){
+      const d = new Date(calendarState.cursor);
+      if (calendarState.view === 'month') d.setMonth(d.getMonth() + 1);
+      if (calendarState.view === 'week') d.setDate(d.getDate() + 7);
+      if (calendarState.view === 'day') d.setDate(d.getDate() + 1);
+      calendarState.cursor = d;
+      loadCalendar();
+    });
+
+    $calToday.on('click', function(){
+      calendarState.cursor = new Date();
+      loadCalendar();
+    });
+
+    function setCreateModalLoading(isLoading, message){
+      const $loading = $apptCreateModal.find('.koopo-modal__loading');
+      if (message) $loading.find('.koopo-modal__loading-text').text(message);
+      $loading.toggle(!!isLoading);
+      $apptCreateModal.find('.koopo-modal__card :input, .koopo-modal__card button').prop('disabled', !!isLoading);
+    }
+
+    $apptCreate.on('click', async function(){
+      if (!apptState.listingId) {
+        alert('Please select a listing first.');
+        return;
+      }
+      $apptCreateModal.show();
+      setCreateModalLoading(true, 'Loading form...');
+      selectedAddonIds = [];
+      $('#koopo-appt-addon-selected').empty();
+      await loadApptServices(apptState.listingId);
+      await loadApptTimezone(apptState.listingId);
+      setCreateModalLoading(false);
+    });
+
+    function closeModalOnOverlay($modal){
+      $modal.on('click', function(e){
+        if ($(e.target).is($modal)) {
+          $modal.hide();
+        }
+      });
+      $modal.on('click', '.koopo-modal__close', function(){
+        $modal.hide();
+      });
+    }
+
+    closeModalOnOverlay($apptCreateModal);
+    closeModalOnOverlay($apptDetailsModal);
+
+    $apptCreateModal.on('click', '#koopo-appt-create-cancel', function(){
+      $apptCreateModal.hide();
+    });
+
+    $apptCreateModal.on('change', 'input[name="koopo-appt-customer-type"]', function(){
+      const type = $(this).val();
+      if (type === 'guest') {
+        $('.koopo-appt-customer--user').hide();
+        $('.koopo-appt-customer--guest').show();
+      } else {
+        $('.koopo-appt-customer--guest').hide();
+        $('.koopo-appt-customer--user').show();
+      }
+    });
+
+    function syncEndTime(){
+      const serviceId = parseInt($('#koopo-appt-service').val(), 10) || 0;
+      const startVal = $('#koopo-appt-start-time').val();
+      if (!serviceId || !startVal) return;
+      const svc = apptServiceMap[serviceId];
+      if (!svc || !svc.duration_minutes) return;
+      const [h, m] = startVal.split(':').map(Number);
+      const startMinutes = (h * 60) + m;
+      const endMinutes = startMinutes + Number(svc.duration_minutes);
+      const endH = Math.floor(endMinutes / 60) % 24;
+      const endM = endMinutes % 60;
+      const endVal = `${String(endH).padStart(2,'0')}:${String(endM).padStart(2,'0')}`;
+      if (!$('#koopo-appt-end-time').val()) {
+        $('#koopo-appt-end-time').val(endVal);
+      }
+      updateAppointmentTotal();
+    }
+
+    $('#koopo-appt-service').on('change', function(){
+      syncEndTime();
+      updateAppointmentTotal();
+    });
+    $('#koopo-appt-start-time').on('change', syncEndTime);
+
+    function renderAddonOptions(){
+      const $options = $('#koopo-appt-addon-options');
+      const $selected = $('#koopo-appt-addon-selected');
+      if (!$options.length || !$selected.length) return;
+      $options.empty();
+      selectedAddonIds = [];
+      $selected.empty();
+      if (!apptAddons.length) {
+        $options.html('<div class="koopo-muted">No add-on services available.</div>');
+        updateAppointmentTotal();
+        return;
+      }
+      apptAddons.forEach(s => {
+        const price = Number(s.price || 0).toFixed(2);
+        $options.append(`
+          <button type="button" class="koopo-appt-addon-btn" data-id="${s.id}">
+            <span>${escapeHtml(s.title)}</span>
+            <span><strong>${currencySymbol()}${price}</strong> <span class="koopo-appt-addon-plus">+</span></span>
+          </button>
+        `);
+      });
+      updateAppointmentTotal();
+    }
+
+    function currencySymbol(){
+      return (window.KOOPO_APPT_VENDOR && KOOPO_APPT_VENDOR.currency_symbol) ? KOOPO_APPT_VENDOR.currency_symbol : '$';
+    }
+
+    function updateAppointmentTotal(){
+      const serviceId = parseInt($('#koopo-appt-service').val(), 10) || 0;
+      const base = serviceId && apptServiceMap[serviceId] ? Number(apptServiceMap[serviceId].price || 0) : 0;
+      const addonsTotal = selectedAddonIds.reduce((sum, id) => {
+        const svc = apptServiceMap[id];
+        return sum + (svc ? Number(svc.price || 0) : 0);
+      }, 0);
+      const total = base + addonsTotal;
+      $('#koopo-appt-total-amount').text(`${currencySymbol()}${total.toFixed(2)}`);
+    }
+
+    function renderSelectedAddons(){
+      const $selected = $('#koopo-appt-addon-selected');
+      $selected.empty();
+      selectedAddonIds.forEach(id => {
+        const svc = apptServiceMap[id];
+        if (!svc) return;
+        $selected.append(`
+          <span class="koopo-appt-addon-chip" data-id="${id}">
+            ${escapeHtml(svc.title)}
+            <button type="button" aria-label="Remove">×</button>
+          </span>
+        `);
+      });
+      updateAppointmentTotal();
+    }
+
+    $(document).on('click', '.koopo-appt-addon-btn', function(){
+      const id = parseInt($(this).data('id'), 10) || 0;
+      if (!id || selectedAddonIds.includes(id)) return;
+      selectedAddonIds.push(id);
+      renderSelectedAddons();
+    });
+
+    $(document).on('click', '.koopo-appt-addon-chip button', function(){
+      const id = parseInt($(this).closest('.koopo-appt-addon-chip').data('id'), 10) || 0;
+      selectedAddonIds = selectedAddonIds.filter(x => x !== id);
+      renderSelectedAddons();
+    });
+
+    $('#koopo-appt-create-save').on('click', async function(){
+      const listingId = apptState.listingId;
+      const serviceId = parseInt($('#koopo-appt-service').val(), 10) || 0;
+      const date = $('#koopo-appt-date').val();
+      const startTime = $('#koopo-appt-start-time').val();
+      const endTime = $('#koopo-appt-end-time').val();
+      const status = $('#koopo-appt-status').val() || 'confirmed';
+
+      if (!listingId || !serviceId || !date || !startTime || !endTime) {
+        alert('Please fill in service, date, start time, and end time.');
+        return;
+      }
+
+      const startDateTime = `${date} ${startTime}:00`;
+      const endDateTime = `${date} ${endTime}:00`;
+
+      const type = $('input[name="koopo-appt-customer-type"]:checked').val();
+      const payload = {
+        listing_id: listingId,
+        service_id: serviceId,
+        start_datetime: startDateTime,
+        end_datetime: endDateTime,
+        timezone: apptTimezone,
+        status: status,
+        addon_ids: selectedAddonIds,
+      };
+
+      if (type === 'guest') {
+        payload.customer_name = $('#koopo-appt-guest-name').val().trim();
+        payload.customer_email = $('#koopo-appt-guest-email').val().trim();
+        payload.customer_phone = $('#koopo-appt-guest-phone').val().trim();
+      } else {
+        const userId = parseInt($('#koopo-appt-user-id').val(), 10) || 0;
+        const userEmail = $('#koopo-appt-user-email').val().trim();
+        if (userId) payload.customer_id = userId;
+        if (userEmail) payload.customer_email = userEmail;
+      }
+
+      const notes = $('#koopo-appt-notes').val().trim();
+      if (notes) payload.customer_notes = notes;
+
+      const $btn = $(this);
+      $btn.prop('disabled', true).text('Creating...');
+      setCreateModalLoading(true, 'Creating appointment...');
+      try {
+        await api('/vendor/bookings/create', { method:'POST', body: JSON.stringify(payload) });
+        $apptCreateModal.hide();
+        selectedAddonIds = [];
+        $('#koopo-appt-addon-selected').empty();
+        loadAppointments();
+        if (apptState.view === 'calendar') loadCalendar();
+        alert('Appointment created.');
+      } catch (e) {
+        alert(e.message || 'Failed to create appointment.');
+      } finally {
+        setCreateModalLoading(false);
+        $btn.prop('disabled', false).text('Create Appointment');
+      }
+    });
+
+    $apptTable.on('click', 'tbody tr', function(e){
+      if ($(e.target).closest('button,a').length) return;
+      const id = parseInt($(this).data('id'), 10) || 0;
+      const booking = apptItemsMap[id];
+      if (booking) openApptDetails(booking);
+    });
+
+    $calendarBody.on('click', '.koopo-cal-event', function(e){
+      if ($(e.target).closest('a').length) return;
+      const id = parseInt($(this).data('id'), 10) || 0;
+      const booking = apptItemsMap[id] || calendarState.items.find(b => b.id === id);
+      if (booking) openApptDetails(booking);
+    });
+
+    $calendarBody.on('click', '.koopo-agenda-item', function(){
+      const id = parseInt($(this).data('id'), 10) || 0;
+      const booking = apptItemsMap[id] || calendarState.items.find(b => b.id === id);
+      if (booking) openApptDetails(booking);
+    });
+
+    $calendarBody.on('click', '.koopo-week-mobile__day', function(){
+      const day = $(this).data('day');
+      if (!day) return;
+      calendarState.mobileDay = day;
+      renderWeekView(calendarState.items, calendarState.cursor);
+    });
+
+    $calendarBody.on('click', '.koopo-week-mobile__row', function(){
+      const id = parseInt($(this).data('id'), 10) || 0;
+      const booking = apptItemsMap[id] || calendarState.items.find(b => b.id === id);
+      if (booking) openApptDetails(booking);
+    });
+
+    $apptDetailsModal.on('click', '#koopo-appt-details-close', function(){
+      $apptDetailsModal.hide();
+    });
+
+    function openApptDetails(b){
+      $('#koopo-appt-details-customer').html(buildAvatarWithNameHtml(b) + (b.customer_is_guest ? ' <span class="koopo-guest-badge">Guest</span>' : ''));
+      const metaParts = [];
+      if (b.customer_email) metaParts.push(`<a class="koopo-link-pill" href="mailto:${escapeHtml(b.customer_email)}">Email</a>`);
+      if (b.customer_phone) metaParts.push(`<a class="koopo-link-pill" href="tel:${escapeHtml(b.customer_phone)}">Call</a>`);
+      if (b.customer_profile) metaParts.push(`<a class="koopo-link-pill" href="${escapeHtml(b.customer_profile)}" target="_blank" rel="noopener">Profile</a>`);
+      $('#koopo-appt-details-meta').html(metaParts.join(' ') || '—');
+      $('#koopo-appt-details-service').html(`<span class="koopo-service-cell" style="--service-color:${escapeHtml(b.service_color || '#e5e5e5')}"><span class="koopo-service-color" style="background:${escapeHtml(b.service_color || '#e5e5e5')}"></span>${escapeHtml(b.service_title || '')}</span>`);
+      $('#koopo-appt-details-when').text(`${b.start_datetime_formatted || b.start_datetime} - ${b.end_datetime_formatted || ''}`);
+      $('#koopo-appt-details-status').html(badgeForStatus(b.status));
+      $('#koopo-appt-details-total').text(fmtMoney(b.price, b.currency));
+      const adminBase = (window.KOOPO_APPT_VENDOR && KOOPO_APPT_VENDOR.admin_url)
+        ? String(KOOPO_APPT_VENDOR.admin_url).replace(/\/$/, '')
+        : (window.ajaxurl || '').replace('/admin-ajax.php','');
+      const orderLink = b.wc_order_id && adminBase
+        ? `<a href="${escapeHtml(adminBase)}/post.php?post=${b.wc_order_id}&action=edit" target="_blank">#${b.wc_order_id}</a>`
+        : (b.wc_order_id ? '#'+b.wc_order_id : '—');
+      $('#koopo-appt-details-order').html(orderLink);
+      $apptDetailsActions.html(actionsForBooking(b));
+      $apptDetailsModal.show();
+    }
 
     // CSV Export
     $apptExport.on('click', async function(){
@@ -472,13 +1312,14 @@
       }
     });
 
-    // Commit 19+22: Enhanced vendor actions with formatted dates
-    $apptTable.on('click', '.koopo-appt-action', async function(e){
-      e.preventDefault();
-      const $btn = $(this);
+    function handleBasicAction($btn){
       const id = parseInt($btn.data('id'), 10) || 0;
       const action = String($btn.data('action')||'').toLowerCase();
       if (!id || !action) return;
+
+      if (action === 'refund' || action === 'reschedule') {
+        return;
+      }
 
       let note = '';
       let start_datetime = '';
@@ -498,33 +1339,47 @@
       } else { return;}
 
       $btn.prop('disabled', true);
-      
-      try {
-        const payload = { action, note, start_datetime, end_datetime, timezone };
-        await api(`/vendor/bookings/${id}/action`, {
-          method: 'POST',
-          body: JSON.stringify(payload)
-        });
-        
-        await loadAppointments();
-        
-        if (action === 'cancel') {
-          alert('✓ Booking cancelled successfully.');
-        } else if (action === 'confirm') {
-          alert('✓ Booking confirmed.');
-        } else if (action === 'note') {
-          alert('✓ Note added to order.');
+
+      (async () => {
+        try {
+          const payload = { action, note, start_datetime, end_datetime, timezone };
+          await api(`/vendor/bookings/${id}/action`, {
+            method: 'POST',
+            body: JSON.stringify(payload)
+          });
+
+          await loadAppointments();
+          if (apptState.view === 'calendar') loadCalendar();
+
+          if (action === 'cancel') {
+            alert('✓ Booking cancelled successfully.');
+          } else if (action === 'confirm') {
+            alert('✓ Booking confirmed.');
+          } else if (action === 'note') {
+            alert('✓ Note added to order.');
+          }
+        } catch (err) {
+          const msg = err.message || 'Action failed';
+          if (msg.includes('conflict')) {
+            alert('⚠️ Cannot reschedule: the selected time conflicts with another booking.\n\nPlease choose a different time.');
+          } else {
+            alert('⚠️ Action failed: ' + msg);
+          }
+        } finally {
+          $btn.prop('disabled', false);
         }
-      } catch (err) {
-        const msg = err.message || 'Action failed';
-        if (msg.includes('conflict')) {
-          alert('⚠️ Cannot reschedule: the selected time conflicts with another booking.\n\nPlease choose a different time.');
-        } else {
-          alert('⚠️ Action failed: ' + msg);
-        }
-      } finally {
-        $btn.prop('disabled', false);
-      }
+      })();
+    }
+
+    // Commit 19+22: Enhanced vendor actions with formatted dates
+    $apptTable.on('click', '.koopo-appt-action', function(e){
+      e.preventDefault();
+      handleBasicAction($(this));
+    });
+
+    $apptDetailsActions.on('click', '.koopo-appt-action', function(e){
+      e.preventDefault();
+      handleBasicAction($(this));
     });
 
     $apptPager.on('click', 'button[data-page]', function(){
@@ -795,6 +1650,7 @@ let rescheduleState = {
           <div class="koopo-modal__card">
             <button class="koopo-modal__close koopo-reschedule-modal__close" type="button">&times;</button>
             <h3>Reschedule Appointment</h3>
+            <div class="koopo-reschedule-message" style="display:none;"></div>
             
             <div class="koopo-reschedule-current">
               <strong>Current Time</strong>
@@ -1016,7 +1872,7 @@ let rescheduleState = {
    */
   async function submitReschedule() {
     if (!rescheduleState.selectedSlot) {
-      alert('Please select a new date and time');
+      showRescheduleMessage('error', 'Please select a new date and time.');
       return;
     }
 
@@ -1034,26 +1890,36 @@ let rescheduleState = {
         })
       });
 
-      $('.koopo-reschedule-modal').fadeOut(200, function() {
-        $(this).remove();
-      });
+      showRescheduleMessage('success', 'Appointment rescheduled successfully. The customer will be notified.');
+      setTimeout(() => {
+        $('.koopo-reschedule-modal').fadeOut(200, function() {
+          $(this).remove();
+        });
+      }, 1200);
 
       // Reload bookings table
       if (typeof loadAppointments === 'function') {
         await loadAppointments();
       }
 
-      alert('✓ Appointment rescheduled successfully!\n\nThe customer will receive a notification about the new time.');
-
     } catch (err) {
       const msg = err.message || 'Unknown error';
       if (msg.includes('conflict')) {
-        alert('⚠️ Cannot reschedule: The selected time conflicts with another booking.\n\nPlease choose a different time.');
+        showRescheduleMessage('error', 'Cannot reschedule: the selected time conflicts with another booking.');
       } else {
-        alert('⚠️ Reschedule failed: ' + msg);
+        showRescheduleMessage('error', 'Reschedule failed. ' + msg);
       }
       $btn.prop('disabled', false).text('Reschedule');
     }
+  }
+
+  function showRescheduleMessage(type, text) {
+    const $msg = $('.koopo-reschedule-message');
+    if (!$msg.length) return;
+    $msg.removeClass('is-error is-success');
+    if (type === 'error') $msg.addClass('is-error');
+    if (type === 'success') $msg.addClass('is-success');
+    $msg.text(text).show();
   }
 
   /**

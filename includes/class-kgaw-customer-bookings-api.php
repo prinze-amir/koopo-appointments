@@ -55,6 +55,18 @@ class Customer_Bookings_API {
       ],
     ]);
 
+    // Reschedule booking (customer-initiated)
+    register_rest_route('koopo/v1', '/customer/bookings/(?P<id>\d+)/reschedule', [
+      'methods'  => 'POST',
+      'callback' => [__CLASS__, 'reschedule_booking'],
+      'permission_callback' => [__CLASS__, 'is_customer_logged_in'],
+      'args' => [
+        'start_datetime' => ['type' => 'string', 'required' => true],
+        'end_datetime' => ['type' => 'string', 'required' => true],
+        'timezone' => ['type' => 'string', 'required' => false],
+      ],
+    ]);
+
     // Get current user profile info for pre-filling forms
     register_rest_route('koopo/v1', '/customer/profile', [
       'methods'  => 'GET',
@@ -262,6 +274,56 @@ class Customer_Bookings_API {
   }
 
   /**
+   * Reschedule booking (customer-initiated)
+   */
+  public static function reschedule_booking(\WP_REST_Request $request) {
+    $booking_id = (int) $request->get_param('id');
+    $customer_id = get_current_user_id();
+
+    $booking = Bookings::get_booking($booking_id);
+    if (!$booking) {
+      return new \WP_Error('not_found', 'Booking not found', ['status' => 404]);
+    }
+
+    if ((int) $booking->customer_id !== $customer_id) {
+      return new \WP_Error('forbidden', 'You do not have permission to reschedule this booking', ['status' => 403]);
+    }
+
+    if ((string) $booking->status !== 'confirmed') {
+      return new \WP_Error('invalid_status', 'Only confirmed bookings can be rescheduled', ['status' => 409]);
+    }
+
+    $new_start = sanitize_text_field((string) $request->get_param('start_datetime'));
+    $new_end = sanitize_text_field((string) $request->get_param('end_datetime'));
+    $timezone = sanitize_text_field((string) $request->get_param('timezone'));
+
+    if (!$new_start || !$new_end) {
+      return new \WP_Error('invalid_params', 'start_datetime and end_datetime are required', ['status' => 400]);
+    }
+
+    $ok = Bookings::reschedule_booking_safely($booking_id, $new_start, $new_end, $timezone);
+    if (!$ok) {
+      return new \WP_Error('reschedule_failed', 'Unable to reschedule: the selected time conflicts or is invalid', ['status' => 409]);
+    }
+
+    $order_id = (int) ($booking->wc_order_id ?? 0);
+    if ($order_id) {
+      $order = wc_get_order($order_id);
+      if ($order) {
+        $order->add_order_note('Koopo: Customer rescheduled booking #'.$booking_id.' to '.$new_start.' - '.$new_end);
+      }
+    }
+
+    $updated = Bookings::get_booking($booking_id);
+    do_action('koopo_booking_rescheduled', $booking_id, $new_start, $new_end, $updated);
+
+    return rest_ensure_response([
+      'ok' => true,
+      'booking' => self::format_booking_for_customer($updated),
+    ]);
+  }
+
+  /**
    * Request reschedule (for vendor approval)
    */
   public static function request_reschedule(\WP_REST_Request $request) {
@@ -386,7 +448,7 @@ class Customer_Bookings_API {
     $status = (string) $booking->status;
     $is_future = strtotime($booking->start_datetime) > time();
     $can_cancel = $is_future && in_array($status, ['pending_payment', 'confirmed'], true);
-    $can_reschedule = $is_future && in_array($status, ['pending_payment', 'confirmed'], true);
+    $can_reschedule = $is_future && $status === 'confirmed';
 
     // Get calendar links
     $calendar_links = Date_Formatter::get_calendar_links($booking);

@@ -42,3 +42,12 @@
 .kas__range.is-invalid { outline: 2px solid #ff3b3b; border-radius:12px; }
 .kas__range.is-overlap { outline: 2px solid #ff9f0a; border-radius:12px; }
 .kas__range.is-outside { outline: 2px solid #8e44ad; border-radius:12px; }
+@media (max-width: 600) {
+  .kas__range {
+    flex-direction: column;
+    gap:10px;
+  }
+  .kas__dayactions {
+    justify-content: center;
+  }
+}

@@ -9,6 +9,15 @@
   let currentFilter = 'upcoming';
   let currentPage = 1;
   let currentBookingId = null;
+  let rescheduleState = {
+    bookingId: null,
+    serviceId: null,
+    timezone: '',
+    currentMonth: new Date(),
+    selectedDate: null,
+    selectedSlot: null,
+    duration: 0,
+  };
 
   /**
    * Initialize dashboard
@@ -314,8 +323,23 @@
    */
   function showRescheduleModal(booking) {
     currentBookingId = booking.id;
+    rescheduleState.bookingId = booking.id;
+    rescheduleState.serviceId = booking.service_id;
+    rescheduleState.timezone = booking.timezone || '';
+    rescheduleState.selectedDate = null;
+    rescheduleState.selectedSlot = null;
+
+    const startTs = new Date(booking.start_datetime).getTime();
+    const endTs = new Date(booking.end_datetime).getTime();
+    rescheduleState.duration = Math.round((endTs - startTs) / 60000);
+    rescheduleState.currentMonth = new Date(booking.start_datetime);
 
     const $modal = $('#koopo-reschedule-modal');
+    $modal.find('.koopo-reschedule-message').hide();
+    $modal.find('.koopo-reschedule-step[data-step="2"]').hide();
+    $modal.find('.koopo-reschedule-summary').hide();
+    $modal.find('.koopo-confirm-reschedule').prop('disabled', true).text('Reschedule');
+    $modal.find('.koopo-reschedule-back').hide();
     
     // Populate details
     $modal.find('.koopo-reschedule-details').html(`
@@ -326,47 +350,148 @@
     `);
 
     $modal.fadeIn(200);
+    renderRescheduleCalendar();
   }
 
-  /**
-   * Send reschedule request
-   */
-  async function sendRescheduleRequest() {
-    const note = $('#reschedule-note-input').val().trim();
-    const $btn = $('.koopo-confirm-reschedule');
+  function renderRescheduleCalendar() {
+    const $calendar = $('#koopo-reschedule-calendar');
+    const month = rescheduleState.currentMonth;
+    const year = month.getFullYear();
+    const monthIndex = month.getMonth();
 
-    $btn.prop('disabled', true).text('Sending...');
+    const firstDay = new Date(year, monthIndex, 1);
+    const lastDay = new Date(year, monthIndex + 1, 0);
+    const startDay = firstDay.getDay();
+    const totalDays = lastDay.getDate();
+    const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+    let html = `
+      <div class="koopo-calendar">
+        <div class="koopo-calendar__header">
+          <div class="koopo-calendar__month">${monthNames[monthIndex]} ${year}</div>
+          <div class="koopo-calendar__nav">
+            <button type="button" class="koopo-calendar__prev">‹</button>
+            <button type="button" class="koopo-calendar__next">›</button>
+          </div>
+        </div>
+        <div class="koopo-calendar__grid">
+          <div class="koopo-calendar__day-name">Sun</div>
+          <div class="koopo-calendar__day-name">Mon</div>
+          <div class="koopo-calendar__day-name">Tue</div>
+          <div class="koopo-calendar__day-name">Wed</div>
+          <div class="koopo-calendar__day-name">Thu</div>
+          <div class="koopo-calendar__day-name">Fri</div>
+          <div class="koopo-calendar__day-name">Sat</div>
+    `;
+
+    for (let i = 0; i < startDay; i++) {
+      html += `<div class="koopo-calendar__date is-other-month"></div>`;
+    }
+
+    for (let day = 1; day <= totalDays; day++) {
+      const dateStr = `${year}-${String(monthIndex + 1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+      let classes = 'koopo-calendar__date';
+      if (rescheduleState.selectedDate === dateStr) classes += ' is-selected';
+      html += `<div class="${classes}" data-date="${dateStr}">${day}</div>`;
+    }
+
+    html += '</div></div>';
+    $calendar.html(html);
+  }
+
+  async function loadRescheduleSlots(date) {
+    const $slotsContainer = $('.koopo-reschedule-slots');
+    $slotsContainer.html('<div class="koopo-reschedule-loading">Loading available times...</div>');
 
     try {
       const response = await fetch(
-        `${KOOPO_CUSTOMER.api_url}/customer/bookings/${currentBookingId}/reschedule-request`,
+        `${KOOPO_CUSTOMER.api_url}/availability/by-service/${rescheduleState.serviceId}?date=${encodeURIComponent(date)}`,
+        { headers: { 'X-WP-Nonce': KOOPO_CUSTOMER.nonce } }
+      );
+      const data = await response.json();
+      const slots = data.slots || [];
+
+      if (!slots.length) {
+        $slotsContainer.html(`
+          <div class="koopo-reschedule-empty">
+            <strong>No available times</strong>
+            <p>Please pick another date.</p>
+          </div>
+        `);
+        return;
+      }
+
+      let html = '<div class="koopo-reschedule-slot-grid">';
+      slots.forEach(slot => {
+        const isSelected = rescheduleState.selectedSlot && rescheduleState.selectedSlot.start === slot.start;
+        html += `
+          <button type="button" class="koopo-reschedule-slot ${isSelected ? 'is-selected' : ''}"
+                  data-start="${slot.start}" data-end="${slot.end}">
+            ${slot.label}
+          </button>
+        `;
+      });
+      html += '</div>';
+      $slotsContainer.html(html);
+    } catch (e) {
+      $slotsContainer.html(`
+        <div class="koopo-reschedule-empty">
+          <strong>Error Loading Times</strong>
+          <p>${e.message || 'Failed to load available times. Please try again.'}</p>
+        </div>
+      `);
+    }
+  }
+
+  async function submitReschedule() {
+    if (!rescheduleState.selectedSlot) {
+      showRescheduleMessage('error', 'Please select a new date and time.');
+      return;
+    }
+
+    const $btn = $('.koopo-confirm-reschedule');
+    $btn.prop('disabled', true).text('Rescheduling...');
+
+    try {
+      const response = await fetch(
+        `${KOOPO_CUSTOMER.api_url}/customer/bookings/${currentBookingId}/reschedule`,
         {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'X-WP-Nonce': KOOPO_CUSTOMER.nonce
           },
-          body: JSON.stringify({ note })
+          body: JSON.stringify({
+            start_datetime: rescheduleState.selectedSlot.start,
+            end_datetime: rescheduleState.selectedSlot.end,
+            timezone: rescheduleState.timezone || '',
+          })
         }
       );
 
       const data = await response.json();
-
       if (!response.ok) {
-        throw new Error(data.message || 'Request failed');
+        throw new Error(data.message || 'Reschedule failed');
       }
 
-      // Close modal
-      $('#koopo-reschedule-modal').fadeOut(200);
-      $('#reschedule-note-input').val('');
+      showRescheduleMessage('success', 'Appointment rescheduled successfully.');
+      setTimeout(() => {
+        $('#koopo-reschedule-modal').fadeOut(200);
+      }, 1000);
 
-      alert(KOOPO_CUSTOMER.i18n.reschedule_success);
-
+      loadAppointments(currentPage);
     } catch (error) {
-      console.error('Reschedule request error:', error);
-      alert('Failed to send reschedule request.\n\n' + error.message);
-      $btn.prop('disabled', false).text('Send Request');
+      showRescheduleMessage('error', error.message || 'Reschedule failed.');
+      $btn.prop('disabled', false).text('Reschedule');
     }
+  }
+
+  function showRescheduleMessage(type, text) {
+    const $msg = $('.koopo-reschedule-message');
+    $msg.removeClass('is-error is-success');
+    if (type === 'error') $msg.addClass('is-error');
+    if (type === 'success') $msg.addClass('is-success');
+    $msg.text(text).show();
   }
 
   /**
@@ -397,13 +522,65 @@
     $('.koopo-confirm-cancel').on('click', processCancellation);
 
     // Confirm reschedule
-    $('.koopo-confirm-reschedule').on('click', sendRescheduleRequest);
+    $('.koopo-confirm-reschedule').on('click', submitReschedule);
 
     // Close modals
     $('.koopo-modal__close, .koopo-cancel-modal__close, .koopo-reschedule-modal__close').on('click', function() {
       $('.koopo-modal').fadeOut(200);
       $('#cancel-reason-input').val('');
-      $('#reschedule-note-input').val('');
+      $('.koopo-reschedule-message').hide();
+    });
+
+    // Reschedule calendar navigation
+    $(document).on('click', '.koopo-calendar__prev', function() {
+      rescheduleState.currentMonth = new Date(
+        rescheduleState.currentMonth.getFullYear(),
+        rescheduleState.currentMonth.getMonth() - 1,
+        1
+      );
+      renderRescheduleCalendar();
+    });
+
+    $(document).on('click', '.koopo-calendar__next', function() {
+      rescheduleState.currentMonth = new Date(
+        rescheduleState.currentMonth.getFullYear(),
+        rescheduleState.currentMonth.getMonth() + 1,
+        1
+      );
+      renderRescheduleCalendar();
+    });
+
+    $(document).on('click', '.koopo-calendar__date:not(.is-other-month)', function() {
+      const date = $(this).data('date');
+      if (!date) return;
+      rescheduleState.selectedDate = date;
+      rescheduleState.selectedSlot = null;
+      $('.koopo-reschedule-summary').hide();
+      $('.koopo-confirm-reschedule').prop('disabled', true);
+      $('.koopo-reschedule-step[data-step="2"]').show();
+      $('.koopo-reschedule-back').show();
+      renderRescheduleCalendar();
+      loadRescheduleSlots(date);
+    });
+
+    $(document).on('click', '.koopo-reschedule-slot', function() {
+      const start = $(this).data('start');
+      const end = $(this).data('end');
+      if (!start || !end) return;
+      rescheduleState.selectedSlot = { start, end };
+      $('.koopo-reschedule-slot').removeClass('is-selected');
+      $(this).addClass('is-selected');
+      const formatted = `${start.replace('T',' ').replace('Z','')}`;
+      $('.koopo-reschedule-summary__text').text(formatted);
+      $('.koopo-reschedule-summary').show();
+      $('.koopo-confirm-reschedule').prop('disabled', false);
+    });
+
+    $(document).on('click', '.koopo-reschedule-back', function() {
+      $('.koopo-reschedule-step[data-step="2"]').hide();
+      $('.koopo-reschedule-summary').hide();
+      $('.koopo-reschedule-back').hide();
+      $('.koopo-confirm-reschedule').prop('disabled', true);
     });
 
     // Calendar dropdown toggle

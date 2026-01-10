@@ -84,35 +84,40 @@ defined('ABSPATH') || exit;
   </div>
 </div>
 
-<!-- Reschedule Request Modal -->
+<!-- Reschedule Modal -->
 <div class="koopo-modal koopo-reschedule-request-modal" id="koopo-reschedule-modal" style="display:none;">
   <div class="koopo-modal__card">
     <button class="koopo-modal__close" type="button">&times;</button>
     
-    <h3><?php esc_html_e('Request Reschedule', 'koopo-appointments'); ?></h3>
-    
+    <h3><?php esc_html_e('Reschedule Appointment', 'koopo-appointments'); ?></h3>
+    <div class="koopo-reschedule-message" style="display:none;"></div>
+
     <div class="koopo-reschedule-details">
       <!-- Populated by JS -->
     </div>
 
-    <div class="koopo-reschedule-form">
-      <p class="koopo-reschedule-info">
-        <?php esc_html_e('Send a reschedule request to the vendor. They will contact you with available times.', 'koopo-appointments'); ?>
-      </p>
+    <div class="koopo-reschedule-step" data-step="1">
+      <h4><?php esc_html_e('Step 1: Select New Date', 'koopo-appointments'); ?></h4>
+      <div id="koopo-reschedule-calendar"></div>
+    </div>
 
-      <label for="reschedule-note-input">
-        <?php esc_html_e('Preferred dates or notes (optional)', 'koopo-appointments'); ?>
-      </label>
-      <textarea id="reschedule-note-input" rows="3" 
-                placeholder="<?php esc_attr_e('e.g., I prefer afternoon slots on weekdays...', 'koopo-appointments'); ?>"></textarea>
+    <div class="koopo-reschedule-step" data-step="2" style="display:none;">
+      <h4><?php esc_html_e('Step 2: Select New Time', 'koopo-appointments'); ?></h4>
+      <div class="koopo-reschedule-slots"></div>
+    </div>
+
+    <div class="koopo-reschedule-summary" style="display:none;">
+      <strong><?php esc_html_e('New Time', 'koopo-appointments'); ?></strong>
+      <div class="koopo-reschedule-summary__text"></div>
     </div>
 
     <div class="koopo-modal__footer">
+      <button type="button" class="koopo-btn koopo-reschedule-back" style="display:none;">‹ <?php esc_html_e('Back', 'koopo-appointments'); ?></button>
       <button type="button" class="koopo-btn koopo-reschedule-modal__close">
         <?php esc_html_e('Cancel', 'koopo-appointments'); ?>
       </button>
-      <button type="button" class="koopo-btn koopo-btn--primary koopo-confirm-reschedule">
-        <?php esc_html_e('Send Request', 'koopo-appointments'); ?>
+      <button type="button" class="koopo-btn koopo-btn--primary koopo-confirm-reschedule" disabled>
+        <?php esc_html_e('Reschedule', 'koopo-appointments'); ?>
       </button>
     </div>
   </div>

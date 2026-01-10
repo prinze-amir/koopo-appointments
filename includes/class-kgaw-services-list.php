@@ -72,6 +72,7 @@ class Services_List {
         'buffer_before' => (int) get_post_meta($p->ID, Services_API::META_BUF_BEFORE, true),
         'buffer_after' => (int) get_post_meta($p->ID, Services_API::META_BUF_AFTER, true),
         'instant' => (get_post_meta($p->ID, Services_API::META_INSTANT, true) === '1'),
+        'is_addon' => (get_post_meta($p->ID, Services_API::META_ADDON, true) === '1'),
         'category_ids' => $category_ids,
       ];
     }

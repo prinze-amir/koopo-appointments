@@ -22,6 +22,10 @@
 
     <div class="koopo-modal" id="koopo-service-modal" style="display:none;">
       <div class="koopo-modal__card koopo-modal__card--wide">
+        <div class="koopo-modal__loading" style="display:none;">
+          <div class="koopo-spinner"></div>
+          <div class="koopo-modal__loading-text">Loading...</div>
+        </div>
         <button class="koopo-modal__close" type="button">&times;</button>
         <h3 id="koopo-service-modal-title"><?php esc_html_e('Edit Service', 'appointments'); ?></h3>
 
@@ -47,6 +51,12 @@
               <option value="active"><?php esc_html_e('Active', 'appointments'); ?></option>
               <option value="inactive"><?php esc_html_e('Inactive', 'appointments'); ?></option>
             </select>
+          </label>
+
+          <label class="koopo-toggle koopo-label--full">
+            <input type="checkbox" id="koopo-service-addon" />
+            <span><?php esc_html_e('Enable as Add-on', 'appointments'); ?></span>
+            <small><?php esc_html_e('Add-on services can be attached to a booking during manual scheduling.', 'appointments'); ?></small>
           </label>
 
           <label class="koopo-label koopo-label--full">

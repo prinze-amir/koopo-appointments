@@ -16,6 +16,7 @@ class Services_API {
   const META_BUF_BEFORE   = '_koopo_service_buffer_before';
   const META_BUF_AFTER    = '_koopo_service_buffer_after';
   const META_INSTANT      = '_koopo_service_instant'; // 1|0
+  const META_ADDON        = '_koopo_service_addon'; // 1|0
 
   public static function init() {
     add_action('rest_api_init', [__CLASS__, 'routes']);
@@ -79,6 +80,7 @@ class Services_API {
     $buf_before  = absint($req->get_param('buffer_before'));
     $buf_after   = absint($req->get_param('buffer_after'));
     $instant     = !empty($req->get_param('instant')) ? '1' : '0';
+    $is_addon    = !empty($req->get_param('is_addon')) ? '1' : '0';
     $category_ids = $req->get_param('category_ids'); // array of term IDs
 
     if (!$title || !$duration) {
@@ -115,6 +117,7 @@ class Services_API {
     update_post_meta($service_id, self::META_BUF_BEFORE, $buf_before);
     update_post_meta($service_id, self::META_BUF_AFTER, $buf_after);
     update_post_meta($service_id, self::META_INSTANT, $instant);
+    update_post_meta($service_id, self::META_ADDON, $is_addon);
 
     // Assign categories
     if (is_array($category_ids)) {
@@ -153,6 +156,7 @@ class Services_API {
     $buf_before  = $req->get_param('buffer_before');
     $buf_after   = $req->get_param('buffer_after');
     $instant     = $req->get_param('instant');
+    $is_addon    = $req->get_param('is_addon');
     $category_ids = $req->get_param('category_ids');
 
     if ($title) {
@@ -176,6 +180,7 @@ class Services_API {
     if ($buf_before !== null) update_post_meta($service_id, self::META_BUF_BEFORE, absint($buf_before));
     if ($buf_after !== null) update_post_meta($service_id, self::META_BUF_AFTER, absint($buf_after));
     if ($instant !== null) update_post_meta($service_id, self::META_INSTANT, (!empty($instant) ? '1' : '0'));
+    if ($is_addon !== null) update_post_meta($service_id, self::META_ADDON, (!empty($is_addon) ? '1' : '0'));
 
     // Update categories
     if ($category_ids !== null && is_array($category_ids)) {

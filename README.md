@@ -1,6 +1,6 @@
-# 📌 Koopo Appointments Plugin — Project Summary (Authoritative)
+# Koopo Appointments Plugin - Project Summary (Authoritative)
 
-## 1️⃣ Project Goal (High-Level)
+## 1. Project Goal (High-Level)
 
 Build a **production-ready appointments / bookings system** for **Koopo** that:
 
@@ -17,7 +17,7 @@ Build a **production-ready appointments / bookings system** for **Koopo** that:
 
 ---
 
-## 2️⃣ Core Architectural Decisions (Locked In)
+## 2. Core Architectural Decisions (Locked In)
 
 These are **final and correct** decisions:
 
@@ -33,87 +33,13 @@ These are **final and correct** decisions:
 
 ---
 
-## 3️⃣ Authoritative Baseline
+## 3. Current State (Based on Code)
 
-* **Commit 16 is the last verified, stable base**
-* Commits 17–20 done earlier were **not consistently built on Commit 16**
-* We **reset the chain** and rebuilt:
-
-### ✅ Commit 17 (Correct)
-
-**Purpose:** Fix 10-minute hold logic so checkout isn’t broken.
-
-**Changes (2 files):**
-
-* `includes/class-kgaw-bookings.php`
-
-  * Cleanup cron now expires only:
-
-    * `pending_payment`
-    * **AND** `wc_order_id IS NULL`
-    * **AND** older than 10 minutes
-* `includes/class-kgaw-checkout-cart.php`
-
-  * Hold expiry check no longer applies once an order exists
-
-✅ Result:
-
-* No more expiring bookings mid-checkout
-* No more ghost holds once checkout has started
+The codebase includes the originally planned commits 17-22 and additional work labeled as "Commit 23" (customer dashboard). The implementation is ahead of the old roadmap.
 
 ---
 
-### ✅ Commit 18 (Corrected & Final)
-
-**Purpose:** Notifications + lifecycle hooks (no missing code).
-
-**Key fix:**
-The original `class-kgaw-notifications.php` was **correct** and had missing functions in earlier builds. That file is now restored and used.
-
-**Files changed (4):**
-
-1. `includes/class-kgaw-notifications.php`
-
-   * Uses the **complete original** with:
-
-     * `email_cancelled()`
-     * `email_refunded()`
-     * `email_expired()`
-     * `email_confirmed()`
-     * `email_conflict()`
-
-2. `koopo-geo-appointments-wc.php`
-
-   * Boots notifications:
-
-     ```php
-     Notifications::init();
-     ```
-
-3. `includes/class-kgaw-bookings.php`
-
-   * `set_status()` fires:
-
-     * `koopo_booking_status_changed`
-     * `koopo_booking_expired_safe`
-   * Cleanup now loops bookings individually so hooks fire
-
-4. Same file:
-
-   * `cancel_booking_safely()` fires:
-
-     * `koopo_booking_cancelled_safe`
-     * `koopo_booking_refunded_safe`
-
-✅ Result:
-
-* All booking lifecycle events trigger notifications correctly
-* No silent expirations
-* Notifications system is stable
-
----
-
-## 4️⃣ What Is Already Complete (As of Commit 18)
+## 4. What Is Already Complete (Current)
 
 ### Booking Flow
 
@@ -155,53 +81,81 @@ The original `class-kgaw-notifications.php` was **correct** and had missing func
 * Expired
 * Conflict
 
+### Vendor Booking Management (Commit 19)
+
+* Dokan "Appointments" dashboard
+* Filters (listing, status, month, year, search)
+* Status badges and action buttons (cancel, reschedule, refund)
+* CSV export
+
+### Refund Tooling (Commit 20)
+
+* Refund policy rules and calculations
+* Vendor refund flow with WooCommerce refund creation
+* Customer cancellation with policy-based refund messaging
+* Booking and order status sync
+
+### Reschedule UX (Commit 21)
+
+* Vendor reschedule modal with calendar and slot picker
+* Availability API for slot validation
+* Customer reschedule request flow
+* Reschedule notifications
+
+### Display Improvements (Commit 22)
+
+* Centralized date/time formatter (full, short, relative)
+* Human-readable date/time across vendor, customer, admin, and order views
+
+### Customer Dashboard (Commit 23)
+
+* My Account "Appointments" endpoint
+* Shortcode `[koopo_my_appointments]`
+* BuddyBoss profile tab (appointments view)
+* Customer actions: cancel, request reschedule, add to calendar
+
+### Admin & Analytics
+
+* Admin dashboard and analytics panels
+* Automated reminders scaffolding
+
 ---
 
-## 5️⃣ What Still Remains (Next Commits)
+## 5. What Still Remains / Optional
 
-### 🔜 Commit 19 — Vendor Booking Management
+### Optional / Later
 
-* Vendor “Appointments” dashboard
-* View bookings by listing
-* Status badges
-* Vendor actions:
-
-  * cancel
-  * reschedule (logic only)
-* Conflict visibility
-
-### 🔜 Commit 20 — Refund Tooling
-
-* Vendor-initiated refunds
-* Woo refund integration
-* Booking ↔ order sync
-* Clear messaging
-
-### 🔜 Commit 21 — Reschedule UX
-
-* Calendar UI
-* Slot revalidation
-* Notifications
-
-### 🔜 Commit 22 — Display Improvements
-
-* Human-readable date/time everywhere:
-
-  > “Monday, January 5, 2026 at 2:00 pm”
-* Customer list
-* Vendor list
-* Admin list
-
-### 🔜 Optional / Later
-
-* In-app BuddyBoss notifications
-* Reporting & exports
-* SLA / analytics
+* In-app BuddyBoss notifications (currently only a profile tab is added)
+* Advanced reporting/exports (beyond vendor CSV and current analytics dashboard)
 * Event tickets module (separate plugin)
 
 ---
 
-## 6️⃣ Critical Lessons Learned (Important for Next Chat)
+## 6. Known Gaps / Tech Debt
+
+* Duplicate vendor bookings API file exists (`includes/class-kgaw-vendor-bookings-api-enhanced.php`) while boot loads `includes/class-kgaw-vendor-bookings-api.php`.
+* README history was previously tied to commit numbering; keep this doc aligned with current code to avoid drift.
+
+---
+
+## 7. Feature Matrix (UI + API Surface)
+
+| Feature | UI / Template | JS / CSS | API / PHP |
+| --- | --- | --- | --- |
+| Vendor dashboard (appointments) | `templates/dokan/appointments.php` | `assets/vendor.js`, `assets/vendor.css` | `includes/class-kgaw-dokan-dashboard.php`, `includes/class-kgaw-vendor-bookings-api.php` |
+| Vendor services CRUD | `templates/dokan/services.php` | `assets/vendor.js`, `assets/vendor.css` | `includes/class-kgaw-services-api.php`, `includes/class-kgaw-services-list.php` |
+| Vendor settings | `templates/dokan/settings.php` | `assets/vendor.js`, `assets/appointments-settings.css` | `includes/class-kgaw-settings-api.php` |
+| Customer dashboard | `templates/customer/my-appointments.php` | `assets/customer-dashboard.js`, `assets/customer-dashboard.css` | `includes/class-kgaw-customer-dashboard.php`, `includes/class-kgaw-customer-bookings-api.php` |
+| Availability / slots | N/A | N/A | `includes/class-kgaw-availability.php` |
+| Refund policy + processing | N/A | N/A | `includes/class-kgaw-refund-policy.php`, `includes/class-kgaw-refund-processor.php` |
+| Reschedule (vendor) | Vendor modal in `assets/vendor.js` | `assets/vendor.js`, `assets/vendor.css` | `includes/class-kgaw-vendor-bookings-api.php`, `includes/class-kgaw-availability.php` |
+| Reschedule (customer request) | `templates/customer/my-appointments.php` | `assets/customer-dashboard.js`, `assets/customer-dashboard.css` | `includes/class-kgaw-customer-bookings-api.php` |
+| Order + email display | `templates/woocommerce/order/booking-details.php`, `templates/woocommerce/emails/booking-details.php` | N/A | `includes/class-kgaw-order-display.php` |
+| Admin dashboards | `templates/admin/dashboard.php`, `templates/admin/bookings.php`, `templates/admin/analytics.php` | `assets/admin-dashboard.css` | `includes/class-kgaw-admin-dashboard.php`, `includes/class-kgaw-analytics-dashboard.php` |
+
+---
+
+## 8. Critical Lessons Learned (Important for Next Chat)
 
 * ZIP artifacts must be **strictly chained**
 * Never assume “commit N” unless built from “commit N-1”
@@ -209,10 +163,10 @@ The original `class-kgaw-notifications.php` was **correct** and had missing func
 
 ---
 
-## 7️⃣ Recommended Next Chat Opening Message (Copy/Paste)
+## 9. Recommended Next Chat Opening Message (Copy/Paste)
 
 > The project is a **Places-only appointments plugin** integrated with **WooCommerce, Dokan, GeoDirectory, and BuddyBoss** using **cart-based checkout**.
 >
-> Please audit the repository, confirm state, and proceed with the next  sequential **Commit
+> Please audit the repository, confirm state, and recommend the next priorities.
 
 ---
