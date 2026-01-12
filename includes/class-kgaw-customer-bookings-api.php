@@ -99,11 +99,17 @@ class Customer_Bookings_API {
     $where = $wpdb->prepare('WHERE customer_id = %d', $customer_id);
 
     $now = current_time('mysql');
+    $hold_minutes = (int) apply_filters('koopo_appt_pending_expire_minutes', 10);
+    if ($hold_minutes < 1) {
+      $hold_minutes = 10;
+    }
 
+    $order_dir = 'DESC';
     switch ($status_filter) {
       case 'upcoming':
         $where .= $wpdb->prepare(' AND start_datetime > %s AND status NOT IN (%s, %s, %s)', 
           $now, 'cancelled', 'refunded', 'expired');
+        $order_dir = 'ASC';
         break;
       
       case 'past':
@@ -123,7 +129,13 @@ class Customer_Bookings_API {
         // Default to upcoming
         $where .= $wpdb->prepare(' AND start_datetime > %s AND status NOT IN (%s, %s, %s)', 
           $now, 'cancelled', 'refunded', 'expired');
+        $order_dir = 'ASC';
     }
+
+    $where .= $wpdb->prepare(
+      " AND NOT (status = 'pending_payment' AND (wc_order_id IS NULL OR wc_order_id = 0) AND created_at < (NOW() - INTERVAL %d MINUTE))",
+      $hold_minutes
+    );
 
     // Get total count
     $sql_count = "SELECT COUNT(*) FROM {$table} {$where}";
@@ -132,7 +144,7 @@ class Customer_Bookings_API {
     // Get paginated results
     $offset = ($page - 1) * $per_page;
     $sql_items = $wpdb->prepare(
-      "SELECT * FROM {$table} {$where} ORDER BY start_datetime DESC LIMIT %d OFFSET %d",
+      "SELECT * FROM {$table} {$where} ORDER BY start_datetime {$order_dir} LIMIT %d OFFSET %d",
       $per_page, $offset
     );
 
@@ -292,6 +304,9 @@ class Customer_Bookings_API {
     if ((string) $booking->status !== 'confirmed') {
       return new \WP_Error('invalid_status', 'Only confirmed bookings can be rescheduled', ['status' => 409]);
     }
+    if (!self::is_reschedule_allowed($booking)) {
+      return new \WP_Error('reschedule_window', 'Rescheduling is no longer available for this appointment', ['status' => 409]);
+    }
 
     $new_start = sanitize_text_field((string) $request->get_param('start_datetime'));
     $new_end = sanitize_text_field((string) $request->get_param('end_datetime'));
@@ -349,6 +364,9 @@ class Customer_Bookings_API {
       return new \WP_Error('invalid_status', 
         'This booking cannot be rescheduled (current status: ' . $status . ')', 
         ['status' => 409]);
+    }
+    if (!self::is_reschedule_allowed($booking)) {
+      return new \WP_Error('reschedule_window', 'Rescheduling is no longer available for this appointment', ['status' => 409]);
     }
 
     // Store reschedule request in booking meta or separate table
@@ -444,14 +462,48 @@ class Customer_Bookings_API {
     $duration_mins = ($end_ts - $start_ts) / 60;
     $duration_formatted = Date_Formatter::format_duration((int) $duration_mins);
 
+    $addon_summary = self::get_addons_summary((int) $booking->id);
+
+    $service_price = get_post_meta((int) $booking->service_id, Services_API::META_PRICE, true);
+    if ($service_price === '' || $service_price === null) {
+      $service_price = get_post_meta((int) $booking->service_id, '_koopo_price', true);
+    }
+    $service_price = is_numeric($service_price) ? (float) $service_price : 0.0;
+
+    $service_duration = get_post_meta((int) $booking->service_id, Services_API::META_DURATION, true);
+    if ($service_duration === '' || $service_duration === null) {
+      $service_duration = get_post_meta((int) $booking->service_id, '_koopo_duration_minutes', true);
+    }
+    $service_duration = (int) $service_duration;
+
     // Determine what actions customer can take
     $status = (string) $booking->status;
     $is_future = strtotime($booking->start_datetime) > time();
     $can_cancel = $is_future && in_array($status, ['pending_payment', 'confirmed'], true);
-    $can_reschedule = $is_future && $status === 'confirmed';
+    $can_reschedule = $is_future && $status === 'confirmed' && self::is_reschedule_allowed($booking);
+    $cutoff_value = 0;
+    $cutoff_unit = 'hours';
+    if (!empty($booking->listing_id)) {
+      $settings = Settings_API::read_settings((int) $booking->listing_id);
+      $cutoff_value = isset($settings['reschedule_cutoff_value']) ? (int) $settings['reschedule_cutoff_value'] : 0;
+      $cutoff_unit = isset($settings['reschedule_cutoff_unit']) ? (string) $settings['reschedule_cutoff_unit'] : 'hours';
+    }
+    $cutoff_minutes = self::get_reschedule_cutoff_minutes((int) $booking->listing_id);
 
     // Get calendar links
     $calendar_links = Date_Formatter::get_calendar_links($booking);
+
+    $hold_minutes = (int) apply_filters('koopo_appt_pending_expire_minutes', 10);
+    if ($hold_minutes < 1) {
+      $hold_minutes = 10;
+    }
+
+    $created_ts = !empty($booking->created_at) ? strtotime((string) $booking->created_at) : 0;
+    $hold_expires_at = $created_ts ? ($created_ts + ($hold_minutes * 60)) : 0;
+    $pay_now_url = '';
+    if ($status === 'pending_payment' && class_exists('\Koopo_Appointments\MyAccount')) {
+      $pay_now_url = MyAccount::pay_now_url((int) $booking->id);
+    }
 
     return [
       'id' => (int) $booking->id,
@@ -472,6 +524,95 @@ class Customer_Bookings_API {
       'can_reschedule' => $can_reschedule,
       'wc_order_id' => isset($booking->wc_order_id) ? (int) $booking->wc_order_id : 0,
       'calendar_links' => $calendar_links,
+      'pay_now_url' => $pay_now_url,
+      'payment_hold_minutes' => $hold_minutes,
+      'payment_hold_expires_at' => $hold_expires_at,
+      'service_price' => $service_price,
+      'service_duration' => $service_duration,
+      'addon_ids' => $addon_summary['ids'],
+      'addon_titles' => $addon_summary['titles'],
+      'addon_total_price' => $addon_summary['total_price'],
+      'addon_total_duration' => $addon_summary['total_duration'],
+      'reschedule_cutoff_value' => $cutoff_value,
+      'reschedule_cutoff_unit' => $cutoff_unit,
+      'reschedule_cutoff_minutes' => $cutoff_minutes,
+      'reschedule_allowed' => self::is_reschedule_allowed($booking),
     ];
+  }
+
+  private static function get_addons_summary(int $booking_id): array {
+    $raw = get_option("koopo_booking_{$booking_id}_addon_ids", '');
+    $ids = [];
+
+    if (is_array($raw)) {
+      $ids = array_map('absint', $raw);
+    } elseif (is_string($raw) && $raw !== '') {
+      $decoded = json_decode($raw, true);
+      if (is_array($decoded)) {
+        $ids = array_map('absint', $decoded);
+      }
+    }
+
+    $ids = array_values(array_filter($ids));
+    $titles = [];
+    $total_price = 0.0;
+    $total_duration = 0;
+
+    foreach ($ids as $id) {
+      $title = get_the_title($id);
+      if ($title) {
+        $titles[] = $title;
+      }
+
+      $price = get_post_meta($id, Services_API::META_PRICE, true);
+      if ($price === '' || $price === null) {
+        $price = get_post_meta($id, '_koopo_price', true);
+      }
+      if (is_numeric($price)) {
+        $total_price += (float) $price;
+      }
+
+      $duration = get_post_meta($id, Services_API::META_DURATION, true);
+      if ($duration === '' || $duration === null) {
+        $duration = get_post_meta($id, '_koopo_duration_minutes', true);
+      }
+      if (is_numeric($duration)) {
+        $total_duration += (int) $duration;
+      }
+    }
+
+    return [
+      'ids' => $ids,
+      'titles' => $titles,
+      'total_price' => $total_price,
+      'total_duration' => $total_duration,
+    ];
+  }
+
+  private static function get_reschedule_cutoff_minutes(int $listing_id): int {
+    if (!$listing_id) return 0;
+    $settings = Settings_API::read_settings($listing_id);
+    $value = isset($settings['reschedule_cutoff_value']) ? (int) $settings['reschedule_cutoff_value'] : 0;
+    $unit = isset($settings['reschedule_cutoff_unit']) ? (string) $settings['reschedule_cutoff_unit'] : 'hours';
+    if ($value <= 0) return 0;
+    switch ($unit) {
+      case 'days':
+        return $value * 24 * 60;
+      case 'minutes':
+        return $value;
+      case 'hours':
+      default:
+        return $value * 60;
+    }
+  }
+
+  private static function is_reschedule_allowed(object $booking): bool {
+    $listing_id = isset($booking->listing_id) ? (int) $booking->listing_id : 0;
+    $cutoff_minutes = self::get_reschedule_cutoff_minutes($listing_id);
+    if ($cutoff_minutes <= 0) return true;
+    $start_ts = strtotime($booking->start_datetime);
+    if (!$start_ts) return false;
+    $minutes_until = ($start_ts - time()) / 60;
+    return $minutes_until >= $cutoff_minutes;
   }
 }

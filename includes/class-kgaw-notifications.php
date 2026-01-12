@@ -12,6 +12,14 @@ class Notifications {
     add_action('koopo_booking_refunded_safe', [__CLASS__, 'email_refunded'], 10, 2);
     add_action('koopo_booking_expired_safe', [__CLASS__, 'email_expired'], 10, 2);
     add_action('koopo_booking_rescheduled', [__CLASS__, 'email_rescheduled'], 10, 4); // NEW
+    add_action('koopo_booking_pending_payment', [__CLASS__, 'email_pending_payment'], 10, 2);
+    add_action('koopo_booking_pending_payment', [__CLASS__, 'notify_pending_payment'], 10, 2);
+    add_action('koopo_booking_expired_safe', [__CLASS__, 'notify_expired'], 10, 2);
+
+    if (function_exists('bp_notifications_add_notification')) {
+      add_filter('bp_notifications_get_notifications_for_user', [__CLASS__, 'format_buddyboss_notifications'], 10, 9);
+      add_filter('bp_notifications_get_registered_components', [__CLASS__, 'register_buddyboss_component']);
+    }
   }
 
   private static function admin_email(): string {
@@ -208,18 +216,141 @@ class Notifications {
     $minutes = (int) apply_filters('koopo_appt_pending_expire_minutes', 10);
     $subject = sprintf('[Koopo] Booking hold expired – #%d', $booking_id);
 
-    $body_customer = self::render_email([
-      'title' => 'Your booking hold expired',
+    $listing_url = $ctx['listing_id'] ? get_permalink($ctx['listing_id']) : '';
+    $body_customer = self::render_email_html([
+      'title' => 'Your booking expired',
       'lines' => [
-        "We held your selected time for {$minutes} minutes, but checkout wasn’t completed.",
+        "Your booking expired because checkout wasn’t completed within {$minutes} minutes.",
         "Business: {$ctx['listing_title']}",
         "Service: {$ctx['service_title']}",
         "Time requested: {$ctx['start']} → {$ctx['end']}",
-        "Please choose a new time and try again.",
+        $listing_url ? 'Book a new appointment: <a href="' . esc_url($listing_url) . '">View listing</a>' : 'Please choose a new time and try again.',
       ],
     ]);
 
     self::send_mail($customer, $subject, $body_customer);
+  }
+
+  public static function email_pending_payment(int $booking_id, $booking_obj) {
+    $ctx = self::booking_context($booking_id);
+    if (!$ctx) return;
+
+    $customer = self::customer_email((int)$ctx['booking']->customer_id, $ctx['order_id'] ?: null);
+    if (!$customer) return;
+
+    $minutes = (int) apply_filters('koopo_appt_pending_expire_minutes', 10);
+    if ($minutes < 1) {
+      $minutes = 10;
+    }
+
+    $pay_url = class_exists('\Koopo_Appointments\MyAccount')
+      ? MyAccount::pay_now_url($booking_id)
+      : '';
+
+    $subject = sprintf('[Koopo] Payment required – #%d', $booking_id);
+
+    $body_customer = self::render_email_html([
+      'title' => 'Complete your booking to confirm',
+      'lines' => [
+        "Your appointment is not confirmed yet.",
+        "Please complete checkout within {$minutes} minutes to confirm your booking.",
+        "Business: {$ctx['listing_title']}",
+        "Service: {$ctx['service_title']}",
+        "Time requested: {$ctx['start']} → {$ctx['end']}",
+        $pay_url ? 'Pay now: <a href="' . esc_url($pay_url) . '">Complete checkout</a>' : '',
+      ],
+    ]);
+
+    self::send_mail($customer, $subject, $body_customer);
+  }
+
+  public static function notify_pending_payment(int $booking_id, $booking_obj) {
+    if (!function_exists('bp_notifications_add_notification')) return;
+    $booking = $booking_obj ?: Bookings::get_booking($booking_id);
+    if (!$booking) return;
+
+    $user_id = (int) $booking->customer_id;
+    $listing_id = (int) $booking->listing_id;
+
+    bp_notifications_add_notification([
+      'user_id'           => $user_id,
+      'item_id'           => $booking_id,
+      'secondary_item_id' => $listing_id,
+      'component_name'    => 'koopo_appointments',
+      'component_action'  => 'pending_payment',
+      'date_notified'     => bp_core_current_time(),
+      'is_new'            => 1,
+    ]);
+  }
+
+  public static function notify_expired(int $booking_id, $booking_obj) {
+    if (!function_exists('bp_notifications_add_notification')) return;
+    $booking = $booking_obj ?: Bookings::get_booking($booking_id);
+    if (!$booking) return;
+
+    $user_id = (int) $booking->customer_id;
+    $listing_id = (int) $booking->listing_id;
+
+    bp_notifications_add_notification([
+      'user_id'           => $user_id,
+      'item_id'           => $booking_id,
+      'secondary_item_id' => $listing_id,
+      'component_name'    => 'koopo_appointments',
+      'component_action'  => 'expired',
+      'date_notified'     => bp_core_current_time(),
+      'is_new'            => 1,
+    ]);
+  }
+
+  public static function format_buddyboss_notifications($content, $user_id, $format = 'string', $action = '', $component = '', $notification_id = 0, $item_id = 0, $secondary_item_id = 0, $total_items = 0) {
+    if ($component !== 'koopo_appointments') return $content;
+
+    $booking = $item_id ? Bookings::get_booking((int) $item_id) : null;
+    $listing_id = (int) $secondary_item_id;
+    if (!$listing_id && $booking) {
+      $listing_id = (int) $booking->listing_id;
+    }
+
+    $link = '';
+    $text = '';
+
+    if ($action === 'pending_payment') {
+      $minutes = (int) apply_filters('koopo_appt_pending_expire_minutes', 10);
+      if ($minutes < 1) {
+        $minutes = 10;
+      }
+      $pay_url = class_exists('\Koopo_Appointments\MyAccount') ? MyAccount::pay_now_url((int) $item_id) : '';
+      $link = $pay_url ?: home_url('/');
+      $text = sprintf(
+        'Your booking is not confirmed. Pay now to confirm (expires in %d minutes).',
+        $minutes
+      );
+    } elseif ($action === 'expired') {
+      $listing_link = $listing_id ? get_permalink($listing_id) : home_url('/');
+      $link = $listing_link ?: home_url('/');
+      $text = 'Your booking expired because checkout was not completed. Book a new appointment.';
+    } else {
+      return $content;
+    }
+
+    if ($format === 'array') {
+      return [
+        'text' => $text,
+        'link' => $link,
+      ];
+    }
+
+    return '<a href="' . esc_url($link) . '">' . esc_html($text) . '</a>';
+  }
+
+  public static function register_buddyboss_component($components) {
+    if (empty($components) || !is_array($components)) {
+      $components = [];
+    }
+    if (!in_array('koopo_appointments', $components, true)) {
+      $components[] = 'koopo_appointments';
+    }
+    return $components;
   }
 
   private static function send_mail(string $to, string $subject, string $body): void {
@@ -233,6 +364,29 @@ class Notifications {
     $lines = $data['lines'] ?? [];
     $lis = '';
     foreach ($lines as $l) $lis .= '<li>' . esc_html($l) . '</li>';
+    return "
+      <div style='font-family:Arial,sans-serif;line-height:1.6;max-width:600px;margin:0 auto;'>
+        <div style='background:#f7f7f7;padding:20px;border-radius:8px 8px 0 0;'>
+          <h2 style='margin:0;color:#333;'>{$title}</h2>
+        </div>
+        <div style='background:#fff;padding:20px;border:1px solid #e5e5e5;'>
+          <ul style='padding-left:20px;'>{$lis}</ul>
+        </div>
+        <div style='background:#f7f7f7;padding:15px;text-align:center;font-size:12px;color:#666;border-radius:0 0 8px 8px;'>
+          <p style='margin:0;'>— Koopo Appointments</p>
+        </div>
+      </div>
+    ";
+  }
+
+  private static function render_email_html(array $data): string {
+    $title = esc_html($data['title'] ?? 'Notification');
+    $lines = $data['lines'] ?? [];
+    $lis = '';
+    foreach ($lines as $l) {
+      if (!$l) continue;
+      $lis .= '<li>' . wp_kses_post($l) . '</li>';
+    }
     return "
       <div style='font-family:Arial,sans-serif;line-height:1.6;max-width:600px;margin:0 auto;'>
         <div style='background:#f7f7f7;padding:20px;border-radius:8px 8px 0 0;'>

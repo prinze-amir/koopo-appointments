@@ -90,6 +90,39 @@
     });
   }
 
+  function fmtMoney(amount) {
+    const val = Number(amount || 0);
+    return `${KOOPO_CUSTOMER.currency_symbol}${val.toFixed(2)}`;
+  }
+
+  function formatRescheduleWindow(booking) {
+    const value = Number(booking.reschedule_cutoff_value || 0);
+    const unit = (booking.reschedule_cutoff_unit || 'hours').toLowerCase();
+    if (!value) return '';
+    const label = value === 1 ? unit.replace(/s$/, '') : unit;
+    return `Reschedule up to ${value} ${label} before start time.`;
+  }
+
+  function formatHoldNotice(booking) {
+    if (booking.status === 'expired') {
+      return 'Booking deleted due to non-payment. Please book again.';
+    }
+    if (booking.status !== 'pending_payment') return '';
+    const expiresAt = Number(booking.payment_hold_expires_at || 0);
+    const payLink = booking.pay_now_url
+      ? ` <a href="${booking.pay_now_url}" class="koopo-inline-link">Pay now</a>`
+      : '';
+    if (!expiresAt) {
+      return `Pending payment. Please complete checkout to confirm your appointment.${payLink}`;
+    }
+    const now = Date.now() / 1000;
+    const minutesLeft = Math.max(0, Math.ceil((expiresAt - now) / 60));
+    if (!minutesLeft) {
+      return 'Booking deleted due to non-payment. Please book again.';
+    }
+    return `Pending payment. Please pay to confirm — hold expires in ${minutesLeft} min.${payLink}`;
+  }
+
   /**
    * Create appointment card
    */
@@ -102,9 +135,25 @@
     $card.find('.koopo-listing-title').text(booking.listing_title);
     $card.find('.koopo-datetime').text(booking.start_datetime_formatted);
     $card.find('.koopo-duration').text(booking.duration_formatted);
-    $card.find('.koopo-price').text(
-      KOOPO_CUSTOMER.currency_symbol + booking.price.toFixed(2)
-    );
+    $card.find('.koopo-price').text(fmtMoney(booking.price));
+
+    const pendingNotice = formatHoldNotice(booking);
+    if (pendingNotice) {
+      $card.find('.koopo-pending-payment').html(pendingNotice);
+      $card.find('.koopo-pending-payment-row').show();
+    }
+
+    const addonTitles = Array.isArray(booking.addon_titles) ? booking.addon_titles.filter(Boolean) : [];
+    if (addonTitles.length) {
+      $card.find('.koopo-addons').text(`Add-ons: ${addonTitles.join(', ')}`);
+      $card.find('.koopo-addon-row').show();
+    }
+
+    const rescheduleWindow = formatRescheduleWindow(booking);
+    if (rescheduleWindow) {
+      $card.find('.koopo-reschedule-window').text(rescheduleWindow);
+      $card.find('.koopo-reschedule-window-row').show();
+    }
 
     // Status badge
     const statusBadge = $card.find('.koopo-status-badge');
@@ -120,6 +169,13 @@
     }
 
     // Action buttons
+    if (booking.status === 'pending_payment' && booking.pay_now_url) {
+      $card.find('.koopo-btn-pay')
+        .show()
+        .attr('href', booking.pay_now_url)
+        .attr('data-booking-id', booking.id);
+    }
+
     if (booking.can_cancel) {
       $card.find('.koopo-btn-cancel')
         .show()
@@ -246,6 +302,12 @@
     currentBookingId = booking.id;
 
     const $modal = $('#koopo-cancel-modal');
+    const addonTitles = Array.isArray(booking.addon_titles) ? booking.addon_titles.filter(Boolean) : [];
+    const addonLabel = addonTitles.length ? addonTitles.join(', ') : '—';
+    const basePrice = Number(booking.service_price || 0);
+    const addonTotal = Number(booking.addon_total_price || 0);
+    const baseDuration = Number(booking.service_duration || 0);
+    const addonDuration = Number(booking.addon_total_duration || 0);
     
     // Populate details
     $modal.find('.koopo-cancel-details').html(`
@@ -254,7 +316,12 @@
         <p>${booking.listing_title}</p>
         <p><strong>Date:</strong> ${booking.start_datetime_formatted}</p>
         <p><strong>Duration:</strong> ${booking.duration_formatted}</p>
-        <p><strong>Price:</strong> ${KOOPO_CUSTOMER.currency_symbol}${booking.price.toFixed(2)}</p>
+        <p><strong>Add-ons:</strong> ${addonLabel}</p>
+        <p><strong>Base Duration:</strong> ${baseDuration ? `${baseDuration} min` : '—'}</p>
+        <p><strong>Add-on Duration:</strong> ${addonDuration ? `${addonDuration} min` : '—'}</p>
+        <p><strong>Service Price:</strong> ${basePrice ? fmtMoney(basePrice) : '—'}</p>
+        <p><strong>Add-ons Total:</strong> ${addonTotal ? fmtMoney(addonTotal) : '—'}</p>
+        <p><strong>Total Price:</strong> ${fmtMoney(booking.price)}</p>
       </div>
     `);
 
@@ -342,10 +409,26 @@
     $modal.find('.koopo-reschedule-back').hide();
     
     // Populate details
+    const addonTitles = Array.isArray(booking.addon_titles) ? booking.addon_titles.filter(Boolean) : [];
+    const addonLabel = addonTitles.length ? addonTitles.join(', ') : '—';
+    const basePrice = Number(booking.service_price || 0);
+    const addonTotal = Number(booking.addon_total_price || 0);
+    const baseDuration = Number(booking.service_duration || 0);
+    const addonDuration = Number(booking.addon_total_duration || 0);
+
+    const rescheduleWindow = formatRescheduleWindow(booking);
+
     $modal.find('.koopo-reschedule-details').html(`
       <div class="koopo-booking-summary">
         <h4>${booking.service_title}</h4>
         <p><strong>Current time:</strong> ${booking.start_datetime_formatted}</p>
+        <p><strong>Add-ons:</strong> ${addonLabel}</p>
+        <p><strong>Base Duration:</strong> ${baseDuration ? `${baseDuration} min` : '—'}</p>
+        <p><strong>Add-on Duration:</strong> ${addonDuration ? `${addonDuration} min` : '—'}</p>
+        <p><strong>Service Price:</strong> ${basePrice ? fmtMoney(basePrice) : '—'}</p>
+        <p><strong>Add-ons Total:</strong> ${addonTotal ? fmtMoney(addonTotal) : '—'}</p>
+        <p><strong>Total Price:</strong> ${fmtMoney(booking.price)}</p>
+        ${rescheduleWindow ? `<p><strong>Reschedule window:</strong> ${rescheduleWindow}</p>` : ''}
       </div>
     `);
 
@@ -516,6 +599,33 @@
     $(document).on('click', '.koopo-btn-reschedule', function() {
       const booking = $(this).data('booking');
       showRescheduleModal(booking);
+    });
+
+    // Pay now button
+    $(document).on('click', '.koopo-btn-pay', async function(e) {
+      e.preventDefault();
+      const bookingId = parseInt($(this).attr('data-booking-id'), 10);
+      if (!bookingId) return;
+      try {
+        const response = await fetch(
+          `${KOOPO_CUSTOMER.api_url}/bookings/${bookingId}/checkout-cart`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-WP-Nonce': KOOPO_CUSTOMER.nonce
+            },
+            body: JSON.stringify({ clear_cart: true })
+          }
+        );
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data.error || 'Unable to start checkout.');
+        }
+        window.location.href = data.checkout_url;
+      } catch (error) {
+        alert(error.message || 'Unable to start checkout.');
+      }
     });
 
     // Confirm cancel

@@ -171,6 +171,25 @@ function breaksOutsideHours(breaksMin, hoursMin){
           </label>
         </div>
 
+        <div class="kas__section">
+          <h4>Reschedule Restriction</h4>
+          <div class="kas__grid kas__grid--two">
+            <label>
+              Customer can reschedule up to
+              <input type="number" class="kas__reschedule_value" min="0" step="1" placeholder="0 = no restriction" />
+            </label>
+            <label>
+              Unit
+              <select class="kas__reschedule_unit">
+                <option value="minutes">Minutes</option>
+                <option value="hours">Hours</option>
+                <option value="days">Days</option>
+              </select>
+            </label>
+          </div>
+          <div class="kas__hint">Applies to customer rescheduling only.</div>
+        </div>
+
         <label class="kas__row kas__row--block">
           <span>Days off (YYYY-MM-DD, comma-separated)</span>
           <textarea class="kas__days_off" rows="3" placeholder="2026-01-01, 2026-01-15"></textarea>
@@ -363,6 +382,8 @@ function validateAll($mount){
       $mount.find('.kas__interval').val(data.slot_interval || 0);
       $mount.find('.kas__buf_before').val(data.buffer_before || 0);
       $mount.find('.kas__buf_after').val(data.buffer_after || 0);
+      $mount.find('.kas__reschedule_value').val(data.reschedule_cutoff_value || 0);
+      $mount.find('.kas__reschedule_unit').val(data.reschedule_cutoff_unit || 'hours');
       $mount.find('.kas__days_off').val((data.days_off || []).join(', '));
 
       showNotice($mount, 'Loaded.', 'success');
@@ -406,6 +427,8 @@ function validateAll($mount){
       const slot_interval = parseInt($mount.find('.kas__interval').val(), 10) || 0;
       const buffer_before = parseInt($mount.find('.kas__buf_before').val(), 10) || 0;
       const buffer_after  = parseInt($mount.find('.kas__buf_after').val(), 10) || 0;
+      const reschedule_cutoff_value = parseInt($mount.find('.kas__reschedule_value').val(), 10) || 0;
+      const reschedule_cutoff_unit = $mount.find('.kas__reschedule_unit').val() || 'hours';
 
       const days_off = ($mount.find('.kas__days_off').val() || '')
         .split(',')
@@ -422,6 +445,8 @@ function validateAll($mount){
           slot_interval,
           buffer_before,
           buffer_after,
+          reschedule_cutoff_value,
+          reschedule_cutoff_unit,
           days_off
         })
       });

@@ -21,6 +21,50 @@ $status = ucfirst(str_replace('_', ' ', $booking->status));
 $service_title = get_the_title((int) $booking->service_id);
 $listing_title = get_the_title((int) $booking->listing_id);
 
+// Add-ons summary
+$addon_ids = get_option("koopo_booking_{$booking->id}_addon_ids", '');
+$addon_ids = is_string($addon_ids) ? json_decode($addon_ids, true) : $addon_ids;
+$addon_ids = is_array($addon_ids) ? array_map('absint', $addon_ids) : [];
+$addon_ids = array_values(array_filter($addon_ids));
+$addon_titles = [];
+$addon_total_price = 0.0;
+$addon_total_duration = 0;
+
+foreach ($addon_ids as $addon_id) {
+  $title = get_the_title($addon_id);
+  if ($title) {
+    $addon_titles[] = $title;
+  }
+  $price = get_post_meta($addon_id, Services_API::META_PRICE, true);
+  if ($price === '' || $price === null) {
+    $price = get_post_meta($addon_id, '_koopo_price', true);
+  }
+  if (is_numeric($price)) {
+    $addon_total_price += (float) $price;
+  }
+  $duration_meta = get_post_meta($addon_id, Services_API::META_DURATION, true);
+  if ($duration_meta === '' || $duration_meta === null) {
+    $duration_meta = get_post_meta($addon_id, '_koopo_duration_minutes', true);
+  }
+  if (is_numeric($duration_meta)) {
+    $addon_total_duration += (int) $duration_meta;
+  }
+}
+
+$service_price = get_post_meta((int) $booking->service_id, Services_API::META_PRICE, true);
+if ($service_price === '' || $service_price === null) {
+  $service_price = get_post_meta((int) $booking->service_id, '_koopo_price', true);
+}
+$service_price = is_numeric($service_price) ? (float) $service_price : 0.0;
+
+$service_duration = get_post_meta((int) $booking->service_id, Services_API::META_DURATION, true);
+if ($service_duration === '' || $service_duration === null) {
+  $service_duration = get_post_meta((int) $booking->service_id, '_koopo_duration_minutes', true);
+}
+$service_duration = (int) $service_duration;
+
+$currency = $booking->currency ?? get_woocommerce_currency();
+
 // Get customer name from booking meta
 $customer_name = get_option("koopo_booking_{$booking->id}_customer_name", '');
 $customer_email = get_option("koopo_booking_{$booking->id}_customer_email", '');
@@ -62,12 +106,39 @@ $customer_notes = get_option("koopo_booking_{$booking->id}_customer_notes", '');
 
       <tr>
         <th scope="row" style="text-align: left; padding: 12px; border-right: 1px solid #ddd; background: #f0f0f0; font-weight: 600;">
-          <?php esc_html_e('Duration', 'koopo-appointments'); ?>
+          <?php esc_html_e('Total Duration', 'koopo-appointments'); ?>
         </th>
         <td style="text-align: left; padding: 12px;">
           <?php echo esc_html($duration); ?>
         </td>
       </tr>
+
+      <?php if (!empty($addon_titles)): ?>
+      <tr>
+        <th scope="row" style="text-align: left; padding: 12px; border-right: 1px solid #ddd; background: #f0f0f0; font-weight: 600;">
+          <?php esc_html_e('Add-ons', 'koopo-appointments'); ?>
+        </th>
+        <td style="text-align: left; padding: 12px;">
+          <?php echo esc_html(implode(', ', $addon_titles)); ?>
+        </td>
+      </tr>
+      <tr>
+        <th scope="row" style="text-align: left; padding: 12px; border-right: 1px solid #ddd; background: #f0f0f0; font-weight: 600;">
+          <?php esc_html_e('Base Duration', 'koopo-appointments'); ?>
+        </th>
+        <td style="text-align: left; padding: 12px;">
+          <?php echo esc_html(Date_Formatter::format_duration($service_duration)); ?>
+        </td>
+      </tr>
+      <tr>
+        <th scope="row" style="text-align: left; padding: 12px; border-right: 1px solid #ddd; background: #f0f0f0; font-weight: 600;">
+          <?php esc_html_e('Add-on Duration', 'koopo-appointments'); ?>
+        </th>
+        <td style="text-align: left; padding: 12px;">
+          <?php echo esc_html(Date_Formatter::format_duration($addon_total_duration)); ?>
+        </td>
+      </tr>
+      <?php endif; ?>
 
       <?php if ($customer_name): ?>
       <tr>
@@ -130,6 +201,33 @@ $customer_notes = get_option("koopo_booking_{$booking->id}_customer_notes", '');
             ?>">
             <?php echo esc_html($status); ?>
           </span>
+        </td>
+      </tr>
+
+      <tr>
+        <th scope="row" style="text-align: left; padding: 12px; border-right: 1px solid #ddd; background: #f0f0f0; font-weight: 600;">
+          <?php esc_html_e('Service Price', 'koopo-appointments'); ?>
+        </th>
+        <td style="text-align: left; padding: 12px;">
+          <?php echo wp_kses_post(wc_price($service_price, ['currency' => $currency])); ?>
+        </td>
+      </tr>
+      <?php if (!empty($addon_titles)): ?>
+      <tr>
+        <th scope="row" style="text-align: left; padding: 12px; border-right: 1px solid #ddd; background: #f0f0f0; font-weight: 600;">
+          <?php esc_html_e('Add-ons Total', 'koopo-appointments'); ?>
+        </th>
+        <td style="text-align: left; padding: 12px;">
+          <?php echo wp_kses_post(wc_price($addon_total_price, ['currency' => $currency])); ?>
+        </td>
+      </tr>
+      <?php endif; ?>
+      <tr>
+        <th scope="row" style="text-align: left; padding: 12px; border-right: 1px solid #ddd; background: #f0f0f0; font-weight: 600;">
+          <?php esc_html_e('Total Price', 'koopo-appointments'); ?>
+        </th>
+        <td style="text-align: left; padding: 12px;">
+          <?php echo wp_kses_post(wc_price((float) $booking->price, ['currency' => $currency])); ?>
         </td>
       </tr>
     </tbody>

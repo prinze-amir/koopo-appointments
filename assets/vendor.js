@@ -254,7 +254,7 @@
   const $apptDetailsModal = $('#koopo-appt-details-modal');
   const $apptDetailsActions = $('#koopo-appt-details-actions');
 
-  const apptState = { listingId: null, status: 'all', search: '', month: '', year: '', page: 1, perPage: 20, totalPages: 1, view: 'table' };
+  const apptState = { listingId: null, status: 'all', search: '', month: '', year: '', page: 1, perPage: 20, totalPages: 1, view: 'table', sortKey: 'when', sortDir: 'asc' };
   const calendarState = { view: 'month', cursor: new Date(), items: [], mobileDay: null };
   let apptServices = [];
   let apptServiceMap = {};
@@ -262,6 +262,7 @@
   let apptItemsMap = {};
   let apptAddons = [];
   let selectedAddonIds = [];
+  let apptCreateState = { selectedSlot: null };
 
   // Populate year dropdown with current and future years
   function populateYearDropdown() {
@@ -825,18 +826,19 @@
       const qs = new URLSearchParams(params);
       const data = await api(`/vendor/bookings?${qs.toString()}`, { method: 'GET' });
       const items = data.items || [];
+      const sortedItems = sortAppointments(items);
       apptState.totalPages = (data.pagination && data.pagination.total_pages) ? Number(data.pagination.total_pages) : 1;
       apptItemsMap = {};
       items.forEach(b => { apptItemsMap[b.id] = b; });
 
-      if (!items.length) {
+      if (!sortedItems.length) {
         $apptTable.html('<div class="koopo-muted">No appointments found.</div>');
         renderPager();
         return;
       }
 
       const baseAdmin = (window.ajaxurl || '').replace('/admin-ajax.php','');
-      const rows = items.map(b => {
+      const rows = sortedItems.map(b => {
         const isConflict = String(b.status || '').toLowerCase() === 'conflict';
         const rowClass = isConflict ? 'class="koopo-row--conflict"' : '';
         
@@ -877,17 +879,17 @@
         `;
       }).join('');
 
-      $apptTable.html(`
+      const $tableHtml = $(`
         <table class="koopo-table">
           <thead>
             <tr>
               <th>Booking</th>
               <th>Customer</th>
-              <th>Service</th>
-              <th>When</th>
-              <th class="koopo-col-booked">Booked On</th>
+              <th class="koopo-sortable" data-sort="service">${sortLabel('service', 'Service')}</th>
+              <th class="koopo-sortable" data-sort="when">${sortLabel('when', 'When')}</th>
+              <th class="koopo-col-booked koopo-sortable" data-sort="booked">${sortLabel('booked', 'Booked On')}</th>
               <th>Status</th>
-              <th>Total</th>
+              <th class="koopo-sortable" data-sort="total">${sortLabel('total', 'Total')}</th>
               <th class="koopo-col-order">Order</th>
               <th>Actions</th>
             </tr>
@@ -895,6 +897,8 @@
           <tbody>${rows}</tbody>
         </table>
       `);
+      $tableHtml.find(`th.koopo-sortable[data-sort="${apptState.sortKey}"]`).addClass('is-active');
+      $apptTable.html($tableHtml);
 
       renderPager();
     } catch (e) {
@@ -904,12 +908,53 @@
     }
   }
 
+  function sortLabel(key, label){
+    if (apptState.sortKey !== key) return `${label} <span class="koopo-sort-arrow">↕</span>`;
+    const arrow = apptState.sortDir === 'asc' ? '▲' : '▼';
+    return `${label} <span class="koopo-sort-arrow">${arrow}</span>`;
+  }
+
+  function sortAppointments(items){
+    if (!apptState.sortKey) return items;
+    const key = apptState.sortKey;
+    const dir = apptState.sortDir === 'desc' ? -1 : 1;
+    const sorted = items.slice();
+    sorted.sort((a, b) => {
+      let av = '';
+      let bv = '';
+      if (key === 'service') {
+        av = (a.service_title || '').toLowerCase();
+        bv = (b.service_title || '').toLowerCase();
+        if (av < bv) return -1 * dir;
+        if (av > bv) return 1 * dir;
+        return 0;
+      }
+      if (key === 'when') {
+        av = Date.parse(a.start_datetime || '') || 0;
+        bv = Date.parse(b.start_datetime || '') || 0;
+        return (av - bv) * dir;
+      }
+      if (key === 'booked') {
+        av = Date.parse(a.created_at || '') || 0;
+        bv = Date.parse(b.created_at || '') || 0;
+        return (av - bv) * dir;
+      }
+      if (key === 'total') {
+        av = Number(a.price || 0);
+        bv = Number(b.price || 0);
+        return (av - bv) * dir;
+      }
+      return 0;
+    });
+    return sorted;
+  }
+
   if ($apptPicker.length) {
     async function loadApptServices(listingId){
       if (!listingId) return;
       try {
         const services = await api(`/services/by-listing/${listingId}`, { method:'GET' });
-        apptServices = (services || []).filter(s => !s.is_addon);
+        apptServices = services || [];
         apptAddons = (services || []).filter(s => s.is_addon);
         apptServiceMap = {};
         (services || []).forEach(s => { apptServiceMap[s.id] = s; });
@@ -978,6 +1023,18 @@
       loadAppointments();
     });
 
+    $apptTable.on('click', 'th.koopo-sortable', function(){
+      const key = $(this).data('sort');
+      if (!key) return;
+      if (apptState.sortKey === key) {
+        apptState.sortDir = apptState.sortDir === 'asc' ? 'desc' : 'asc';
+      } else {
+        apptState.sortKey = key;
+        apptState.sortDir = 'asc';
+      }
+      loadAppointments();
+    });
+
     $viewButtons.on('click', function(){
       const view = $(this).data('view');
       if (view) setAppointmentsView(view);
@@ -1026,7 +1083,9 @@
       $apptCreateModal.show();
       setCreateModalLoading(true, 'Loading form...');
       selectedAddonIds = [];
+      apptCreateState.selectedSlot = null;
       $('#koopo-appt-addon-selected').empty();
+      $('#koopo-appt-slot-list').html('<div class="koopo-muted">Select a service and date to view available times.</div>');
       await loadApptServices(apptState.listingId);
       await loadApptTimezone(apptState.listingId);
       setCreateModalLoading(false);
@@ -1061,29 +1120,54 @@
       }
     });
 
-    function syncEndTime(){
+    function getTotalDurationMinutes(){
       const serviceId = parseInt($('#koopo-appt-service').val(), 10) || 0;
-      const startVal = $('#koopo-appt-start-time').val();
-      if (!serviceId || !startVal) return;
-      const svc = apptServiceMap[serviceId];
-      if (!svc || !svc.duration_minutes) return;
-      const [h, m] = startVal.split(':').map(Number);
-      const startMinutes = (h * 60) + m;
-      const endMinutes = startMinutes + Number(svc.duration_minutes);
-      const endH = Math.floor(endMinutes / 60) % 24;
-      const endM = endMinutes % 60;
-      const endVal = `${String(endH).padStart(2,'0')}:${String(endM).padStart(2,'0')}`;
-      if (!$('#koopo-appt-end-time').val()) {
-        $('#koopo-appt-end-time').val(endVal);
+      const base = serviceId && apptServiceMap[serviceId] ? Number(apptServiceMap[serviceId].duration_minutes || 0) : 0;
+      const addons = selectedAddonIds.reduce((sum, id) => {
+        const svc = apptServiceMap[id];
+        return sum + (svc ? Number(svc.duration_minutes || 0) : 0);
+      }, 0);
+      return base + addons;
+    }
+
+    async function loadApptSlots(){
+      const serviceId = parseInt($('#koopo-appt-service').val(), 10) || 0;
+      const date = $('#koopo-appt-date').val();
+      const $slots = $('#koopo-appt-slot-list');
+      apptCreateState.selectedSlot = null;
+      if (!serviceId || !date) {
+        $slots.html('<div class="koopo-muted">Select a service and date to view available times.</div>');
+        return;
       }
-      updateAppointmentTotal();
+
+      $slots.html('<div class="koopo-loading-inline"><div class="koopo-spinner"></div><div>Loading times...</div></div>');
+      const duration = getTotalDurationMinutes();
+      const qs = new URLSearchParams({ date, duration_minutes: String(duration || 0) });
+      try {
+        const data = await api(`/availability/by-service/${serviceId}?${qs.toString()}`, { method:'GET' });
+        const slots = data.slots || [];
+        if (!slots.length) {
+          $slots.html('<div class="koopo-muted">No available times.</div>');
+          return;
+        }
+        const html = `
+          <div class="koopo-appt-slot-grid">
+            ${slots.map(s => `<button type="button" class="koopo-appt-slot" data-start="${s.start}" data-end="${s.end}">${s.label}</button>`).join('')}
+          </div>
+        `;
+        $slots.html(html);
+      } catch (e) {
+        $slots.html('<div class="koopo-muted">Failed to load available times.</div>');
+      }
     }
 
     $('#koopo-appt-service').on('change', function(){
-      syncEndTime();
       updateAppointmentTotal();
+      loadApptSlots();
     });
-    $('#koopo-appt-start-time').on('change', syncEndTime);
+    $('#koopo-appt-date').on('change', function(){
+      loadApptSlots();
+    });
 
     function renderAddonOptions(){
       const $options = $('#koopo-appt-addon-options');
@@ -1138,6 +1222,7 @@
         `);
       });
       updateAppointmentTotal();
+      loadApptSlots();
     }
 
     $(document).on('click', '.koopo-appt-addon-btn', function(){
@@ -1153,21 +1238,28 @@
       renderSelectedAddons();
     });
 
+    $(document).on('click', '.koopo-appt-slot', function(){
+      $('.koopo-appt-slot').removeClass('is-selected');
+      $(this).addClass('is-selected');
+      apptCreateState.selectedSlot = {
+        start: $(this).data('start'),
+        end: $(this).data('end'),
+      };
+    });
+
     $('#koopo-appt-create-save').on('click', async function(){
       const listingId = apptState.listingId;
       const serviceId = parseInt($('#koopo-appt-service').val(), 10) || 0;
       const date = $('#koopo-appt-date').val();
-      const startTime = $('#koopo-appt-start-time').val();
-      const endTime = $('#koopo-appt-end-time').val();
       const status = $('#koopo-appt-status').val() || 'confirmed';
 
-      if (!listingId || !serviceId || !date || !startTime || !endTime) {
-        alert('Please fill in service, date, start time, and end time.');
+      if (!listingId || !serviceId || !date || !apptCreateState.selectedSlot) {
+        alert('Please select a service, date, and available time.');
         return;
       }
 
-      const startDateTime = `${date} ${startTime}:00`;
-      const endDateTime = `${date} ${endTime}:00`;
+      const startDateTime = apptCreateState.selectedSlot.start;
+      const endDateTime = apptCreateState.selectedSlot.end;
 
       const type = $('input[name="koopo-appt-customer-type"]:checked').val();
       const payload = {
@@ -1258,9 +1350,26 @@
       if (b.customer_profile) metaParts.push(`<a class="koopo-link-pill" href="${escapeHtml(b.customer_profile)}" target="_blank" rel="noopener">Profile</a>`);
       $('#koopo-appt-details-meta').html(metaParts.join(' ') || '—');
       $('#koopo-appt-details-service').html(`<span class="koopo-service-cell" style="--service-color:${escapeHtml(b.service_color || '#e5e5e5')}"><span class="koopo-service-color" style="background:${escapeHtml(b.service_color || '#e5e5e5')}"></span>${escapeHtml(b.service_title || '')}</span>`);
+      const addonTitles = Array.isArray(b.addon_titles) ? b.addon_titles.filter(Boolean) : [];
+      $('#koopo-appt-details-addons').text(addonTitles.length ? addonTitles.join(', ') : '—');
+      const baseDuration = Number(b.service_duration || 0);
+      const addonDuration = Number(b.addon_total_duration || 0);
+      const totalDuration = baseDuration + addonDuration;
+      const durationParts = [];
+      if (baseDuration) durationParts.push(`Base: ${formatDurationLabel(baseDuration)}`);
+      if (addonDuration) durationParts.push(`Add-ons: ${formatDurationLabel(addonDuration)}`);
+      if (totalDuration) durationParts.push(`Total: ${formatDurationLabel(totalDuration)}`);
+      $('#koopo-appt-details-duration').text(durationParts.length ? durationParts.join(' · ') : (b.duration_formatted || '—'));
       $('#koopo-appt-details-when').text(`${b.start_datetime_formatted || b.start_datetime} - ${b.end_datetime_formatted || ''}`);
       $('#koopo-appt-details-status').html(badgeForStatus(b.status));
       $('#koopo-appt-details-total').text(fmtMoney(b.price, b.currency));
+      const basePrice = Number(b.service_price || 0);
+      const addonTotal = Number(b.addon_total_price || 0);
+      const priceParts = [];
+      if (basePrice) priceParts.push(`Service: ${fmtMoney(basePrice, b.currency)}`);
+      if (addonTotal) priceParts.push(`Add-ons: ${fmtMoney(addonTotal, b.currency)}`);
+      if (basePrice || addonTotal) priceParts.push(`Total: ${fmtMoney(b.price, b.currency)}`);
+      $('#koopo-appt-details-pricing').text(priceParts.length ? priceParts.join(' · ') : '—');
       const adminBase = (window.KOOPO_APPT_VENDOR && KOOPO_APPT_VENDOR.admin_url)
         ? String(KOOPO_APPT_VENDOR.admin_url).replace(/\/$/, '')
         : (window.ajaxurl || '').replace('/admin-ajax.php','');

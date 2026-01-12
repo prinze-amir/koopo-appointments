@@ -38,6 +38,10 @@ class Availability {
 
     $duration = (int) get_post_meta($service_id, '_koopo_duration_minutes', true);
     if (!$duration) $duration = 30;
+    $duration_override = absint($req->get_param('duration_minutes'));
+    if ($duration_override > 0) {
+      $duration = $duration_override;
+    }
 
     $listing_id = (int) get_post_meta($service_id, '_koopo_listing_id', true);
     if (!$listing_id) return new \WP_REST_Response(['error' => 'Service missing listing_id'], 400);
@@ -63,6 +67,9 @@ class Availability {
 
     $duration = (int) get_post_meta($service_id, '_koopo_duration_minutes', true);
     if (!$duration) $duration = 30;
+    if ($duration_override > 0) {
+      $duration = $duration_override;
+    }
 
     $interval = (int) $settings['slot_interval'];
     // If not set, fall back to the service duration.

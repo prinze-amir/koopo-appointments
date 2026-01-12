@@ -143,6 +143,14 @@ class UI {
               <div class="koopo-appt__services-grid">
                 <!-- Services will be loaded here dynamically -->
               </div>
+              <div class="koopo-appt__addons koopo-appt__addons--hidden">
+                <h4>Optional Add-ons</h4>
+                <div class="koopo-appt__addons-options"></div>
+                <div class="koopo-appt__addons-selected"></div>
+              </div>
+              <button type="button" class="koopo-appt__next-step koopo-appt__next-step--service" disabled>
+                Continue to Date & Time
+              </button>
             </div>
 
             <!-- STEP 2: Date & Time Selection -->
@@ -173,12 +181,13 @@ class UI {
 
               <div class="koopo-appt__summary">
                 <div><strong>Service:</strong> <span class="koopo-appt__summary-service">—</span></div>
+                <div><strong>Add-ons:</strong> <span class="koopo-appt__summary-addons">—</span></div>
                 <div><strong>Date & Time:</strong> <span class="koopo-appt__summary-datetime">—</span></div>
                 <div><strong>Duration:</strong> <span class="koopo-appt__duration">—</span></div>
                 <div><strong>Price:</strong> <span class="koopo-appt__price">—</span></div>
               </div>
 
-              <button type="button" class="koopo-appt__next-step" disabled>
+              <button type="button" class="koopo-appt__next-step koopo-appt__next-step--schedule" disabled>
                 Continue to Your Information
               </button>
             </div>

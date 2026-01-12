@@ -9,7 +9,7 @@ class MyAccount {
     //add_action('init', [__CLASS__, 'add_endpoint']);
    // add_filter('woocommerce_account_menu_items', [__CLASS__, 'menu_item']);
    // add_action('woocommerce_account_koopo-appointments_endpoint', [__CLASS__, 'render']);
-   // add_action('template_redirect', [__CLASS__, 'maybe_handle_pay_now']);
+    add_action('template_redirect', [__CLASS__, 'maybe_handle_pay_now']);
   //  add_action('template_redirect', [__CLASS__, 'maybe_handle_cancel_booking']);
  //   add_action('wp_enqueue_scripts', [__CLASS__, 'enqueue_styles']);
   }
@@ -142,9 +142,8 @@ class MyAccount {
    * Handles the “Pay now” flow from the My Account page.
    * Prepares cart using the standard Dokan/Woo checkout pipeline.
    */
-    public static function maybe_handle_pay_now() {
+  public static function maybe_handle_pay_now() {
     if (!is_user_logged_in()) return;
-    if (!function_exists('is_account_page') || !is_account_page()) return;
 
     $booking_id = isset($_GET['koopo_pay_booking']) ? absint($_GET['koopo_pay_booking']) : 0;
     if (!$booking_id) return;

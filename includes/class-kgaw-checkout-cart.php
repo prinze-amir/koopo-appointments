@@ -92,6 +92,9 @@ class Checkout_Cart {
     if (!$has_order && $created_ts && ($now_ts - $created_ts) > ($hold_minutes * 60)) {
       // Mark expired and stop checkout.
       Bookings::set_status($booking_id, 'expired');
+      if (apply_filters('koopo_appt_delete_expired_booking', true, $booking_id, $booking)) {
+        Bookings::delete_booking_data_by_id($booking_id);
+      }
       return new \WP_Error('koopo_hold_expired', 'Booking hold expired', ['status' => 409]);
     }
 

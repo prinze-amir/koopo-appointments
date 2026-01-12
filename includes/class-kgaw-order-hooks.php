@@ -62,6 +62,7 @@ class Order_Hooks {
     if (!$booking_ids) return;
 
     $confirmed = self::get_meta_id_list($order, '_koopo_bookings_confirmed');
+    $all_confirmed = true;
 
   foreach ($booking_ids as $booking_id) {
     $booking_id = (int) $booking_id;
@@ -75,6 +76,7 @@ class Order_Hooks {
       $order->add_order_note(sprintf('Koopo booking #%d confirmed (%s).', $booking_id, $result['reason']));
       continue;
     }
+    $all_confirmed = false;
 
     // Handle conflict / other failure
     $reason = $result['reason'] ?? 'unknown';
@@ -106,7 +108,26 @@ class Order_Hooks {
     // Non-conflict failure: lock timeout, expired, bad_status, etc.
     $order->add_order_note(sprintf('Koopo booking #%d could not be confirmed: %s.', $booking_id, $reason));
   }
+
+  if ($all_confirmed && self::order_has_only_booking_items($order)) {
+    $status = $order->get_status();
+    if (in_array($status, ['processing', 'on-hold', 'pending'], true)) {
+      $order->update_status('completed', 'Koopo booking confirmed; order auto-completed.');
+    }
+  }
 }
+
+  private static function order_has_only_booking_items(\WC_Order $order): bool {
+    $items = $order->get_items();
+    if (!$items) return false;
+    foreach ($items as $item) {
+      $bid = $item->get_meta('_koopo_booking_id', true);
+      if (empty($bid)) {
+        return false;
+      }
+    }
+    return true;
+  }
 
   public static function maybe_cancel_bookings_from_order($order_id) {
     $order = wc_get_order($order_id);

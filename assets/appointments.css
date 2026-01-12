@@ -696,6 +696,79 @@ textarea.koopo-appt__field {
   color: #fff;
 }
 
+.koopo-appt__addons {
+  margin-top: 16px;
+  padding: 12px;
+  border: 1px solid #eee;
+  border-radius: 10px;
+  background: #fafafa;
+}
+.koopo-appt__addons--hidden {
+  display: none;
+}
+
+.koopo-appt__addons h4 {
+  margin: 0 0 10px 0;
+  font-size: 14px;
+}
+
+.koopo-appt__addons-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 8px;
+}
+
+.koopo-appt__addon-btn {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border: 1px dashed #dcdcdc;
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: #fff;
+  cursor: pointer;
+  font-size: 13px;
+  color:#333;
+}
+
+.koopo-appt__addon-btn .koopo-appt__addon-plus {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1px solid #1f2d1f;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  color: #1f2d1f;
+}
+
+.koopo-appt__addons-selected {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.koopo-appt__addon-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 12px;
+  background: #21d630;
+  font-size: 16px;
+  color:#fff;
+  border:solid 1px #333;
+}
+
+.koopo-appt__addon-chip button {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 3px;
+}
 @media (max-width: 600px) {
   .koopo-appt__services-grid {
     grid-template-columns: 1fr;

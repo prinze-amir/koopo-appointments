@@ -76,6 +76,19 @@ class Settings_API {
       update_post_meta($listing_id, '_koopo_appt_buffer_after', (int)$payload['buffer_after']);
     }
 
+    // Reschedule cutoff
+    if (isset($payload['reschedule_cutoff_value'])) {
+      update_post_meta($listing_id, '_koopo_appt_reschedule_cutoff_value', (int)$payload['reschedule_cutoff_value']);
+    }
+    if (isset($payload['reschedule_cutoff_unit'])) {
+      $unit = sanitize_text_field((string) $payload['reschedule_cutoff_unit']);
+      $allowed_units = ['minutes', 'hours', 'days'];
+      if (!in_array($unit, $allowed_units, true)) {
+        $unit = 'hours';
+      }
+      update_post_meta($listing_id, '_koopo_appt_reschedule_cutoff_unit', $unit);
+    }
+
     // Days off
     if (isset($payload['days_off']) && is_array($payload['days_off'])) {
       $days = array_values(array_filter(array_map('sanitize_text_field', $payload['days_off'])));
@@ -97,6 +110,9 @@ class Settings_API {
     $slot_interval = (int) get_post_meta($listing_id, '_koopo_appt_slot_interval', true);
     $buffer_before = (int) get_post_meta($listing_id, '_koopo_appt_buffer_before', true);
     $buffer_after  = (int) get_post_meta($listing_id, '_koopo_appt_buffer_after', true);
+    $reschedule_cutoff_value = (int) get_post_meta($listing_id, '_koopo_appt_reschedule_cutoff_value', true);
+    $reschedule_cutoff_unit = get_post_meta($listing_id, '_koopo_appt_reschedule_cutoff_unit', true);
+    if (!$reschedule_cutoff_unit) $reschedule_cutoff_unit = 'hours';
 
     return [
       'listing_id' => $listing_id,
@@ -107,6 +123,8 @@ class Settings_API {
       'slot_interval' => $slot_interval ?: 0,
       'buffer_before' => $buffer_before ?: 0,
       'buffer_after' => $buffer_after ?: 0,
+      'reschedule_cutoff_value' => $reschedule_cutoff_value ?: 0,
+      'reschedule_cutoff_unit' => $reschedule_cutoff_unit,
       'days_off' => self::decode_json_arr($days_off_json) ?: [],
     ];
   }

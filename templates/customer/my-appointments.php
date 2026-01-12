@@ -148,6 +148,18 @@ defined('ABSPATH') || exit;
           <span class="koopo-info-icon">💰</span>
           <span class="koopo-info-text koopo-price"></span>
         </div>
+        <div class="koopo-info-row koopo-pending-payment-row" style="display:none;">
+          <span class="koopo-info-icon">⚠️</span>
+          <span class="koopo-info-text koopo-pending-payment"></span>
+        </div>
+        <div class="koopo-info-row koopo-reschedule-window-row" style="display:none;">
+          <span class="koopo-info-icon">⏳</span>
+          <span class="koopo-info-text koopo-reschedule-window"></span>
+        </div>
+        <div class="koopo-info-row koopo-addon-row" style="display:none;">
+          <span class="koopo-info-icon">➕</span>
+          <span class="koopo-info-text koopo-addons"></span>
+        </div>
         <div class="koopo-info-row koopo-relative-time-row" style="display:none;">
           <span class="koopo-info-icon">⏰</span>
           <span class="koopo-info-text koopo-relative-time"></span>
@@ -156,6 +168,9 @@ defined('ABSPATH') || exit;
     </div>
 
     <div class="koopo-appointment-card__actions">
+      <a href="#" class="koopo-btn koopo-btn--small koopo-btn-pay" target="_blank" style="display:none;">
+        <?php esc_html_e('Pay Now', 'koopo-appointments'); ?>
+      </a>
       <button type="button" class="koopo-btn koopo-btn--small koopo-btn-cancel" style="display:none;">
         <?php esc_html_e('Cancel', 'koopo-appointments'); ?>
       </button>

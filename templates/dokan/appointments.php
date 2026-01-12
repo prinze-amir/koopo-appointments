@@ -125,15 +125,12 @@ defined('ABSPATH') || exit;
           <input type="date" class="koopo-input" id="koopo-appt-date" />
         </label>
 
-        <label class="koopo-label">
-          <?php esc_html_e('Start Time', 'appointments'); ?>
-          <input type="time" class="koopo-input" id="koopo-appt-start-time" />
-        </label>
-
-        <label class="koopo-label">
-          <?php esc_html_e('End Time', 'appointments'); ?>
-          <input type="time" class="koopo-input" id="koopo-appt-end-time" />
-        </label>
+        <div class="koopo-label koopo-label--full">
+          <?php esc_html_e('Available Times', 'appointments'); ?>
+          <div class="koopo-appt-slot-list" id="koopo-appt-slot-list">
+            <div class="koopo-muted"><?php esc_html_e('Select a service and date to view available times.', 'appointments'); ?></div>
+          </div>
+        </div>
 
         <label class="koopo-label koopo-label--full">
           <?php esc_html_e('Customer Type', 'appointments'); ?>
@@ -229,6 +226,14 @@ defined('ABSPATH') || exit;
           <div class="koopo-appt-details__value" id="koopo-appt-details-service"></div>
         </div>
         <div class="koopo-appt-details__row">
+          <div class="koopo-appt-details__label"><?php esc_html_e('Add-ons', 'appointments'); ?></div>
+          <div class="koopo-appt-details__value" id="koopo-appt-details-addons"></div>
+        </div>
+        <div class="koopo-appt-details__row">
+          <div class="koopo-appt-details__label"><?php esc_html_e('Duration', 'appointments'); ?></div>
+          <div class="koopo-appt-details__value" id="koopo-appt-details-duration"></div>
+        </div>
+        <div class="koopo-appt-details__row">
           <div class="koopo-appt-details__label"><?php esc_html_e('When', 'appointments'); ?></div>
           <div class="koopo-appt-details__value" id="koopo-appt-details-when"></div>
         </div>
@@ -239,6 +244,10 @@ defined('ABSPATH') || exit;
         <div class="koopo-appt-details__row">
           <div class="koopo-appt-details__label"><?php esc_html_e('Total', 'appointments'); ?></div>
           <div class="koopo-appt-details__value" id="koopo-appt-details-total"></div>
+        </div>
+        <div class="koopo-appt-details__row">
+          <div class="koopo-appt-details__label"><?php esc_html_e('Price Breakdown', 'appointments'); ?></div>
+          <div class="koopo-appt-details__value" id="koopo-appt-details-pricing"></div>
         </div>
         <div class="koopo-appt-details__row">
           <div class="koopo-appt-details__label"><?php esc_html_e('Order', 'appointments'); ?></div>

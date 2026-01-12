@@ -119,6 +119,15 @@ class Vendor_Bookings_API {
       $params[] = $status;
     }
 
+    $hold_minutes = (int) apply_filters('koopo_appt_pending_expire_minutes', 10);
+    if ($hold_minutes < 1) {
+      $hold_minutes = 10;
+    }
+    $where .= $wpdb->prepare(
+      " AND NOT (status = 'pending_payment' AND (wc_order_id IS NULL OR wc_order_id = 0) AND created_at < (NOW() - INTERVAL %d MINUTE))",
+      $hold_minutes
+    );
+
     if (!$range_start || !$range_end) {
       // Month filter
       if ($month && is_numeric($month)) {
@@ -221,6 +230,19 @@ class Vendor_Bookings_API {
       }
       $customer_phone = (string) get_option("koopo_booking_{$booking_id}_customer_phone", '');
       $booking_for_other = (string) get_option("koopo_booking_{$booking_id}_booking_for_other", '') === '1';
+      $addon_summary = self::get_addons_summary($booking_id);
+
+      $service_price = get_post_meta($service_id, Services_API::META_PRICE, true);
+      if ($service_price === '' || $service_price === null) {
+        $service_price = get_post_meta($service_id, '_koopo_price', true);
+      }
+      $service_price = is_numeric($service_price) ? (float) $service_price : 0.0;
+
+      $service_duration = get_post_meta($service_id, Services_API::META_DURATION, true);
+      if ($service_duration === '' || $service_duration === null) {
+        $service_duration = get_post_meta($service_id, '_koopo_duration_minutes', true);
+      }
+      $service_duration = (int) $service_duration;
 
       $tz = !empty($r['timezone']) ? (string)$r['timezone'] : '';
 
@@ -265,6 +287,12 @@ class Vendor_Bookings_API {
         'created_at' => $r['created_at'] ?? '',
         'created_at_formatted' => $created_at_formatted,
         'timezone' => $tz,
+        'service_price' => $service_price,
+        'service_duration' => $service_duration,
+        'addon_ids' => $addon_summary['ids'],
+        'addon_titles' => $addon_summary['titles'],
+        'addon_total_price' => $addon_summary['total_price'],
+        'addon_total_duration' => $addon_summary['total_duration'],
       ];
     }
 
@@ -771,5 +799,54 @@ class Vendor_Bookings_API {
 
     fclose($output);
     exit;
+  }
+
+  private static function get_addons_summary(int $booking_id): array {
+    $raw = get_option("koopo_booking_{$booking_id}_addon_ids", '');
+    $ids = [];
+
+    if (is_array($raw)) {
+      $ids = array_map('absint', $raw);
+    } elseif (is_string($raw) && $raw !== '') {
+      $decoded = json_decode($raw, true);
+      if (is_array($decoded)) {
+        $ids = array_map('absint', $decoded);
+      }
+    }
+
+    $ids = array_values(array_filter($ids));
+    $titles = [];
+    $total_price = 0.0;
+    $total_duration = 0;
+
+    foreach ($ids as $id) {
+      $title = get_the_title($id);
+      if ($title) {
+        $titles[] = $title;
+      }
+
+      $price = get_post_meta($id, Services_API::META_PRICE, true);
+      if ($price === '' || $price === null) {
+        $price = get_post_meta($id, '_koopo_price', true);
+      }
+      if (is_numeric($price)) {
+        $total_price += (float) $price;
+      }
+
+      $duration = get_post_meta($id, Services_API::META_DURATION, true);
+      if ($duration === '' || $duration === null) {
+        $duration = get_post_meta($id, '_koopo_duration_minutes', true);
+      }
+      if (is_numeric($duration)) {
+        $total_duration += (int) $duration;
+      }
+    }
+
+    return [
+      'ids' => $ids,
+      'titles' => $titles,
+      'total_price' => $total_price,
+      'total_duration' => $total_duration,
+    ];
   }
 }

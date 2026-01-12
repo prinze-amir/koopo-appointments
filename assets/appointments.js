@@ -84,7 +84,9 @@
         selectedTimeLabel: null,
         listingSettings: null,
         currentStep: 1,
-        userInfo: null
+        userInfo: null,
+        servicesMap: {},
+        addonIds: []
       });
     }
     return $root.data('koopoState');
@@ -278,7 +280,9 @@
     `);
 
     try {
-      const data = await api(`/availability/by-service/${serviceId}?date=${encodeURIComponent(date)}`, { method:'GET' });
+      const duration = getTotalDuration($root);
+      const qs = new URLSearchParams({ date: date, duration_minutes: String(duration || 0) });
+      const data = await api(`/availability/by-service/${serviceId}?${qs.toString()}`, { method:'GET' });
       const slots = (data && data.slots) ? data.slots : [];
 
       if (!slots.length) {
@@ -319,6 +323,9 @@
   async function loadServices($root){
     const listingId = $root.data('listing-id') || KOOPO_APPT.listingId;
     const services = await api(`/services/by-listing/${listingId}`, { method: 'GET' });
+    const state = getState($root);
+    state.servicesMap = {};
+    (services || []).forEach(s => { state.servicesMap[s.id] = s; });
 
     const $grid = $root.find('.koopo-appt__services-grid');
     $grid.empty();
@@ -357,7 +364,83 @@
       $grid.append(card);
     });
 
+    const addons = services.filter(s => s.is_addon);
+    state.addonsAvailable = addons.length > 0;
+    renderAddons($root, addons);
+    renderSelectedAddons($root);
+    updateAddonsVisibility($root);
     return services;
+  }
+
+  function updateAddonsVisibility($root) {
+    const state = getState($root);
+    const hasService = !!$root.find('.koopo-appt__service').val();
+    const show = !!state.addonsAvailable && hasService;
+    $root.find('.koopo-appt__addons').toggleClass('koopo-appt__addons--hidden', !show);
+  }
+
+  function renderAddons($root, addons){
+    const $options = $root.find('.koopo-appt__addons-options');
+    const $selected = $root.find('.koopo-appt__addons-selected');
+    $options.empty();
+    $selected.empty();
+
+    if (!addons.length) {
+      return;
+    }
+
+    addons.forEach(s => {
+      const price = s.price !== undefined ? `${KOOPO_APPT.currency}${Number(s.price).toFixed(2)}` : 'N/A';
+      $options.append(`
+        <button type="button" class="koopo-appt__addon-btn" data-id="${s.id}">
+          <span>${escapeHtml(s.title)}</span>
+          <span>${price} <span class="koopo-appt__addon-plus">+</span></span>
+        </button>
+      `);
+    });
+  }
+
+  function renderSelectedAddons($root){
+    const state = getState($root);
+    const $selected = $root.find('.koopo-appt__addons-selected');
+    $selected.empty();
+    (state.addonIds || []).forEach(id => {
+      const svc = state.servicesMap[id];
+      if (!svc) return;
+      $selected.append(`
+        <span class="koopo-appt__addon-chip" data-id="${id}">
+          ${escapeHtml(svc.title)}
+          <button type="button" aria-label="Remove">×</button>
+        </span>
+      `);
+    });
+  }
+
+  function getSelectedAddons($root){
+    const state = getState($root);
+    return state.addonIds || [];
+  }
+
+  function getTotalDuration($root){
+    const state = getState($root);
+    const serviceId = parseInt($root.find('.koopo-appt__service').val(), 10);
+    const base = serviceId && state.servicesMap[serviceId] ? Number(state.servicesMap[serviceId].duration_minutes || 0) : 0;
+    const addons = getSelectedAddons($root).reduce((sum, id) => {
+      const svc = state.servicesMap[id];
+      return sum + (svc ? Number(svc.duration_minutes || 0) : 0);
+    }, 0);
+    return base + addons;
+  }
+
+  function getTotalPrice($root){
+    const state = getState($root);
+    const serviceId = parseInt($root.find('.koopo-appt__service').val(), 10);
+    const base = serviceId && state.servicesMap[serviceId] ? Number(state.servicesMap[serviceId].price || 0) : 0;
+    const addons = getSelectedAddons($root).reduce((sum, id) => {
+      const svc = state.servicesMap[id];
+      return sum + (svc ? Number(svc.price || 0) : 0);
+    }, 0);
+    return base + addons;
   }
 
   function escapeHtml(text) {
@@ -385,24 +468,28 @@
 
     // Update service name
     $root.find('.koopo-appt__summary-service').text(serviceName || '—');
+    const addons = getSelectedAddons($root).map(id => (state.servicesMap[id] ? state.servicesMap[id].title : '')).filter(Boolean);
+    $root.find('.koopo-appt__summary-addons').text(addons.length ? addons.join(', ') : '—');
 
     // Update date & time
     const dateTime = formatDateTime(state.selectedDate, state.selectedTimeLabel);
     $root.find('.koopo-appt__summary-datetime').text(dateTime);
 
-    // Update price and duration
+    const totalPrice = getTotalPrice($root);
+    const totalDuration = getTotalDuration($root);
     $root.find('.koopo-appt__price').text(
-      (price !== undefined) ? `${KOOPO_APPT.currency}${Number(price).toFixed(2)}` : '—'
+      (totalPrice !== undefined) ? `${KOOPO_APPT.currency}${Number(totalPrice).toFixed(2)}` : '—'
     );
     $root.find('.koopo-appt__duration').text(
-      (duration !== undefined) ? `${duration} min` : '—'
+      (totalDuration !== undefined) ? `${totalDuration} min` : '—'
     );
 
     // Enable/disable next button for step 2
     const hasService = !!serviceId;
     const hasDate = !!state.selectedDate;
     const hasSlot = !!$root.find('.koopo-appt__slot-start').val();
-    $root.find('.koopo-appt__next-step').prop('disabled', !(hasService && hasDate && hasSlot));
+    $root.find('.koopo-appt__next-step--service').prop('disabled', !hasService);
+    $root.find('.koopo-appt__next-step--schedule').prop('disabled', !(hasService && hasDate && hasSlot));
 
     // Enable/disable submit button for step 3
     const hasName = !!$root.find('.koopo-appt__customer-name').val().trim();
@@ -475,9 +562,12 @@
         throw new Error('Please select a service and date.');
       }
 
-      const price = parseFloat($root.find('.koopo-appt__service option:selected').data('price')) || 0;
+      const price = (state.servicesMap[serviceId] && state.servicesMap[serviceId].price !== undefined)
+        ? parseFloat(state.servicesMap[serviceId].price) || 0
+        : 0;
       const start = $root.find('.koopo-appt__slot-start').val();
       const end = $root.find('.koopo-appt__slot-end').val();
+      const addonIds = getSelectedAddons($root);
 
       if (!start || !end) throw new Error('Please select an available time.');
 
@@ -502,6 +592,7 @@
           end_datetime: end,
           timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || '',
           price: price,
+          addon_ids: addonIds,
           customer_name: customerName,
           customer_email: customerEmail,
           customer_phone: customerPhone,
@@ -538,6 +629,8 @@
     openModal($root);
     clearNotice($root);
     goToStep($root, 1);
+    const state = getState($root);
+    state.addonIds = [];
 
     // Show spinner while loading
     const $panel1 = $root.find('.koopo-appt__panel[data-panel="1"]');
@@ -554,6 +647,7 @@
     try {
       await loadListingSettings($root);
       await loadServices($root);
+      renderSelectedAddons($root);
 
       // Remove spinner and show form content
       $panel1.find('.koopo-appt__spinner').remove();
@@ -584,9 +678,33 @@
 
     // Update summary
     updateSummary($root);
+    updateAddonsVisibility($root);
+  });
 
-    // Move to step 2
-    goToStep($root, 2);
+  // Add-on selection
+  $(document).on('click', '.koopo-appt__addon-btn', function(e){
+    e.preventDefault();
+    const $root = $(this).closest('.koopo-appt');
+    const state = getState($root);
+    const id = parseInt($(this).data('id'), 10);
+    if (!id) return;
+    if (!state.addonIds.includes(id)) {
+      state.addonIds.push(id);
+      renderSelectedAddons($root);
+      updateSummary($root);
+      loadSlots($root);
+    }
+  });
+
+  $(document).on('click', '.koopo-appt__addon-chip button', function(e){
+    e.preventDefault();
+    const $root = $(this).closest('.koopo-appt');
+    const state = getState($root);
+    const id = parseInt($(this).closest('.koopo-appt__addon-chip').data('id'), 10);
+    state.addonIds = state.addonIds.filter(x => x !== id);
+    renderSelectedAddons($root);
+    updateSummary($root);
+    loadSlots($root);
   });
 
   $(document).on('click', '.koopo-appt__close', function(){

@@ -6,7 +6,7 @@
 .koopo-btn--gold { border-color:#f4b400; }
 .koopo-btn--danger { border-color:#d63638; }
 .koopo-grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap:12px; }
-.koopo-card { border:1px solid #e8e8e8; border-radius:14px; padding:12px; background:#fff; min-height: 40vh;}
+.koopo-card { border:1px solid #e8e8e8; border-radius:14px; padding:12px; background:#fff; min-height: 15vh;}
 .koopo-muted { opacity:0.7; }
 .koopo-divider { height:1px; background:#eee; margin: 12px 0; }
 .koopo-modal {
@@ -28,7 +28,7 @@
   padding:16px;
   position:relative;
 }
-#koopo-service-modal .koopo-modal__card {
+#koopo-service-modal .koopo-modal__card, #koopo-appt-create-modal .koopo-modal__card {
     margin-top: 290px;
 }
 .koopo-modal__close { position:absolute; right:12px; top:8px; font-size:28px !important; background:transparent; border:0; cursor:pointer;color:#333; }
@@ -77,6 +77,11 @@
 .koopo-table { width:100%; border-collapse: collapse; }
 .koopo-table th, .koopo-table td { padding: 10px 8px; border-bottom:1px solid #f0f0f0; text-align:left; font-size: 14px; }
 .koopo-table th { font-weight:600; background: #fafafa; }
+.koopo-table th.koopo-sortable { cursor: pointer; user-select: none; }
+.koopo-table th.koopo-sortable:hover { color: #111; }
+.koopo-table th.koopo-sortable .koopo-sort-arrow { font-size: 12px; opacity: 0.45; margin-left: 6px; }
+.koopo-table th.koopo-sortable[data-sort].is-active { background: #111; color: #fff; }
+.koopo-table th.koopo-sortable[data-sort].is-active .koopo-sort-arrow { opacity: 1; }
 .koopo-row { display:flex; align-items:flex-end; flex-wrap:wrap; }
 .koopo-row--gap { gap: 14px; margin: 10px 0 14px; }
 .koopo-field label { display:block; font-size: 13px; opacity: .8; margin-bottom: 4px; }
@@ -125,6 +130,12 @@
   border: 1px solid rgba(0,0,0,0.08);
 }
 
+input#koopo-service-addon {
+    margin-top: 0;
+}
+.koopo-toggle small {
+    display: block;
+}
 .koopo-service-cell {
   display: inline-flex;
   align-items: center;
@@ -500,7 +511,8 @@
   padding: 8px 10px;
   background: #fff;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 16px !important;
+  color:#179351;
 }
 
 .koopo-appt-addon-btn strong {
@@ -530,16 +542,18 @@
   align-items: center;
   gap: 6px;
   padding: 6px 10px;
-  border-radius: 999px;
-  background: #f3f3f3;
-  font-size: 12px;
+  border-radius: 12px;
+  background: #21d630;
+  font-size: 16px;
+  color:#fff;
+  border:solid 1px #333;
 }
 
 .koopo-appt-addon-chip button {
   border: 0;
   background: transparent;
   cursor: pointer;
-  font-size: 14px;
+  font-size: 16px;
 }
 
 .koopo-appt-total {
@@ -552,6 +566,33 @@
   border-radius: 10px;
   background: #fafafa;
   font-size: 14px;
+}
+
+.koopo-appt-slot-list {
+  margin-top: 8px;
+  display: grid;
+  gap: 8px;
+}
+
+.koopo-appt-slot-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
+  gap: 8px;
+}
+
+.koopo-appt-slot {
+  border: 1px solid #e5e5e5;
+  background: #fff;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 15px !important;
+  cursor: pointer;
+}
+
+.koopo-appt-slot.is-selected {
+  border-color: #1f2d1f;
+  background: #1f2d1f;
+  color: #fff;
 }
 
 /* === Commit 19: Enhanced Conflict & Action Styling === */

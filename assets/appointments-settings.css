@@ -13,6 +13,9 @@
 
 .kas__grid { display:grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap:12px; margin:12px 0; }
 .kas__grid input { width:100%; padding:8px; border-radius:10px; border:1px solid #ddd; }
+.kas__grid--two { grid-template-columns: repeat(2, minmax(0,1fr)); }
+.kas__grid select { width:100%; padding:8px; border-radius:10px; border:1px solid #ddd; }
+.kas__hint { font-size:13px; color:#666; margin-top:6px; }
 
 .kas__save { width:100%; padding:12px 14px; border-radius:12px; border:none; cursor:pointer; }
 

@@ -95,6 +95,7 @@ private static function release_lock(int $listing_id): void {
       'timezone'        => $timezone,
       'currency'        => $currency,
       'price'           => isset($data['price']) ? (float) $data['price'] : null,
+      'addon_ids'       => isset($data['addon_ids']) && is_array($data['addon_ids']) ? array_map('absint', $data['addon_ids']) : [],
       // Customer information fields
       'customer_name'   => isset($data['customer_name']) ? sanitize_text_field($data['customer_name']) : '',
       'customer_email'  => isset($data['customer_email']) ? sanitize_email($data['customer_email']) : '',
@@ -148,6 +149,14 @@ private static function release_lock(int $listing_id): void {
     }
 
     $addon_ids = isset($data['addon_ids']) && is_array($data['addon_ids']) ? array_map('absint', $data['addon_ids']) : [];
+    if (!empty($addon_ids)) {
+      $addon_ids = array_values(array_filter($addon_ids, function($addon_id) use ($listing_id) {
+        if (!$addon_id) return false;
+        $is_addon = get_post_meta($addon_id, Services_API::META_ADDON, true) === '1';
+        $addon_listing = (int) get_post_meta($addon_id, Services_API::META_LISTING_ID, true);
+        return $is_addon && $addon_listing === $listing_id;
+      }));
+    }
     if (!empty($addon_ids)) {
       foreach ($addon_ids as $addon_id) {
         $addon_price = get_post_meta($addon_id, Services_API::META_PRICE, true);
@@ -232,6 +241,12 @@ private static function release_lock(int $listing_id): void {
       }
       if (!empty($data['customer_notes'])) {
         update_option("koopo_booking_{$booking_id}_customer_notes", $data['customer_notes']);
+      }
+      if ($status === 'pending_payment') {
+        $booking = self::get_booking($booking_id);
+        if ($booking) {
+          do_action('koopo_booking_pending_payment', $booking_id, $booking);
+        }
       }
       if (isset($data['booking_for_other']) && $data['booking_for_other']) {
         update_option("koopo_booking_{$booking_id}_booking_for_other", '1');
@@ -542,7 +557,7 @@ public static function init_cleanup_cron() {
   }
 }
 
-public static function cleanup_pending() {
+  public static function cleanup_pending() {
   global $wpdb;
   $table = DB::table();
 
@@ -566,10 +581,26 @@ public static function cleanup_pending() {
       continue;
     }
     self::set_status($id, 'expired');
-    do_action('koopo_booking_expired_safe', $id, $booking);
+    if (apply_filters('koopo_appt_delete_expired_booking', true, $id, $booking)) {
+      self::delete_booking_data($id);
+    }
   }
 }
 
+  public static function delete_booking_data_by_id(int $booking_id): void {
+    self::delete_booking_data($booking_id);
+  }
+
+  private static function delete_booking_data(int $booking_id): void {
+    global $wpdb;
+    $table = DB::table();
+    $booking_id = (int) $booking_id;
+    $wpdb->delete($table, ['id' => $booking_id], ['%d']);
+    $wpdb->query($wpdb->prepare(
+      "DELETE FROM {$wpdb->options} WHERE option_name LIKE %s",
+      $wpdb->esc_like("koopo_booking_{$booking_id}_") . '%'
+    ));
+  }
 
 
   public static function get_booking($booking_id) {
