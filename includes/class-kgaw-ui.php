@@ -62,6 +62,8 @@ class UI {
     $post_type = get_post_type(get_the_ID());
     if (!in_array($post_type, ['gd_place'], true)) return false;
 
+    if (!self::is_listing_enabled((int) get_the_ID())) return false;
+
     // Optional: only load if shortcode exists on the page
     // but for listing templates, shortcodes might be injected by Elementor/blocks.
     return true;
@@ -71,14 +73,16 @@ class UI {
     if (!is_singular()) return '';
     
     $hide_if_empty = !empty($atts['hide_if_empty']) && $atts['hide_if_empty'] !== '0';
+    $require_enabled = !isset($atts['require_enabled']) || $atts['require_enabled'] !== '0';
 
     $listing_id = (int) get_the_ID();
     $post_type  = get_post_type($listing_id);
 
-    if ($hide_if_empty) {
+    if ($require_enabled && !self::is_listing_enabled($listing_id)) {
+      return '';
+    }
 
-      $enabled = get_post_meta($listing_id, '_koopo_appt_enabled', true) === '1';
-      if (!$enabled) return '';
+    if ($hide_if_empty) {
 
       $vendor_id = (int) get_post_field('post_author', $listing_id);
 
@@ -258,5 +262,10 @@ class UI {
     </div>
     <?php
     return ob_get_clean();
+  }
+
+  private static function is_listing_enabled(int $listing_id): bool {
+    if (!$listing_id) return false;
+    return get_post_meta($listing_id, '_koopo_appt_enabled', true) === '1';
   }
 }

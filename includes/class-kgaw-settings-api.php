@@ -29,7 +29,7 @@ class Settings_API {
   private static function is_listing_owner(int $listing_id): bool {
     $listing = get_post($listing_id);
     if (!$listing || $listing->post_type !== 'gd_place') return false;
-    return (int)$listing->post_author === get_current_user_id();
+    return Access::can_manage_listing_feature($listing_id, 'booking_calendar');
   }
 
   public static function get_settings(\WP_REST_Request $req) {

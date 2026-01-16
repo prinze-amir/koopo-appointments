@@ -95,7 +95,9 @@ class Vendor_Bookings_API {
   public static function can_access(): bool {
     if (!is_user_logged_in()) return false;
     if (function_exists('dokan_is_user_seller')) {
-      return dokan_is_user_seller(get_current_user_id());
+      $vendor_id = get_current_user_id();
+      if (!dokan_is_user_seller($vendor_id)) return false;
+      return Access::vendor_has_feature($vendor_id, 'booking_calendar');
     }
     return current_user_can('manage_options');
   }

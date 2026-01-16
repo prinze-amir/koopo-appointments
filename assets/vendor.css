@@ -108,6 +108,68 @@ select {
   margin: 10px 0 14px;
 }
 
+.koopo-cta-card {
+  padding: 24px;
+  border: 2px dashed #d7c07a;
+  border-radius: 14px;
+  background: #fff8e3;
+  color: #3d2e00;
+  text-align: center;
+  margin: 10px 0 24px;
+}
+
+.koopo-cta-card h3 {
+  margin: 0 0 10px;
+  font-size: 20px;
+}
+
+.koopo-cta-card p {
+  margin: 0 0 16px;
+}
+
+.koopo-upgrade-card {
+  padding: 28px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #1f2d1f 0%, #2e3c2b 55%, #1f2d1f 100%);
+  color: #f6f2e8;
+  box-shadow: 0 12px 28px rgba(22, 22, 22, 0.18);
+  margin: 8px 0 24px;
+}
+
+.koopo-upgrade-card h3 {
+  margin: 10px 0 8px;
+  font-size: 22px;
+}
+
+.koopo-upgrade-card p {
+  margin: 0 0 16px;
+  color: #e5ddcf;
+}
+
+.koopo-upgrade-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(255, 215, 128, 0.18);
+  color: #ffe4a3;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.koopo-upgrade-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.koopo-upgrade-note {
+  font-size: 13px;
+  color: #d7ccb9;
+}
+
 .koopo-view-btn.is-active,
 .koopo-cal-view.is-active {
   background: #1f2d1f;

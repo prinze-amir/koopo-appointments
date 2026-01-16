@@ -3,6 +3,7 @@
 .kas__row--toggle { align-items:center; }
 .kas__row--block { display:block; }
 .kas__row--block span { display:block; margin-bottom:6px; font-weight:600; }
+.kas__row--primary { padding:10px 12px; border:1px solid #eee; border-radius:12px; background:#f8f8f8; }
 .kas__notice { padding:10px; border-radius:12px; margin:10px 0; }
 .kas__notice--hidden { display:none; }
 .kas__notice--error { background:#ffecec; border:1px solid #ffbdbd; }

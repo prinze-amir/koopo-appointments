@@ -89,6 +89,13 @@ function breaksOutsideHours(breaksMin, hoursMin){
       <div class="kas">
         <div class="kas__notice kas__notice--hidden"></div>
         <div class="kas__warnings kas__warnings--hidden"></div>
+        <label class="kas__row kas__row--toggle kas__row--primary">
+          <span>Enable booking</span>
+          <button type="button" class="kas__toggle-btn kas__enabled_toggle" aria-pressed="false">
+            <span class="kas__toggle-knob"></span>
+            <span class="kas__toggle-label">Off</span>
+          </button>
+        </label>
         <div class="kas__toolbar">
         <div class="kas__presets">
           <strong>Presets:</strong>
@@ -107,11 +114,6 @@ function breaksOutsideHours(breaksMin, hoursMin){
           <button type="button" class="kas__clear-all">Clear All</button>
         </div>
       </div>
-
-        <label class="kas__row">
-          <span>Enable booking</span>
-          <input type="checkbox" class="kas__enabled" />
-        </label>
 
         <label class="kas__row">
           <span>Timezone</span>
@@ -489,7 +491,7 @@ function validateAll($mount){
     try {
       const data = await api(`/appointments/settings/${listingId}`, { method:'GET' });
 
-      $mount.find('.kas__enabled').prop('checked', !!data.enabled);
+      setToggleState($mount.find('.kas__enabled_toggle'), !!data.enabled);
       $mount.find('.kas__tz').val(data.timezone || KOOPO_APPT_SETTINGS.tzDefault);
 
       // Hours (multi-range)
@@ -540,7 +542,7 @@ function validateAll($mount){
 
   async function save($mount, listingId){
     try {
-        const enabled = $mount.find('.kas__enabled').is(':checked');
+        const enabled = isToggleOn($mount.find('.kas__enabled_toggle'));
         const timezone = $mount.find('.kas__tz').val().trim() || KOOPO_APPT_SETTINGS.tzDefault;
 
         const days = ['mon','tue','wed','thu','fri','sat','sun'];

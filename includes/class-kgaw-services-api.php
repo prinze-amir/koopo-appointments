@@ -28,29 +28,38 @@ class Services_API {
     register_rest_route('koopo/v1', '/services', [
       'methods' => 'POST',
       'callback' => [__CLASS__, 'create_service'],
-      'permission_callback' => fn() => is_user_logged_in(),
+      'permission_callback' => [__CLASS__, 'can_manage'],
     ]);
 
     // Update service
     register_rest_route('koopo/v1', '/services/(?P<id>\d+)', [
       'methods' => 'POST',
       'callback' => [__CLASS__, 'update_service'],
-      'permission_callback' => fn() => is_user_logged_in(),
+      'permission_callback' => [__CLASS__, 'can_manage'],
     ]);
 
     // Delete service
     register_rest_route('koopo/v1', '/services/(?P<id>\d+)', [
       'methods' => 'DELETE',
       'callback' => [__CLASS__, 'delete_service'],
-      'permission_callback' => fn() => is_user_logged_in(),
+      'permission_callback' => [__CLASS__, 'can_manage'],
     ]);
 
     // Get service categories
     register_rest_route('koopo/v1', '/service-categories', [
       'methods' => 'GET',
       'callback' => [__CLASS__, 'get_categories'],
-      'permission_callback' => fn() => is_user_logged_in(),
+      'permission_callback' => [__CLASS__, 'can_manage'],
     ]);
+  }
+
+  public static function can_manage(): bool {
+    if (!is_user_logged_in()) return false;
+    $user_id = get_current_user_id();
+    if (function_exists('dokan_is_user_seller') && dokan_is_user_seller($user_id)) {
+      return Access::vendor_has_feature($user_id, 'booking_calendar');
+    }
+    return current_user_can('manage_options');
   }
 
   private static function assert_owner($post_id) {
