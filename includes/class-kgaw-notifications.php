@@ -70,6 +70,7 @@ class Notifications {
       'timezone' => $tz,
       'timezone_abbr' => Date_Formatter::get_timezone_abbr($tz, (string)$b->start_datetime),
       'order_id' => (int) ($b->wc_order_id ?? 0),
+      'calendar_links' => Date_Formatter::get_calendar_links($b),
     ];
   }
 
@@ -134,6 +135,10 @@ class Notifications {
     $customer = self::customer_email((int)$ctx['booking']->customer_id, $ctx['order_id'] ?: null);
     $customer_name  = get_userdata((int)$ctx['booking']->customer_id)?->first_name;
     $listing_url = $ctx['listing_id'] ? get_permalink($ctx['listing_id']) : home_url('/');
+    $calendar_url = $ctx['calendar_links']['google'] ?? $ctx['calendar_links']['outlook'] ?? $ctx['calendar_links']['ical'] ?? '';
+    $manage_url = class_exists('\Koopo_Appointments\MyAccount')
+      ? MyAccount::manage_appointment_url($booking_id)
+      : home_url('/my-account/koopo-appointments/');
     $seller_user = get_user_by('email', $seller);
     $seller_name = ($seller_user && !empty($seller_user->display_name)) ? $seller_user->display_name : 'there';
    
@@ -149,6 +154,10 @@ class Notifications {
         "🗓 <strong>Date:</strong> {$ctx['start_formatted']} ({$ctx['timezone_abbr']})",
         "⏱ <strong>Duration:</strong> {$ctx['duration_formatted']}",
         "📌 <strong>Booking ID:</strong> #{$booking_id}",
+      ],
+      'buttons' => [
+        $calendar_url ? ['label' => 'Add to Calendar', 'url' => $calendar_url, 'style' => 'primary'] : null,
+        $manage_url ? ['label' => 'Manage Appointment', 'url' => $manage_url, 'style' => 'secondary'] : null,
       ],
       'outro' => [
         'Please arrive a few minutes early to get settled.',
@@ -270,6 +279,10 @@ class Notifications {
     $customer_name  = get_userdata((int)$ctx['booking']->customer_id)?->display_name;
     $tz = $ctx['timezone'];
     $listing_url = $ctx['listing_id'] ? get_permalink($ctx['listing_id']) : home_url('/');
+    $calendar_url = $ctx['calendar_links']['google'] ?? $ctx['calendar_links']['outlook'] ?? $ctx['calendar_links']['ical'] ?? '';
+    $manage_url = class_exists('\Koopo_Appointments\MyAccount')
+      ? MyAccount::manage_appointment_url($booking_id)
+      : home_url('/my-account/koopo-appointments/');
     
     $new_start_formatted = Date_Formatter::format($new_start, $tz, 'full');
     $duration_mins = (strtotime($new_end) - strtotime($new_start)) / 60;
@@ -289,6 +302,10 @@ class Notifications {
         "🗓 <strong>New Date:</strong> {$new_start_formatted} ({$ctx['timezone_abbr']})",
         "⏱ <strong>Duration:</strong> {$duration_formatted}",
         "📌 <strong>Booking ID:</strong> #{$booking_id}",],
+      'buttons' => [
+        $calendar_url ? ['label' => 'Add to Calendar', 'url' => $calendar_url, 'style' => 'primary'] : null,
+        $manage_url ? ['label' => 'Manage Appointment', 'url' => $manage_url, 'style' => 'secondary'] : null,
+      ],
       'outro' => [
         'If you have any questions, please contact the business.',
         $listing_url ? 'View this business: <a href="' . esc_url($listing_url) . '">' . esc_html($listing_url) . '</a>' : '',
@@ -583,8 +600,8 @@ class Notifications {
           <ul style='padding-left:20px;'>{$lis}</ul>
         </div>
         <div style='background:#f7f7f7;padding:15px;text-align:center;font-size:12px;color:#666;border-radius:0 0 8px 8px;'>
-          <p style='margin:0;'>—© 2026 Koopo Online.  All Rights Reserved.</p>
-          <div style='margin-top:8px;display:flex;justify-content:center;align-items:center;flex-wrap:nowrap;'>
+          <p style='margin:0;'>© 2026 Koopo Online.  All Rights Reserved.</p>
+          <div style='margin-top:8px;display:flex;justify-content:center;align-items:center;flex-wrap:nowrap;margin:0 auto;'>
             <a href='https://koopoonline.com/privacy-policy-koopo/' style='color:#666;text-decoration:none;margin:0 8px;font-size:12px;'>Privacy Policy</a> |
             <a href='https://koopoonline.com/koopo-terms/' style='color:#666;text-decoration:none;margin:0 8px;font-size:12px;'>Terms of Service</a>
         </div>
@@ -597,8 +614,10 @@ class Notifications {
     $lines = $data['lines'] ?? [];
     $intro = $data['intro'] ?? '';
     $outro = $data['outro'] ?? '';
+    $buttons = $data['buttons'] ?? [];
     $lis = '';
     $outro_lines = '';
+    $buttons_html = '';
 
     foreach ($lines as $l) {
       if (!$l) continue;
@@ -607,6 +626,24 @@ class Notifications {
     foreach ($outro as $o) {
       if (!$o) continue;
       $outro_lines .= '<p>' . wp_kses_post($o) . '</p>';
+    }
+    foreach ($intro as $i) {
+      if (!$i) continue;
+      $intro_lines .= '<p>' . wp_kses_post($i) . '</p>';
+    }
+    if (!is_array($buttons)) {
+      $buttons = [];
+    }
+    foreach ($buttons as $btn) {
+      if (!$btn || !is_array($btn)) continue;
+      $label = trim((string) ($btn['label'] ?? ''));
+      $url = trim((string) ($btn['url'] ?? ''));
+      if (!$label || !$url) continue;
+      $style = (string) ($btn['style'] ?? 'primary');
+      $bg = $style === 'secondary' ? '#fff' : '#f4b400';
+      $color = $style === 'secondary' ? '#3d2e00' : '#111';
+      $border = $style === 'secondary' ? '1px solid #d7c07a' : '1px solid #f4b400';
+      $buttons_html .= '<a href="' . esc_url($url) . '" style="display:inline-block;padding:12px 18px;border-radius:8px;text-decoration:none;font-weight:600;margin:4px;background:' . $bg . ';color:' . $color . ';border:' . $border . ';">' . esc_html($label) . '</a>';
     }
     $logo = self::email_logo_url();
     $logo_html = $logo ? "<div style='text-align:center;margin-bottom:12px;'><img src='{$logo}' alt='Koopo' style='max-width:290px;height:auto;'></div>" : '';
@@ -617,8 +654,9 @@ class Notifications {
           <h2 style='margin:0;color:#fff;'>{$title}</h2>
         </div>
         <div style='background:#fff;padding:20px;border:1px solid #e5e5e5;'>
-        <p>{$intro}</p>
+        <p>{$intro_lines}</p>
           <ul style='padding-left:20px;'>{$lis}</ul>
+          <div style='margin:16px 0;text-align:center;'>{$buttons_html}</div>
           <div>{$outro_lines}</div>
         </div>
         <div style='background:#f7f7f7;padding:15px;text-align:center;font-size:12px;color:#666;border-radius:0 0 8px 8px;'>

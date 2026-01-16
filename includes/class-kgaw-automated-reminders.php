@@ -200,6 +200,11 @@ class Automated_Reminders {
     $start_formatted = Date_Formatter::format($booking->start_datetime, $tz, 'full');
     $duration_mins = (strtotime($booking->end_datetime) - strtotime($booking->start_datetime)) / 60;
     $duration_formatted = Date_Formatter::format_duration((int) $duration_mins);
+    $calendar_links = Date_Formatter::get_calendar_links($booking);
+    $calendar_url = $calendar_links['google'] ?? $calendar_links['outlook'] ?? $calendar_links['ical'] ?? '';
+    $manage_url = class_exists('\Koopo_Appointments\MyAccount')
+      ? MyAccount::manage_appointment_url((int) $booking->id)
+      : home_url('/my-account/koopo-appointments/');
 
     // Get reminder template
     $template = self::get_reminder_template($hours_before);
@@ -216,6 +221,8 @@ class Automated_Reminders {
       'order_id' => $order_id,
       'timezone' => $tz,
       'template' => $template,
+      'calendar_url' => $calendar_url,
+      'manage_url' => $manage_url,
     ]);
 
     // Send email
@@ -258,6 +265,8 @@ class Automated_Reminders {
     if ($data['order_id']) {
       $cta_url = wc_get_endpoint_url('view-order', $data['order_id'], wc_get_page_permalink('myaccount'));
     }
+    $calendar_url = $data['calendar_url'] ?? '';
+    $manage_url = $data['manage_url'] ?? '';
 
     ob_start();
     ?>
@@ -307,12 +316,26 @@ class Automated_Reminders {
           </p>
         </div>
 
-        <?php if ($cta_url): ?>
+        <?php if ($calendar_url || $manage_url || $cta_url): ?>
         <div style="text-align: center; margin: 30px 0;">
-          <a href="<?php echo esc_url($cta_url); ?>" 
-             style="display: inline-block; padding: 14px 30px; background: #2c7a3c; color: #fff; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 16px;">
-            <?php echo esc_html($data['template']['cta']); ?>
-          </a>
+          <?php if ($calendar_url): ?>
+            <a href="<?php echo esc_url($calendar_url); ?>" 
+               style="display: inline-block; padding: 12px 22px; background: #f4b400; color: #111; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 15px; margin: 4px;">
+              Add to Calendar
+            </a>
+          <?php endif; ?>
+          <?php if ($manage_url): ?>
+            <a href="<?php echo esc_url($manage_url); ?>" 
+               style="display: inline-block; padding: 12px 22px; background: #ffffff; color: #2c2c2c; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 15px; margin: 4px; border: 1px solid #e3c777;">
+              Manage Appointment
+            </a>
+          <?php endif; ?>
+          <?php if ($cta_url): ?>
+            <a href="<?php echo esc_url($cta_url); ?>" 
+               style="display: inline-block; padding: 12px 22px; background: #2c7a3c; color: #fff; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 15px; margin: 4px;">
+              <?php echo esc_html($data['template']['cta']); ?>
+            </a>
+          <?php endif; ?>
         </div>
         <?php endif; ?>
 

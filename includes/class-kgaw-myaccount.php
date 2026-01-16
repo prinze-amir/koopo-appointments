@@ -124,6 +124,18 @@ class MyAccount {
     ], $base);
   }
 
+  public static function appointments_url(): string {
+    return function_exists('wc_get_account_endpoint_url')
+      ? wc_get_account_endpoint_url('koopo-appointments')
+      : home_url('/my-account/koopo-appointments/');
+  }
+
+  public static function manage_appointment_url(int $booking_id): string {
+    return add_query_arg([
+      'booking_id' => $booking_id,
+    ], self::appointments_url());
+  }
+
 /**
  * Builds a signed “Cancel” link for a booking (customer-side).
  */
