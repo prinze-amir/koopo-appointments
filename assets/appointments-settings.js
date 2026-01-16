@@ -172,22 +172,46 @@ function breaksOutsideHours(breaksMin, hoursMin){
         </div>
 
         <div class="kas__section">
-          <h4>Reschedule Restriction</h4>
-          <div class="kas__grid kas__grid--two">
-            <label>
-              Customer can reschedule up to
-              <input type="number" class="kas__reschedule_value" min="0" step="1" placeholder="0 = no restriction" />
-            </label>
-            <label>
-              Unit
+          <h4>Rescheduling</h4>
+          <label class="kas__row kas__row--toggle">
+            <span>Allow customers to reschedule their appointments</span>
+            <button type="button" class="kas__toggle-btn kas__reschedule_enabled" aria-pressed="true">
+              <span class="kas__toggle-knob"></span>
+              <span class="kas__toggle-label">On</span>
+            </button>
+          </label>
+          <div class="kas__hint">If enabled, customers can reschedule in their booking details.</div>
+
+          <label class="kas__row kas__row--toggle kas__reschedule-restrict-toggle">
+            <span>Set restriction on when customers can reschedule</span>
+            <button type="button" class="kas__toggle-btn kas__reschedule_restrict_enabled" aria-pressed="false">
+              <span class="kas__toggle-knob"></span>
+              <span class="kas__toggle-label">Off</span>
+            </button>
+          </label>
+
+          <div class="kas__reschedule-restrict">
+            <div class="kas__reschedule-line">
+              <span>Customer can reschedule when it is at least</span>
+              <input type="number" class="kas__reschedule_value" min="1" step="1" value="1" />
               <select class="kas__reschedule_unit">
                 <option value="minutes">Minutes</option>
                 <option value="hours">Hours</option>
-                <option value="days">Days</option>
+                <option value="days" selected>Days</option>
               </select>
-            </label>
+              <span>before appointment start time</span>
+            </div>
           </div>
-          <div class="kas__hint">Applies to customer rescheduling only.</div>
+        </div>
+
+        <div class="kas__section">
+          <h4>Cancellation/Refund Policy</h4>
+          <div class="kas__hint">Set refund percentage based on how far in advance a customer cancels.</div>
+          <div class="kas__hint">If you don’t set a policy, the site’s standard default policy will be used.</div>
+          <div class="kas__refund-table">
+            <div class="kas__refund-rows"></div>
+            <button type="button" class="kas__refund-add">+ Add rule</button>
+          </div>
         </div>
 
         <label class="kas__row kas__row--block">
@@ -237,11 +261,32 @@ function breaksOutsideHours(breaksMin, hoursMin){
   return ranges;
 }
 
-function renderRangesToUI($mount, kind, day, ranges){
-  const $wrap = $mount.find(`.kas__ranges[data-kind="${kind}"][data-day="${day}"]`);
-  $wrap.empty();
-  ranges.forEach(r => $wrap.append(rangeRow(kind, day, r[0], r[1])));
-}
+  function renderRangesToUI($mount, kind, day, ranges){
+    const $wrap = $mount.find(`.kas__ranges[data-kind="${kind}"][data-day="${day}"]`);
+    $wrap.empty();
+    ranges.forEach(r => $wrap.append(rangeRow(kind, day, r[0], r[1])));
+  }
+
+  function setToggleState($btn, on){
+    $btn.toggleClass('is-on', !!on);
+    $btn.attr('aria-pressed', on ? 'true' : 'false');
+    $btn.find('.kas__toggle-label').text(on ? 'On' : 'Off');
+  }
+
+  function isToggleOn($btn){
+    return $btn.hasClass('is-on');
+  }
+
+  function updateRescheduleVisibility($mount){
+    const enabled = isToggleOn($mount.find('.kas__reschedule_enabled'));
+    const restrictEnabled = isToggleOn($mount.find('.kas__reschedule_restrict_enabled'));
+    $mount.find('.kas__reschedule-restrict-toggle').toggle(enabled);
+    $mount.find('.kas__reschedule_restrict_enabled').prop('disabled', !enabled);
+    if (!enabled) {
+      setToggleState($mount.find('.kas__reschedule_restrict_enabled'), false);
+    }
+    $mount.find('.kas__reschedule-restrict').toggle(enabled && restrictEnabled);
+  }
 
 function setWarnings($mount, warnings){
   const $w = $mount.find('.kas__warnings');
@@ -348,6 +393,97 @@ function validateAll($mount){
   return { ok: errors.length === 0, errors, warnings };
 }
 
+  function refundRuleRow(value = 1, unit = 'days', refund = 100, otherwiseRefund = 0){
+    return `
+      <div class="kas__refund-row">
+        <div class="kas__refund-line">
+          <span>If canceled at least</span>
+          <input type="number" class="kas__refund-value" min="1" step="1" value="${value}" />
+          <select class="kas__refund-unit">
+            <option value="hours" ${unit === 'hours' ? 'selected' : ''}>hours</option>
+            <option value="days" ${unit === 'days' ? 'selected' : ''}>days</option>
+          </select>
+          <span>before the start time of your appointment then you will be refunded</span>
+          <input type="number" class="kas__refund-percent" min="0" max="100" step="1" value="${refund}" />
+          <span>%</span>
+          <span>otherwise the refund will be</span>
+          <input type="number" class="kas__refund-otherwise" min="0" max="100" step="1" value="${otherwiseRefund}" />
+          <span>%</span>
+        </div>
+        <button type="button" class="kas__refund-remove">Remove</button>
+      </div>
+    `;
+  }
+
+  function renderRefundRules($mount, rules){
+    const $rows = $mount.find('.kas__refund-rows');
+    $rows.empty();
+    if (!rules.length) {
+      $rows.append(refundRuleRow(1, 'days', 100, 0));
+      return;
+    }
+    const sorted = rules.slice().sort((a, b) => Number(b.hours_before || 0) - Number(a.hours_before || 0));
+    const rows = [];
+    sorted.forEach((rule, idx) => {
+      const hours = Number(rule.hours_before || 0);
+      if (hours <= 0) return;
+      const fee = Number(rule.fee_percent || 0);
+      const refund = Math.max(0, Math.min(100, 100 - fee));
+      let unit = 'hours';
+      let value = hours;
+      if (hours % 24 === 0) {
+        unit = 'days';
+        value = hours / 24;
+      }
+      const next = sorted[idx + 1];
+      let otherwiseRefund = 0;
+      if (next) {
+        const nextFee = Number(next.fee_percent || 0);
+        otherwiseRefund = Math.max(0, Math.min(100, 100 - nextFee));
+      }
+      rows.push({ value, unit, refund, otherwiseRefund });
+    });
+    if (!rows.length) {
+      $rows.append(refundRuleRow(1, 'days', 100, 0));
+      return;
+    }
+    rows.forEach(r => $rows.append(refundRuleRow(r.value, r.unit, r.refund, r.otherwiseRefund)));
+  }
+
+  function collectRefundRules($mount){
+    const rows = [];
+    $mount.find('.kas__refund-row').each(function(){
+      const value = parseInt($(this).find('.kas__refund-value').val(), 10);
+      const unit = $(this).find('.kas__refund-unit').val() || 'days';
+      const refundPercent = parseInt($(this).find('.kas__refund-percent').val(), 10);
+      const otherwisePercent = parseInt($(this).find('.kas__refund-otherwise').val(), 10);
+      if (Number.isNaN(value) || Number.isNaN(refundPercent) || Number.isNaN(otherwisePercent)) return;
+      const hours = unit === 'days' ? value * 24 : value;
+      rows.push({
+        hours_before: Math.max(1, hours),
+        refund_percent: Math.max(0, Math.min(100, refundPercent)),
+        otherwise_refund_percent: Math.max(0, Math.min(100, otherwisePercent)),
+      });
+    });
+    if (!rows.length) return [];
+
+    rows.sort((a,b) => b.hours_before - a.hours_before);
+    const rules = rows.map(row => ({
+      hours_before: row.hours_before,
+      fee_percent: Math.max(0, Math.min(100, 100 - row.refund_percent)),
+    }));
+
+    const last = rows[rows.length - 1];
+    if (last && last.otherwise_refund_percent !== null && last.otherwise_refund_percent !== undefined) {
+      rules.push({
+        hours_before: 0,
+        fee_percent: Math.max(0, Math.min(100, 100 - last.otherwise_refund_percent)),
+      });
+    }
+    rules.sort((a,b) => b.hours_before - a.hours_before);
+    return rules;
+  }
+
 
   async function load($mount, listingId){
     try {
@@ -382,8 +518,16 @@ function validateAll($mount){
       $mount.find('.kas__interval').val(data.slot_interval || 0);
       $mount.find('.kas__buf_before').val(data.buffer_before || 0);
       $mount.find('.kas__buf_after').val(data.buffer_after || 0);
-      $mount.find('.kas__reschedule_value').val(data.reschedule_cutoff_value || 0);
-      $mount.find('.kas__reschedule_unit').val(data.reschedule_cutoff_unit || 'hours');
+      const rescheduleEnabled = data.reschedule_enabled !== false;
+      const restrictEnabled = !!data.reschedule_restrict_enabled;
+      const cutoffValue = data.reschedule_cutoff_value ? Number(data.reschedule_cutoff_value) : 0;
+      const cutoffUnit = data.reschedule_cutoff_unit || 'days';
+      setToggleState($mount.find('.kas__reschedule_enabled'), rescheduleEnabled);
+      setToggleState($mount.find('.kas__reschedule_restrict_enabled'), restrictEnabled);
+      $mount.find('.kas__reschedule_value').val(cutoffValue > 0 ? cutoffValue : 1);
+      $mount.find('.kas__reschedule_unit').val(cutoffUnit || 'days');
+      updateRescheduleVisibility($mount);
+      renderRefundRules($mount, data.refund_policy_rules || []);
       $mount.find('.kas__days_off').val((data.days_off || []).join(', '));
 
       showNotice($mount, 'Loaded.', 'success');
@@ -427,8 +571,15 @@ function validateAll($mount){
       const slot_interval = parseInt($mount.find('.kas__interval').val(), 10) || 0;
       const buffer_before = parseInt($mount.find('.kas__buf_before').val(), 10) || 0;
       const buffer_after  = parseInt($mount.find('.kas__buf_after').val(), 10) || 0;
-      const reschedule_cutoff_value = parseInt($mount.find('.kas__reschedule_value').val(), 10) || 0;
-      const reschedule_cutoff_unit = $mount.find('.kas__reschedule_unit').val() || 'hours';
+      const reschedule_enabled = isToggleOn($mount.find('.kas__reschedule_enabled'));
+      const reschedule_restrict_enabled = isToggleOn($mount.find('.kas__reschedule_restrict_enabled'));
+      const reschedule_cutoff_value = reschedule_enabled && reschedule_restrict_enabled
+        ? (parseInt($mount.find('.kas__reschedule_value').val(), 10) || 1)
+        : 0;
+      const reschedule_cutoff_unit = reschedule_enabled && reschedule_restrict_enabled
+        ? ($mount.find('.kas__reschedule_unit').val() || 'days')
+        : 'days';
+      const refund_policy_rules = collectRefundRules($mount);
 
       const days_off = ($mount.find('.kas__days_off').val() || '')
         .split(',')
@@ -445,8 +596,11 @@ function validateAll($mount){
           slot_interval,
           buffer_before,
           buffer_after,
+          reschedule_enabled,
+          reschedule_restrict_enabled,
           reschedule_cutoff_value,
           reschedule_cutoff_unit,
+          refund_policy_rules,
           days_off
         })
       });
@@ -689,6 +843,23 @@ $(document).on('click', '.kas__preset', function(){
   validateAll($mount);
   showNotice($mount, 'Preset applied. Don’t forget to Save.', 'success');
 });
+
+  $(document).on('click', '.kas__refund-add', function(){
+    const $mount = $(this).closest('.koopo-appt-settings-mount');
+    $mount.find('.kas__refund-rows').append(refundRuleRow(1, 'days', 100, 0));
+  });
+
+  $(document).on('click', '.kas__refund-remove', function(){
+    $(this).closest('.kas__refund-row').remove();
+  });
+
+  $(document).on('click', '.kas__toggle-btn', function(){
+    const $btn = $(this);
+    if ($btn.prop('disabled')) return;
+    setToggleState($btn, !isToggleOn($btn));
+    const $mount = $btn.closest('.koopo-appt-settings-mount');
+    updateRescheduleVisibility($mount);
+  });
 
   // Save button (works in both mounts)
   $(document).on('click', '.kas__save', function(){

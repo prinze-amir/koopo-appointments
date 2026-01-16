@@ -44,6 +44,15 @@ class Vendor_Bookings_API {
       ],
     ]);
 
+    register_rest_route('koopo/v1', '/vendor/bookings/analytics', [
+      'methods'  => 'GET',
+      'callback' => [__CLASS__, 'analytics'],
+      'permission_callback' => [__CLASS__, 'can_access'],
+      'args' => [
+        'listing_id' => ['type' => 'integer', 'required' => false],
+      ],
+    ]);
+
     register_rest_route('koopo/v1', '/vendor/bookings/(?P<id>\d+)/action', [
       'methods'  => 'POST',
       'callback' => [__CLASS__, 'booking_action'],
@@ -230,6 +239,10 @@ class Vendor_Bookings_API {
       }
       $customer_phone = (string) get_option("koopo_booking_{$booking_id}_customer_phone", '');
       $booking_for_other = (string) get_option("koopo_booking_{$booking_id}_booking_for_other", '') === '1';
+      $cancelled_by = (string) get_option("koopo_booking_{$booking_id}_cancelled_by", '');
+      $refund_amount_meta = get_option("koopo_booking_{$booking_id}_refund_amount", '');
+      $refund_amount_meta = is_numeric($refund_amount_meta) ? (float) $refund_amount_meta : 0.0;
+      $refund_status = (string) get_option("koopo_booking_{$booking_id}_refund_status", '');
       $addon_summary = self::get_addons_summary($booking_id);
 
       $service_price = get_post_meta($service_id, Services_API::META_PRICE, true);
@@ -293,6 +306,9 @@ class Vendor_Bookings_API {
         'addon_titles' => $addon_summary['titles'],
         'addon_total_price' => $addon_summary['total_price'],
         'addon_total_duration' => $addon_summary['total_duration'],
+        'cancelled_by' => $cancelled_by,
+        'refund_amount' => $refund_amount_meta,
+        'refund_status' => $refund_status,
       ];
     }
 
@@ -371,6 +387,9 @@ class Vendor_Bookings_API {
       if (!$result['ok']) {
         return new \WP_Error('koopo_cancel_failed', $result['reason'] ?? 'Cancel failed', ['status' => 409]);
       }
+      update_option("koopo_booking_{$booking_id}_cancelled_by", 'vendor');
+      update_option("koopo_booking_{$booking_id}_refund_amount", '0');
+      update_option("koopo_booking_{$booking_id}_refund_status", 'none');
 
       if ($order) {
         $order_note = 'Koopo: Vendor cancelled booking #'.$booking_id;
@@ -548,6 +567,10 @@ class Vendor_Bookings_API {
 
       // Step 6: Trigger notification hook
       do_action('koopo_vendor_refund_processed', $booking_id, $order->get_id(), $refund_amount, $refund_result);
+
+      update_option("koopo_booking_{$booking_id}_cancelled_by", 'vendor');
+      update_option("koopo_booking_{$booking_id}_refund_amount", (string) $refund_amount);
+      update_option("koopo_booking_{$booking_id}_refund_status", 'refunded');
 
       // Step 7: Return detailed success response
       return rest_ensure_response([
@@ -799,6 +822,71 @@ class Vendor_Bookings_API {
 
     fclose($output);
     exit;
+  }
+
+  public static function analytics(\WP_REST_Request $req) {
+    global $wpdb;
+    $table = DB::table();
+
+    $vendor_id = get_current_user_id();
+    $listing_id = absint($req->get_param('listing_id'));
+
+    $where = 'WHERE listing_author_id = %d AND status != %s';
+    $params = [$vendor_id, 'expired'];
+    if ($listing_id) {
+      $where .= ' AND listing_id = %d';
+      $params[] = $listing_id;
+    }
+
+    $total_bookings = (int) $wpdb->get_var($wpdb->prepare(
+      "SELECT COUNT(*) FROM {$table} {$where}",
+      $params
+    ));
+
+    $total_cancelled = (int) $wpdb->get_var($wpdb->prepare(
+      "SELECT COUNT(*) FROM {$table} {$where} AND status IN ('cancelled', 'refunded')",
+      $params
+    ));
+
+    $total_earnings = (float) $wpdb->get_var($wpdb->prepare(
+      "SELECT SUM(price) FROM {$table} {$where} AND status = 'confirmed'",
+      $params
+    ));
+
+    $services = $wpdb->get_results($wpdb->prepare(
+      "SELECT service_id, COUNT(*) as total
+       FROM {$table}
+       {$where}
+       GROUP BY service_id
+       ORDER BY total DESC",
+      $params
+    ), ARRAY_A);
+
+    $service_rows = [];
+    foreach ($services as $row) {
+      $service_id = (int) ($row['service_id'] ?? 0);
+      if (!$service_id) {
+        continue;
+      }
+      $service_rows[] = [
+        'service_id' => $service_id,
+        'service_title' => get_the_title($service_id) ?: '',
+        'count' => (int) ($row['total'] ?? 0),
+      ];
+    }
+
+    $currency_symbol = function_exists('get_woocommerce_currency_symbol') ? get_woocommerce_currency_symbol() : '$';
+    $currency_symbol = html_entity_decode((string) $currency_symbol, ENT_QUOTES);
+
+    return rest_ensure_response([
+      'totals' => [
+        'total_bookings' => $total_bookings,
+        'total_cancelled' => $total_cancelled,
+        'total_earnings' => $total_earnings,
+        'currency_symbol' => $currency_symbol,
+      ],
+      'services' => $service_rows,
+    ]);
   }
 
   private static function get_addons_summary(int $booking_id): array {

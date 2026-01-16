@@ -112,6 +112,14 @@ class Cart {
 
     $booking = Bookings::get_booking($booking_id);
     if ($booking) {
+      if ($order && is_object($order) && method_exists($order, 'get_meta')) {
+        $existing_vendor = (int) $order->get_meta('_dokan_vendor_id', true);
+        $booking_vendor = (int) $booking->listing_author_id;
+        if (!$existing_vendor && $booking_vendor) {
+          $order->update_meta_data('_dokan_vendor_id', $booking_vendor);
+        }
+      }
+
       $item->add_meta_data('_koopo_listing_id', (int) $booking->listing_id, true);
       $item->add_meta_data('_koopo_listing_author_id', (int) $booking->listing_author_id, true);
       $item->add_meta_data('_koopo_service_id', (string) $booking->service_id, true);

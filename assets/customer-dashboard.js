@@ -109,18 +109,21 @@
     }
     if (booking.status !== 'pending_payment') return '';
     const expiresAt = Number(booking.payment_hold_expires_at || 0);
+    const totalHold = Number(booking.payment_hold_minutes || 10);
+    const minutesLeftFromNotice = Math.max(1, totalHold - 3);
     const payLink = booking.pay_now_url
       ? ` <a href="${booking.pay_now_url}" class="koopo-inline-link">Pay now</a>`
       : '';
     if (!expiresAt) {
-      return `Pending payment. Please complete checkout to confirm your appointment.${payLink}`;
+      return `Pending payment. Please complete checkout within ${minutesLeftFromNotice} minutes or it will be deleted.${payLink}`;
     }
     const now = Date.now() / 1000;
     const minutesLeft = Math.max(0, Math.ceil((expiresAt - now) / 60));
     if (!minutesLeft) {
       return 'Booking deleted due to non-payment. Please book again.';
     }
-    return `Pending payment. Please pay to confirm — hold expires in ${minutesLeft} min.${payLink}`;
+    const displayMinutes = Math.min(minutesLeftFromNotice, minutesLeft);
+    return `Pending payment. Please pay within ${displayMinutes} minutes or it will be deleted.${payLink}`;
   }
 
   /**
@@ -132,7 +135,13 @@
 
     $card.attr('data-id', booking.id);
     $card.find('.koopo-service-title').text(booking.service_title);
-    $card.find('.koopo-listing-title').text(booking.listing_title);
+    if (booking.listing_url) {
+      $card.find('.koopo-listing-title').html(
+        `<a href="${booking.listing_url}" class="koopo-inline-link" target="_blank" rel="noopener">${booking.listing_title}</a>`
+      );
+    } else {
+      $card.find('.koopo-listing-title').text(booking.listing_title);
+    }
     $card.find('.koopo-datetime').text(booking.start_datetime_formatted);
     $card.find('.koopo-duration').text(booking.duration_formatted);
     $card.find('.koopo-price').text(fmtMoney(booking.price));
@@ -141,6 +150,24 @@
     if (pendingNotice) {
       $card.find('.koopo-pending-payment').html(pendingNotice);
       $card.find('.koopo-pending-payment-row').show();
+    }
+
+    if (booking.status === 'cancelled' || booking.status === 'refunded') {
+      const cancelledBy = (booking.cancelled_by || '').trim();
+      const cancelledLabel = cancelledBy ? `Cancelled by ${cancelledBy}` : 'Cancelled';
+      $card.find('.koopo-cancel-info').text(cancelledLabel);
+      $card.find('.koopo-cancel-info-row').show();
+
+      const refundAmount = Number(booking.refund_amount || 0);
+      const refundStatus = (booking.refund_status || '').trim();
+      let refundText = 'No refund';
+      if (refundStatus === 'refunded' || refundAmount > 0) {
+        refundText = `Refunded ${fmtMoney(refundAmount)}`;
+      } else if (refundStatus === 'pending') {
+        refundText = `Refund pending (${fmtMoney(refundAmount)})`;
+      }
+      $card.find('.koopo-refund-info').text(refundText);
+      $card.find('.koopo-refund-info-row').show();
     }
 
     const addonTitles = Array.isArray(booking.addon_titles) ? booking.addon_titles.filter(Boolean) : [];
@@ -313,7 +340,7 @@
     $modal.find('.koopo-cancel-details').html(`
       <div class="koopo-booking-summary">
         <h4>${booking.service_title}</h4>
-        <p>${booking.listing_title}</p>
+        <p>${booking.listing_url ? `<a href="${booking.listing_url}" class="koopo-inline-link" target="_blank" rel="noopener">${booking.listing_title}</a>` : booking.listing_title}</p>
         <p><strong>Date:</strong> ${booking.start_datetime_formatted}</p>
         <p><strong>Duration:</strong> ${booking.duration_formatted}</p>
         <p><strong>Add-ons:</strong> ${addonLabel}</p>

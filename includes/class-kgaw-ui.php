@@ -249,7 +249,8 @@ class UI {
             </div>
 
             <div class="koopo-appt__loading koopo-appt__loading--hidden">
-              Processing…
+              <span class="koopo-appt__loading-spinner" aria-hidden="true"></span>
+              <span>Processing booking…</span>
             </div>
           </div>
         </div>

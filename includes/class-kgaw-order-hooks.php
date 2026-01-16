@@ -61,6 +61,22 @@ class Order_Hooks {
 
     if (!$booking_ids) return;
 
+    $existing_vendor = (int) $order->get_meta('_dokan_vendor_id', true);
+    if (!$existing_vendor) {
+      $vendor_ids = [];
+      foreach ($booking_ids as $booking_id) {
+        $booking = Bookings::get_booking($booking_id);
+        if ($booking && !empty($booking->listing_author_id)) {
+          $vendor_ids[] = (int) $booking->listing_author_id;
+        }
+      }
+      $vendor_ids = array_values(array_unique(array_filter($vendor_ids)));
+      if (count($vendor_ids) === 1) {
+        $order->update_meta_data('_dokan_vendor_id', $vendor_ids[0]);
+        $order->save();
+      }
+    }
+
     $confirmed = self::get_meta_id_list($order, '_koopo_bookings_confirmed');
     $all_confirmed = true;
 
@@ -115,6 +131,8 @@ class Order_Hooks {
       $order->update_status('completed', 'Koopo booking confirmed; order auto-completed.');
     }
   }
+
+  Bookings::maybe_sync_dokan_order($order);
 }
 
   private static function order_has_only_booking_items(\WC_Order $order): bool {
@@ -157,6 +175,14 @@ class Order_Hooks {
       $processed[] = $booking_id;
       self::set_meta_id_list($order, $meta_key, $processed);
         $order->add_order_note(sprintf('Koopo booking #%d marked %s (%s).', $booking_id, $new_status, $result['reason']));
+        update_option("koopo_booking_{$booking_id}_cancelled_by", 'system');
+        if ($new_status === 'refunded') {
+          update_option("koopo_booking_{$booking_id}_refund_amount", (string) $order->get_total_refunded());
+          update_option("koopo_booking_{$booking_id}_refund_status", 'refunded');
+        } else {
+          update_option("koopo_booking_{$booking_id}_refund_amount", '0');
+          update_option("koopo_booking_{$booking_id}_refund_status", 'none');
+        }
       } else {
         $order->add_order_note(sprintf('Koopo booking #%d could not be marked %s: %s.', $booking_id, $new_status, $result['reason'] ?? 'unknown'));
       }

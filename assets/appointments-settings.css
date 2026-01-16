@@ -1,5 +1,6 @@
 .kas { padding: 10px 0; }
 .kas__row { display:flex; align-items:center; justify-content:space-between; gap:12px; margin:10px 0; }
+.kas__row--toggle { align-items:center; }
 .kas__row--block { display:block; }
 .kas__row--block span { display:block; margin-bottom:6px; font-weight:600; }
 .kas__notice { padding:10px; border-radius:12px; margin:10px 0; }
@@ -15,7 +16,25 @@
 .kas__grid input { width:100%; padding:8px; border-radius:10px; border:1px solid #ddd; }
 .kas__grid--two { grid-template-columns: repeat(2, minmax(0,1fr)); }
 .kas__grid select { width:100%; padding:8px; border-radius:10px; border:1px solid #ddd; }
+.kas__toggle-btn { position:relative; display:inline-flex; align-items:center; width:46px; height:26px; padding:0; border:1px solid #ddd; border-radius:999px; background:#e5e5e5; cursor:pointer; transition: background 0.2s ease, border-color 0.2s ease; }
+.kas__toggle-btn .kas__toggle-knob { width:20px; height:20px; border-radius:50%; background:#fff; box-shadow:0 1px 3px rgba(0,0,0,0.2); transform: translateX(3px); transition: transform 0.2s ease; }
+.kas__toggle-btn.is-on { background:#35c759; border-color:#35c759; }
+.kas__toggle-btn.is-on .kas__toggle-knob { transform: translateX(23px); }
+.kas__toggle-label { display:none; }
+.kas__toggle-btn:disabled { opacity:0.5; cursor:not-allowed; }
+.kas__reschedule-restrict { margin-top:10px; }
+.kas__reschedule-line { display:flex; flex-wrap:wrap; gap:10px; align-items:center; background:#f5f6f8; border-radius:10px; padding:10px 12px; }
+.kas__reschedule-line input { width:70px; padding:8px; border-radius:10px; border:1px solid #ddd; }
+.kas__reschedule-line select { padding:8px; border-radius:10px; border:1px solid #ddd; }
 .kas__hint { font-size:13px; color:#666; margin-top:6px; }
+.kas__refund-table { display:flex; flex-direction:column; gap:10px; margin-top:10px; }
+.kas__refund-rows { display:flex; flex-direction:column; gap:8px; }
+.kas__refund-row { display:grid; grid-template-columns: 1fr auto; gap:10px; align-items:center; }
+.kas__refund-line { display:flex; flex-wrap:wrap; gap:8px; align-items:center; background:#f5f6f8; border-radius:12px; padding:10px 12px; font-size:13px; color:#444; }
+.kas__refund-line input { padding:8px; border-radius:10px; border:1px solid #ddd; width:70px; }
+.kas__refund-line select { padding:8px; border-radius:10px; border:1px solid #ddd; }
+.kas__refund-add { padding:8px 10px; border-radius:10px; border:1px solid #ddd; background:#fff; cursor:pointer; width:fit-content; }
+.kas__refund-remove { padding:8px 10px; border-radius:10px; border:1px solid #ddd; background:#fff; cursor:pointer; color:#b03b3b; }
 
 .kas__save { width:100%; padding:12px 14px; border-radius:12px; border:none; cursor:pointer; }
 

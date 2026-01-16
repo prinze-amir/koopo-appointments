@@ -152,6 +152,14 @@ defined('ABSPATH') || exit;
           <span class="koopo-info-icon">⚠️</span>
           <span class="koopo-info-text koopo-pending-payment"></span>
         </div>
+        <div class="koopo-info-row koopo-cancel-info-row" style="display:none;">
+          <span class="koopo-info-icon">🛑</span>
+          <span class="koopo-info-text koopo-cancel-info"></span>
+        </div>
+        <div class="koopo-info-row koopo-refund-info-row" style="display:none;">
+          <span class="koopo-info-icon">💸</span>
+          <span class="koopo-info-text koopo-refund-info"></span>
+        </div>
         <div class="koopo-info-row koopo-reschedule-window-row" style="display:none;">
           <span class="koopo-info-icon">⏳</span>
           <span class="koopo-info-text koopo-reschedule-window"></span>

@@ -90,6 +90,10 @@ public static function load_templates($query_vars) {
       'nonce' => wp_create_nonce('wp_rest'),
       'userId' => get_current_user_id(),
       'admin_url' => admin_url(),
+      'orders_url' => function_exists('dokan_get_navigation_url')
+        ? dokan_get_navigation_url('orders')
+        : home_url('/seller-dashboard/orders/'),
+      'orders_nonce' => wp_create_nonce('dokan_view_order'),
       'currency_symbol' => function_exists('get_woocommerce_currency_symbol') ? get_woocommerce_currency_symbol() : '$',
     ]);
 

@@ -90,31 +90,6 @@ class Refund_Policy {
    * @return array Array of rules: [['hours_before' => int, 'fee_percent' => int, 'reason' => string], ...]
    */
   public static function get_policy_rules(int $listing_id): array {
-    
-    // Default policy (can be overridden per listing)
-    $default_rules = [
-      [
-        'hours_before' => 48,
-        'fee_percent' => 0,
-        'reason' => 'Full refund (48+ hours notice)',
-      ],
-      [
-        'hours_before' => 24,
-        'fee_percent' => 25,
-        'reason' => '75% refund (24-48 hours notice)',
-      ],
-      [
-        'hours_before' => 12,
-        'fee_percent' => 50,
-        'reason' => '50% refund (12-24 hours notice)',
-      ],
-      [
-        'hours_before' => 0,
-        'fee_percent' => 100,
-        'reason' => 'No refund (less than 12 hours notice)',
-      ],
-    ];
-
     // Allow per-listing override via post meta
     $custom_rules_json = get_post_meta($listing_id, '_koopo_appt_refund_policy', true);
     if ($custom_rules_json) {
@@ -124,8 +99,12 @@ class Refund_Policy {
       }
     }
 
+    $defaults = class_exists('\Koopo_Appointments\Admin_Settings')
+      ? Admin_Settings::get_default_refund_policy()
+      : [];
+
     // Allow global override via filter
-    return apply_filters('koopo_appt_refund_policy_rules', $default_rules, $listing_id);
+    return apply_filters('koopo_appt_refund_policy_rules', $defaults, $listing_id);
   }
 
   /**

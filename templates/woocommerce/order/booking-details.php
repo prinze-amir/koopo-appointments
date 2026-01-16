@@ -301,6 +301,12 @@ $currency = $booking->currency ?? get_woocommerce_currency();
         width: 100%;
       }
 
+.koopo-booking-details__row.totals span {
+    color: #111;
+    font-size: 14px;
+    font-weight: 700;
+}
+   
       .woocommerce-table--booking-details th,
       .woocommerce-table--booking-details td {
         display: block;

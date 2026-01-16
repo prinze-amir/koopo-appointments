@@ -73,6 +73,28 @@
     return `${dayName} at ${timeStr}`;
   }
 
+  function formatPhoneInput(value){
+    const digits = String(value || '').replace(/\D/g, '');
+    if (!digits) return '';
+    let local = digits;
+    let prefix = '';
+    if (digits.length > 10 && digits[0] === '1') {
+      prefix = '+1 ';
+      local = digits.slice(1, 11);
+    } else {
+      local = digits.slice(0, 10);
+    }
+    const parts = [];
+    if (local.length <= 3) {
+      parts.push(local);
+    } else if (local.length <= 6) {
+      parts.push(`(${local.slice(0,3)})`, local.slice(3));
+    } else {
+      parts.push(`(${local.slice(0,3)})`, local.slice(3,6), '-' + local.slice(6));
+    }
+    return prefix + parts.join(' ');
+  }
+
   // State management
   function getState($root){
     if (!$root.data('koopoState')) {
@@ -137,7 +159,7 @@
     if (state.userInfo) {
       $root.find('.koopo-appt__customer-name').val(state.userInfo.name || '');
       $root.find('.koopo-appt__customer-email').val(state.userInfo.email || '');
-      $root.find('.koopo-appt__customer-phone').val(state.userInfo.phone || '');
+      $root.find('.koopo-appt__customer-phone').val(formatPhoneInput(state.userInfo.phone || ''));
       return;
     }
 
@@ -148,7 +170,7 @@
         state.userInfo = userInfo;
         $root.find('.koopo-appt__customer-name').val(userInfo.name || '');
         $root.find('.koopo-appt__customer-email').val(userInfo.email || '');
-        $root.find('.koopo-appt__customer-phone').val(userInfo.phone || '');
+        $root.find('.koopo-appt__customer-phone').val(formatPhoneInput(userInfo.phone || ''));
       } catch(e) {
         // Silently fail - user can fill in manually
       }
@@ -601,6 +623,11 @@
         })
       });
 
+      if (booking.order_received_url) {
+        window.location.href = booking.order_received_url;
+        return;
+      }
+
       // Add to cart and checkout
       const checkout = await api(`/bookings/${booking.booking_id}/checkout-cart`, {
         method: 'POST'
@@ -796,6 +823,9 @@
 
   // Form field changes
   $(document).on('input', '.koopo-appt__customer-name, .koopo-appt__customer-email, .koopo-appt__customer-phone', function(){
+    if ($(this).hasClass('koopo-appt__customer-phone')) {
+      $(this).val(formatPhoneInput($(this).val()));
+    }
     updateSummary($(this).closest('.koopo-appt'));
   });
 

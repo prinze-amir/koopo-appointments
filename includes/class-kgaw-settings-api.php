@@ -76,7 +76,48 @@ class Settings_API {
       update_post_meta($listing_id, '_koopo_appt_buffer_after', (int)$payload['buffer_after']);
     }
 
+    // Refund policy rules (per listing)
+    if (isset($payload['refund_policy_rules']) && is_array($payload['refund_policy_rules'])) {
+      $rules = [];
+      foreach ($payload['refund_policy_rules'] as $rule) {
+        if (!is_array($rule)) continue;
+        $hours_before = isset($rule['hours_before']) ? max(0, (int) $rule['hours_before']) : null;
+        $fee_percent = isset($rule['fee_percent']) ? min(100, max(0, (int) $rule['fee_percent'])) : null;
+        if ($hours_before === null || $fee_percent === null) continue;
+        $refund_percent = 100 - $fee_percent;
+        if ($refund_percent <= 0) {
+          $reason = $hours_before > 0
+            ? sprintf('No refund (less than %d hours notice)', $hours_before)
+            : 'No refund (after appointment time)';
+        } elseif ($refund_percent >= 100) {
+          $reason = sprintf('Full refund (%d+ hours notice)', $hours_before);
+        } else {
+          $reason = sprintf('%d%% refund (%d+ hours notice)', $refund_percent, $hours_before);
+        }
+        $rules[] = [
+          'hours_before' => $hours_before,
+          'fee_percent' => $fee_percent,
+          'reason' => $reason,
+        ];
+      }
+
+      if (!empty($rules)) {
+        usort($rules, function($a, $b) {
+          return (int) $b['hours_before'] <=> (int) $a['hours_before'];
+        });
+        update_post_meta($listing_id, '_koopo_appt_refund_policy', wp_json_encode($rules));
+      } else {
+        delete_post_meta($listing_id, '_koopo_appt_refund_policy');
+      }
+    }
+
     // Reschedule cutoff
+    if (isset($payload['reschedule_enabled'])) {
+      update_post_meta($listing_id, '_koopo_appt_reschedule_enabled', !empty($payload['reschedule_enabled']) ? '1' : '0');
+    }
+    if (isset($payload['reschedule_restrict_enabled'])) {
+      update_post_meta($listing_id, '_koopo_appt_reschedule_restrict', !empty($payload['reschedule_restrict_enabled']) ? '1' : '0');
+    }
     if (isset($payload['reschedule_cutoff_value'])) {
       update_post_meta($listing_id, '_koopo_appt_reschedule_cutoff_value', (int)$payload['reschedule_cutoff_value']);
     }
@@ -110,9 +151,15 @@ class Settings_API {
     $slot_interval = (int) get_post_meta($listing_id, '_koopo_appt_slot_interval', true);
     $buffer_before = (int) get_post_meta($listing_id, '_koopo_appt_buffer_before', true);
     $buffer_after  = (int) get_post_meta($listing_id, '_koopo_appt_buffer_after', true);
+    $reschedule_enabled_meta = get_post_meta($listing_id, '_koopo_appt_reschedule_enabled', true);
+    $reschedule_restrict_meta = get_post_meta($listing_id, '_koopo_appt_reschedule_restrict', true);
     $reschedule_cutoff_value = (int) get_post_meta($listing_id, '_koopo_appt_reschedule_cutoff_value', true);
     $reschedule_cutoff_unit = get_post_meta($listing_id, '_koopo_appt_reschedule_cutoff_unit', true);
-    if (!$reschedule_cutoff_unit) $reschedule_cutoff_unit = 'hours';
+    if (!$reschedule_cutoff_unit) $reschedule_cutoff_unit = 'days';
+    $reschedule_enabled = ($reschedule_enabled_meta === '') ? true : ($reschedule_enabled_meta === '1');
+    $reschedule_restrict_enabled = ($reschedule_restrict_meta === '') ? ($reschedule_cutoff_value > 0) : ($reschedule_restrict_meta === '1');
+    $refund_policy_rules = Refund_Policy::get_policy_rules($listing_id);
+    $refund_policy_custom = (bool) get_post_meta($listing_id, '_koopo_appt_refund_policy', true);
 
     return [
       'listing_id' => $listing_id,
@@ -123,8 +170,12 @@ class Settings_API {
       'slot_interval' => $slot_interval ?: 0,
       'buffer_before' => $buffer_before ?: 0,
       'buffer_after' => $buffer_after ?: 0,
+      'reschedule_enabled' => $reschedule_enabled,
+      'reschedule_restrict_enabled' => $reschedule_restrict_enabled,
       'reschedule_cutoff_value' => $reschedule_cutoff_value ?: 0,
       'reschedule_cutoff_unit' => $reschedule_cutoff_unit,
+      'refund_policy_rules' => $refund_policy_rules,
+      'refund_policy_custom' => $refund_policy_custom,
       'days_off' => self::decode_json_arr($days_off_json) ?: [],
     ];
   }

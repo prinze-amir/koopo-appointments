@@ -21,12 +21,18 @@
   backdrop-filter: blur(8px);
   overflow-y: auto;
 }
+select {
+  padding-right:40px !important;
+}
 .koopo-modal__card {
   background:#fff;
   width:min(660px, 92vw);
   border-radius:16px;
   padding:16px;
   position:relative;
+}
+.koopo-modal__card.koopo-modal__card--wide {
+    margin-top: 200px;
 }
 #koopo-service-modal .koopo-modal__card, #koopo-appt-create-modal .koopo-modal__card {
     margin-top: 290px;
@@ -151,6 +157,160 @@ input#koopo-service-addon {
   overflow-x: auto;
 }
 
+/* Analytics */
+.koopo-appointments-analytics {
+  background: #fff;
+  border: 1px solid #eee;
+  border-radius: 16px;
+  padding: 16px;
+  margin-bottom: 18px;
+  display: grid;
+  gap: 16px;
+  position: relative;
+}
+
+.koopo-analytics-empty {
+  display: none;
+}
+
+.koopo-analytics-loading {
+  position: absolute;
+  inset: 0;
+  background: rgba(255, 255, 255, 0.92);
+  border-radius: 16px;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 2;
+}
+
+.koopo-appointments-analytics.is-loading .koopo-analytics-loading {
+  display: flex;
+}
+
+.koopo-analytics-skeletons {
+  width: 100%;
+  padding: 8px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-auto-rows: minmax(24px, auto);
+  gap: 12px;
+}
+
+.koopo-analytics-skeleton-card {
+  height: 68px;
+  border-radius: 12px;
+  background: linear-gradient(90deg, #f1f1f1 0%, #e9e9e9 50%, #f1f1f1 100%);
+  background-size: 200% 100%;
+  animation: koopo-skeleton 1.2s ease-in-out infinite;
+}
+
+.koopo-analytics-skeleton-chart {
+  grid-column: span 1;
+  height: 160px;
+  border-radius: 16px;
+  background: linear-gradient(90deg, #f1f1f1 0%, #e9e9e9 50%, #f1f1f1 100%);
+  background-size: 200% 100%;
+  animation: koopo-skeleton 1.2s ease-in-out infinite;
+}
+
+.koopo-analytics-skeleton-list {
+  grid-column: span 2;
+  display: grid;
+  gap: 10px;
+}
+
+.koopo-analytics-skeleton-line {
+  height: 14px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #f1f1f1 0%, #e9e9e9 50%, #f1f1f1 100%);
+  background-size: 200% 100%;
+  animation: koopo-skeleton 1.2s ease-in-out infinite;
+}
+
+@keyframes koopo-skeleton {
+  0% { background-position: 0% 50%; }
+  100% { background-position: 200% 50%; }
+}
+
+.koopo-analytics-cards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.koopo-analytics-card {
+  background: #f8f8f8;
+  border-radius: 12px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.koopo-analytics-card span {
+  font-size: 12px;
+  color: #666;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.koopo-analytics-card strong {
+  font-size: 22px;
+  color: #111;
+}
+
+.koopo-analytics-chart {
+  display: grid;
+  grid-template-columns: 160px 1fr;
+  gap: 16px;
+  align-items: center;
+}
+
+.koopo-analytics-pie {
+  width: 160px;
+  height: 160px;
+  border-radius: 50%;
+  background: conic-gradient(#eee 0deg 360deg);
+  box-shadow: inset 0 0 0 10px #fff;
+}
+
+.koopo-analytics-legend {
+  display: grid;
+  gap: 8px;
+}
+
+.koopo-analytics-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #444;
+}
+
+.koopo-analytics-legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #999;
+  flex: 0 0 auto;
+}
+
+.koopo-analytics-legend-count {
+  margin-left: auto;
+  color: #111;
+  font-weight: 600;
+}
+
+.koopo-appointments-analytics.is-empty .koopo-analytics-empty {
+  display: block;
+}
+
+.koopo-appointments-analytics.is-empty .koopo-analytics-cards,
+.koopo-appointments-analytics.is-empty .koopo-analytics-chart {
+  display: none;
+}
+
 .koopo-calendar-header {
   display: flex;
   justify-content: space-between;
@@ -233,6 +393,29 @@ input#koopo-service-addon {
   padding: 6px 8px;
   color: #1f2d1f;
   line-height: 1.3;
+}
+
+.koopo-cal-event__title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.koopo-cal-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.koopo-cal-badge--cancelled {
+  background: #ffe4e4;
+  color: #b42318;
 }
 
 .koopo-cal-event__time {
@@ -1222,7 +1405,7 @@ input#koopo-service-addon {
 .koopo-slot-grid .koopo-slot {
   padding: 8px;
   border-radius: 8px;
-  border: 1cap solid #e5e5e5;
+  border: 1px solid #e5e5e5;
   background: #fff;
   cursor: pointer;
   font-size: 13px !important;
@@ -1233,14 +1416,14 @@ input#koopo-service-addon {
 }
 
 .koopo-slot:hover:not(:disabled) {
-  border-color: #2c7a3c;
+  border-color: #24b364;
   transform: translateY(-2px);
   box-shadow: 0 2px 8px rgba(0,0,0,0.1);
 }
 
 .koopo-slot.is-selected {
-  background: #2c7a3c;
-  border-color: #2c7a3c;
+  background: #24b364;
+  border-color: #1a8c4d;
   color: #fff;
 }
 
@@ -1332,14 +1515,14 @@ input#koopo-service-addon {
 }
 
 .koopo-reschedule-submit {
-  background: #2c7a3c;
+  background: #24b364;
   color: #fff;
-  border-color: #2c7a3c;
+  border-color: #24b364;
 }
 
 .koopo-reschedule-submit:hover {
-  background: #25632f;
-  border-color: #25632f;
+  background: #24b364;
+  border-color: #24b364;
 }
 
 .koopo-reschedule-submit:disabled {
@@ -1509,9 +1692,43 @@ input#koopo-service-addon {
   .koopo-calendar-nav .koopo-btn {
     flex: 1;
   }
+  .koopo-analytics-cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .koopo-analytics-chart {
+    grid-template-columns: 140px 1fr;
+  }
+  .koopo-analytics-pie {
+    width: 140px;
+    height: 140px;
+  }
+  .koopo-analytics-skeletons {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .koopo-analytics-skeleton-list {
+    grid-column: span 2;
+  }
 }
 
 @media (max-width: 640px) {
+  .koopo-analytics-cards {
+    grid-template-columns: 1fr;
+  }
+  .koopo-analytics-chart {
+    grid-template-columns: 1fr;
+    justify-items: start;
+  }
+  .koopo-analytics-pie {
+    width: 120px;
+    height: 120px;
+  }
+  .koopo-analytics-skeletons {
+    grid-template-columns: 1fr;
+  }
+  .koopo-analytics-skeleton-list,
+  .koopo-analytics-skeleton-chart {
+    grid-column: span 1;
+  }
   .koopo-table {
     display: block;
   }

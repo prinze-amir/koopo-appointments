@@ -86,6 +86,11 @@ private static function release_lock(int $listing_id): void {
     }
 
     // Fill through to the internal row creator.
+    $addon_ids = isset($data['addon_ids']) && is_array($data['addon_ids']) ? array_map('absint', $data['addon_ids']) : [];
+    $addon_ids = self::normalize_addon_ids($listing_id, $addon_ids);
+    $price_total = self::calculate_price_total($service_id, $addon_ids);
+    $status = $price_total <= 0 ? 'confirmed' : 'pending_payment';
+
     $payload = [
       'listing_id'      => $listing_id,
       'service_id'      => $service_id,
@@ -94,8 +99,9 @@ private static function release_lock(int $listing_id): void {
       'end_datetime'    => $end,
       'timezone'        => $timezone,
       'currency'        => $currency,
-      'price'           => isset($data['price']) ? (float) $data['price'] : null,
-      'addon_ids'       => isset($data['addon_ids']) && is_array($data['addon_ids']) ? array_map('absint', $data['addon_ids']) : [],
+      'price'           => null,
+      'addon_ids'       => $addon_ids,
+      'status'          => $status,
       // Customer information fields
       'customer_name'   => isset($data['customer_name']) ? sanitize_text_field($data['customer_name']) : '',
       'customer_email'  => isset($data['customer_email']) ? sanitize_email($data['customer_email']) : '',
@@ -106,7 +112,20 @@ private static function release_lock(int $listing_id): void {
 
     try {
       $booking_id = self::create_booking_row($payload);
-      return new \WP_REST_Response(['booking_id' => $booking_id], 201);
+      $response = ['booking_id' => $booking_id];
+
+      if ($price_total <= 0) {
+        $order_result = self::create_free_order_for_booking($booking_id);
+        if (is_wp_error($order_result)) {
+          self::delete_booking_data_by_id($booking_id);
+          throw new \Exception($order_result->get_error_message());
+        }
+        $response['order_id'] = $order_result['order_id'];
+        $response['order_received_url'] = $order_result['order_received_url'];
+        $response['free_booking'] = true;
+      }
+
+      return new \WP_REST_Response($response, 201);
     } catch (\Throwable $e) {
       return new \WP_REST_Response(['error' => $e->getMessage()], 400);
     }
@@ -149,23 +168,10 @@ private static function release_lock(int $listing_id): void {
     }
 
     $addon_ids = isset($data['addon_ids']) && is_array($data['addon_ids']) ? array_map('absint', $data['addon_ids']) : [];
-    if (!empty($addon_ids)) {
-      $addon_ids = array_values(array_filter($addon_ids, function($addon_id) use ($listing_id) {
-        if (!$addon_id) return false;
-        $is_addon = get_post_meta($addon_id, Services_API::META_ADDON, true) === '1';
-        $addon_listing = (int) get_post_meta($addon_id, Services_API::META_LISTING_ID, true);
-        return $is_addon && $addon_listing === $listing_id;
-      }));
-    }
+    $addon_ids = self::normalize_addon_ids($listing_id, $addon_ids);
     if (!empty($addon_ids)) {
       foreach ($addon_ids as $addon_id) {
-        $addon_price = get_post_meta($addon_id, Services_API::META_PRICE, true);
-        if ($addon_price === '' || $addon_price === null) {
-          $addon_price = get_post_meta($addon_id, '_koopo_price', true);
-        }
-        if (is_numeric($addon_price)) {
-          $price += (float) $addon_price;
-        }
+        $price += self::get_service_price($addon_id);
       }
     }
 
@@ -260,6 +266,178 @@ private static function release_lock(int $listing_id): void {
     } finally {
       self::release_lock($listing_id);
     }
+  }
+
+  private static function normalize_addon_ids(int $listing_id, array $addon_ids): array {
+    if (empty($addon_ids)) {
+      return [];
+    }
+    $addon_ids = array_map('absint', $addon_ids);
+    return array_values(array_filter($addon_ids, function($addon_id) use ($listing_id) {
+      if (!$addon_id) return false;
+      $is_addon = get_post_meta($addon_id, Services_API::META_ADDON, true) === '1';
+      $addon_listing = (int) get_post_meta($addon_id, Services_API::META_LISTING_ID, true);
+      return $is_addon && $addon_listing === $listing_id;
+    }));
+  }
+
+  private static function get_service_price(int $service_id): float {
+    $meta_price = get_post_meta($service_id, Services_API::META_PRICE, true);
+    if ($meta_price === '' || $meta_price === null) {
+      $meta_price = get_post_meta($service_id, '_koopo_price', true);
+    }
+    return is_numeric($meta_price) ? (float) $meta_price : 0.0;
+  }
+
+  private static function calculate_price_total(int $service_id, array $addon_ids): float {
+    $price = self::get_service_price($service_id);
+    if (!empty($addon_ids)) {
+      foreach ($addon_ids as $addon_id) {
+        $price += self::get_service_price($addon_id);
+      }
+    }
+    return (float) $price;
+  }
+
+  public static function maybe_sync_dokan_order($order): void {
+    if (!function_exists('dokan_sync_insert_order')) {
+      return;
+    }
+
+    if (!$order instanceof \WC_Order) {
+      $order = wc_get_order($order);
+    }
+
+    if (!$order) {
+      return;
+    }
+
+    if (function_exists('dokan') && isset(dokan()->order) && is_callable([dokan()->order, 'maybe_split_orders'])) {
+      dokan()->order->maybe_split_orders($order->get_id());
+    }
+
+    dokan_sync_insert_order($order);
+
+    if (class_exists('\\WeDevs\\Dokan\\Analytics\\Reports\\Orders\\Stats\\DataStore')) {
+      \WeDevs\Dokan\Analytics\Reports\Orders\Stats\DataStore::sync_order($order->get_id());
+    }
+  }
+
+  private static function create_free_order_for_booking(int $booking_id) {
+    $booking = self::get_booking($booking_id);
+    if (!$booking) {
+      return new \WP_Error('koopo_booking_not_found', 'Booking not found');
+    }
+
+    $existing_order_id = (int) ($booking->wc_order_id ?? 0);
+    if ($existing_order_id) {
+      $existing_order = wc_get_order($existing_order_id);
+      if ($existing_order) {
+        return [
+          'order_id' => $existing_order_id,
+          'order_received_url' => $existing_order->get_checkout_order_received_url(),
+        ];
+      }
+    }
+
+    $service_id = absint($booking->service_id);
+    if (!$service_id) {
+      return new \WP_Error('koopo_service_missing', 'Booking missing service');
+    }
+
+    $product_id = (int) get_post_meta($service_id, '_koopo_wc_product_id', true);
+    if (!$product_id) {
+      $product_id = (int) WC_Service_Product::create_or_update_for_service($service_id);
+    }
+    if (!$product_id) {
+      return new \WP_Error('koopo_service_product_missing', 'Service product not found');
+    }
+
+    $product = wc_get_product($product_id);
+    if (!$product) {
+      return new \WP_Error('koopo_service_product_invalid', 'Service product invalid');
+    }
+
+    $order = wc_create_order(['customer_id' => (int) $booking->customer_id]);
+    if (is_wp_error($order)) {
+      return $order;
+    }
+    if (!$order instanceof \WC_Order) {
+      $order = wc_get_order($order);
+    }
+    if (!$order) {
+      return new \WP_Error('koopo_order_failed', 'Failed to create order');
+    }
+
+    $item_id = $order->add_product($product, 1, [
+      'subtotal' => 0,
+      'total' => 0,
+    ]);
+    if (!$item_id) {
+      return new \WP_Error('koopo_order_item_failed', 'Failed to add order item');
+    }
+
+    $item = $order->get_item($item_id);
+    if ($item) {
+      $item->add_meta_data('_koopo_booking_id', (int) $booking_id, true);
+      $item->add_meta_data('_koopo_listing_id', (int) $booking->listing_id, true);
+      $item->add_meta_data('_koopo_listing_author_id', (int) $booking->listing_author_id, true);
+      $item->add_meta_data('_koopo_service_id', (string) $booking->service_id, true);
+      $item->add_meta_data('_koopo_start_datetime', (string) $booking->start_datetime, true);
+      $item->add_meta_data('_koopo_end_datetime', (string) $booking->end_datetime, true);
+      $item->add_meta_data('_koopo_price', (string) $booking->price, true);
+      $item->add_meta_data('_koopo_currency', (string) $booking->currency, true);
+      if (!empty($booking->timezone)) {
+        $item->add_meta_data('_koopo_timezone', (string) $booking->timezone, true);
+      }
+      $item->save();
+    }
+
+    $order->update_meta_data('_koopo_booking_ids', [(int) $booking_id]);
+    if (!empty($booking->currency)) {
+      $order->set_currency((string) $booking->currency);
+    }
+
+    $customer_name = get_option("koopo_booking_{$booking_id}_customer_name", '');
+    $customer_email = get_option("koopo_booking_{$booking_id}_customer_email", '');
+    $customer_phone = get_option("koopo_booking_{$booking_id}_customer_phone", '');
+    $user = $booking->customer_id ? get_userdata((int) $booking->customer_id) : null;
+    $first_name = '';
+    $last_name = '';
+    if ($customer_name) {
+      $parts = preg_split('/\s+/', trim($customer_name));
+      $first_name = $parts[0] ?? '';
+      $last_name = isset($parts[1]) ? implode(' ', array_slice($parts, 1)) : '';
+    } elseif ($user) {
+      $first_name = $user->first_name ?? '';
+      $last_name = $user->last_name ?? '';
+      $customer_email = $customer_email ?: ($user->user_email ?? '');
+    }
+
+    if ($first_name) $order->set_billing_first_name($first_name);
+    if ($last_name) $order->set_billing_last_name($last_name);
+    if ($customer_email) $order->set_billing_email($customer_email);
+    if ($customer_phone) $order->set_billing_phone($customer_phone);
+
+    if (!empty($booking->listing_author_id)) {
+      $order->update_meta_data('_dokan_vendor_id', (int) $booking->listing_author_id);
+    }
+
+    $order->set_total(0);
+    $order->save();
+
+    self::set_order_id($booking_id, $order->get_id());
+    if ((string) $booking->status !== 'confirmed') {
+      self::set_status($booking_id, 'confirmed');
+    }
+
+    $order->update_status('completed', 'Koopo free booking auto-confirmed.', true);
+    self::maybe_sync_dokan_order($order);
+
+    return [
+      'order_id' => (int) $order->get_id(),
+      'order_received_url' => $order->get_checkout_order_received_url(),
+    ];
   }
 
   /**
@@ -585,7 +763,51 @@ public static function init_cleanup_cron() {
       self::delete_booking_data($id);
     }
   }
+
+  self::cleanup_cancelled_past();
 }
+
+  private static function cleanup_cancelled_past(): void {
+    global $wpdb;
+    $table = DB::table();
+
+    $ids = $wpdb->get_col(
+      "SELECT id FROM {$table}
+       WHERE status = 'cancelled'
+         AND end_datetime < NOW()
+       LIMIT 200"
+    );
+
+    foreach ($ids as $id) {
+      $id = (int) $id;
+      $booking = self::get_booking($id);
+      if (!$booking) {
+        continue;
+      }
+      self::record_cancelled_archive($booking);
+      self::delete_booking_data($id);
+    }
+  }
+
+  private static function record_cancelled_archive(object $booking): void {
+    $listing_id = isset($booking->listing_id) ? (int) $booking->listing_id : 0;
+    if ($listing_id < 1) {
+      return;
+    }
+    $total_key = 'koopo_appt_cancelled_archive_total_' . $listing_id;
+    $daily_key = 'koopo_appt_cancelled_archive_daily_' . $listing_id;
+
+    $total = (int) get_option($total_key, 0);
+    update_option($total_key, $total + 1);
+
+    $daily = get_option($daily_key, []);
+    if (!is_array($daily)) {
+      $daily = [];
+    }
+    $day = date('Y-m-d');
+    $daily[$day] = isset($daily[$day]) ? ((int) $daily[$day] + 1) : 1;
+    update_option($daily_key, $daily);
+  }
 
   public static function delete_booking_data_by_id(int $booking_id): void {
     self::delete_booking_data($booking_id);

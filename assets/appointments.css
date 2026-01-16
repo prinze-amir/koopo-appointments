@@ -501,9 +501,12 @@ textarea.koopo-appt__field {
 
 /* Loading */
 .koopo-appt__loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
   margin-top: 16px;
   padding: 12px;
-  text-align: center;
   font-weight: 600;
   font-size: 14px;
   color: #666;
@@ -511,6 +514,15 @@ textarea.koopo-appt__field {
 
 .koopo-appt__loading--hidden {
   display: none;
+}
+
+.koopo-appt__loading-spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid #e8e8e8;
+  border-top-color: #FFA500;
+  border-radius: 50%;
+  animation: koopo-spin 1s linear infinite;
 }
 
 /* Loading Spinner */

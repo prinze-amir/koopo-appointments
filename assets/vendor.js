@@ -241,6 +241,7 @@
   const $apptExport = $('#koopo-appointments-export');
   const $apptTable  = $('#koopo-appointments-table');
   const $apptPager  = $('#koopo-appointments-pagination');
+  const $apptAnalytics = $('#koopo-appointments-analytics');
   const $apptCalendar = $('#koopo-appointments-calendar');
   const $calendarBody = $('#koopo-calendar-body');
   const $calendarTitle = $apptCalendar.find('.koopo-calendar-title');
@@ -263,6 +264,15 @@
   let apptAddons = [];
   let selectedAddonIds = [];
   let apptCreateState = { selectedSlot: null };
+  const analyticsColors = ['#f6c453', '#7bb4ff', '#8fe0a9', '#f39a9d', '#b79cf7', '#f2c7a7', '#a6d7d5', '#f0b7d2'];
+  if ($apptAnalytics.length) {
+    $apptAnalytics.removeClass('is-empty');
+    $apptAnalytics.find('[data-stat="total"]').text('0');
+    $apptAnalytics.find('[data-stat="cancelled"]').text('0');
+    $apptAnalytics.find('[data-stat="earnings"]').text(formatCurrency(0));
+    $apptAnalytics.find('.koopo-analytics-pie').css('background', 'conic-gradient(#eee 0deg 360deg)');
+    $apptAnalytics.find('.koopo-analytics-legend').html('');
+  }
 
   // Populate year dropdown with current and future years
   function populateYearDropdown() {
@@ -283,6 +293,12 @@
     if (s === 'refunded') return '<span class="koopo-badge koopo-badge--purple">Refunded</span>';
     if (s === 'conflict') return '<span class="koopo-badge koopo-badge--conflict">⚠️ Conflict</span>';
     return '<span class="koopo-badge koopo-badge--gray">'+escapeHtml(status)+'</span>';
+  }
+
+  function calendarStatusBadge(booking){
+    const s = String(booking?.status || '').toLowerCase();
+    if (s === 'cancelled') return '<span class="koopo-cal-badge koopo-cal-badge--cancelled">Cancelled</span>';
+    return '';
   }
 
   function actionsForBooking(b){
@@ -328,6 +344,91 @@
     const n = Number(price||0);
     const c = String(currency||'').trim();
     return (c ? escapeHtml(c)+' ' : '$') + n.toFixed(2);
+  }
+
+  function formatCurrency(amount, symbol){
+    const n = Number(amount||0);
+    const s = symbol || (KOOPO_APPT_VENDOR && KOOPO_APPT_VENDOR.currency_symbol) || '$';
+    return `${s}${n.toFixed(2)}`;
+  }
+
+
+  function renderAnalytics(data){
+    if (!$apptAnalytics.length) return;
+    if (!data || !data.totals) {
+      $apptAnalytics.removeClass('is-empty');
+      $apptAnalytics.find('[data-stat="total"]').text('0');
+      $apptAnalytics.find('[data-stat="cancelled"]').text('0');
+      $apptAnalytics.find('[data-stat="earnings"]').text(formatCurrency(0));
+      $apptAnalytics.find('.koopo-analytics-pie').css('background', 'conic-gradient(#eee 0deg 360deg)');
+      $apptAnalytics.find('.koopo-analytics-legend').html('');
+      return;
+    }
+
+    const totals = data.totals || {};
+    $apptAnalytics.removeClass('is-empty');
+    $apptAnalytics.find('[data-stat="total"]').text(Number(totals.total_bookings || 0));
+    $apptAnalytics.find('[data-stat="cancelled"]').text(Number(totals.total_cancelled || 0));
+    $apptAnalytics.find('[data-stat="earnings"]').text(formatCurrency(totals.total_earnings || 0, totals.currency_symbol));
+
+    const services = Array.isArray(data.services) ? data.services : [];
+    const $pie = $apptAnalytics.find('.koopo-analytics-pie');
+    const $legend = $apptAnalytics.find('.koopo-analytics-legend');
+
+    if (!services.length) {
+      $pie.css('background', 'conic-gradient(#eee 0deg 360deg)');
+      $legend.html('');
+      return;
+    }
+
+    const total = services.reduce((sum, s) => sum + Number(s.count || 0), 0);
+    if (!total) {
+      $pie.css('background', 'conic-gradient(#eee 0deg 360deg)');
+      $legend.html('');
+      return;
+    }
+
+    let start = 0;
+    const segments = services.map((s, idx) => {
+      const count = Number(s.count || 0);
+      const deg = (count / total) * 360;
+      const color = analyticsColors[idx % analyticsColors.length];
+      const end = start + deg;
+      const segment = `${color} ${start}deg ${end}deg`;
+      start = end;
+      return { color, segment, service: s, count };
+    });
+
+    $pie.css('background', `conic-gradient(${segments.map(s => s.segment).join(', ')})`);
+    const legendHtml = segments.map(seg => {
+      const title = seg.service.service_title || `Service #${seg.service.service_id || ''}`;
+      return `
+        <div class="koopo-analytics-legend-item">
+          <span class="koopo-analytics-legend-dot" style="background:${seg.color}"></span>
+          <span>${escapeHtml(title)}</span>
+          <span class="koopo-analytics-legend-count">${seg.count}</span>
+        </div>
+      `;
+    }).join('');
+    $legend.html(legendHtml);
+  }
+
+  async function loadAnalytics(){
+    if (!$apptAnalytics.length) return;
+    const listingId = apptState.listingId;
+    if (!listingId) {
+      renderAnalytics(null);
+      return;
+    }
+    $apptAnalytics.addClass('is-loading');
+    try {
+      const data = await api(`/vendor/bookings/analytics?listing_id=${listingId}`, { method:'GET' });
+      renderAnalytics(data);
+    } catch (e) {
+      $apptAnalytics.addClass('is-empty');
+    } finally {
+      $apptAnalytics.removeClass('is-loading');
+    }
   }
 
   function renderPager(){
@@ -505,8 +606,9 @@
           const customer = b.customer_name || b.customer_email || 'Guest';
           const customerLabel = b.customer_is_guest ? `${customer} (Guest)` : customer;
           const avatar = buildAvatarHtml(b);
+          const statusBadge = calendarStatusBadge(b);
           return `<div class="koopo-cal-event" data-id="${b.id}" style="--event-color:${color};--event-bg:${bg}">
-            <div><strong>${escapeHtml(b.service_title || 'Appointment')}</strong></div>
+            <div class="koopo-cal-event__title"><strong>${escapeHtml(b.service_title || 'Appointment')}</strong>${statusBadge}</div>
             <div class="koopo-cal-event__customer">${avatar}${b.customer_is_guest ? ' <span class="koopo-guest-badge">Guest</span>' : ''}</div>
             <div class="koopo-cal-event__time">${escapeHtml(time)}</div>
           </div>`;
@@ -566,9 +668,10 @@
       const color = b.service_color || '#2c7a3c';
       const bg = hexToRgba(color, 0.18);
       const avatar = '';
+      const statusBadge = calendarStatusBadge(b);
       const eventHtml = `
         <div class="koopo-cal-event" data-id="${b.id}" style="--event-color:${color};--event-bg:${bg};top:${top}px;height:${height}px;">
-          <div><strong>${escapeHtml(b.service_title || 'Appointment')}</strong></div>
+          <div class="koopo-cal-event__title"><strong>${escapeHtml(b.service_title || 'Appointment')}</strong>${statusBadge}</div>
         </div>`;
       $dayCol.append(eventHtml);
     });
@@ -626,11 +729,12 @@
         const duration = (startDt && endDt) ? (endDt.getTime() - startDt.getTime()) / 60000 : 0;
         const durationLabel = formatDurationLabel(duration);
         const color = b.service_color || '#2c7a3c';
+        const statusBadge = calendarStatusBadge(b);
         html += `
           <div class="koopo-week-mobile__row" data-id="${b.id}">
             <div class="koopo-week-mobile__time">${escapeHtml(time)}</div>
             <div class="koopo-week-mobile__card" style="--event-color:${color}">
-              <div class="koopo-week-mobile__title">${escapeHtml(b.service_title || 'Appointment')}</div>
+              <div class="koopo-week-mobile__title">${escapeHtml(b.service_title || 'Appointment')}${statusBadge}</div>
               <div class="koopo-week-mobile__duration">${escapeHtml(durationLabel)}</div>
             </div>
           </div>`;
@@ -671,9 +775,10 @@
       const customer = b.customer_name || b.customer_email || 'Guest';
       const customerLabel = b.customer_is_guest ? `${customer} (Guest)` : customer;
       const avatar = '';
+      const statusBadge = calendarStatusBadge(b);
       const eventHtml = `
         <div class="koopo-cal-event" data-id="${b.id}" style="--event-color:${color};--event-bg:${bg};top:${top}px;height:${height}px;">
-          <div><strong>${escapeHtml(b.service_title || 'Appointment')}</strong></div>
+          <div class="koopo-cal-event__title"><strong>${escapeHtml(b.service_title || 'Appointment')}</strong>${statusBadge}</div>
           <div class="koopo-cal-event__customer">${escapeHtml(customerLabel)}</div>
           <div class="koopo-cal-event__time">${escapeHtml(formatTime(b.start_datetime))}</div>
         </div>`;
@@ -712,10 +817,11 @@
           const customer = b.customer_name || b.customer_email || 'Guest';
           const customerLabel = b.customer_is_guest ? `${customer} (Guest)` : customer;
           const color = b.service_color || '#2c7a3c';
+          const statusBadge = calendarStatusBadge(b);
           html += `
             <div class="koopo-agenda-item" data-id="${b.id}" style="--event-color:${color}">
               <div class="koopo-agenda-item__time">${escapeHtml(time)}</div>
-              <div class="koopo-agenda-item__title">${escapeHtml(b.service_title || 'Appointment')}</div>
+              <div class="koopo-agenda-item__title">${escapeHtml(b.service_title || 'Appointment')}${statusBadge}</div>
               <div class="koopo-agenda-item__meta">${escapeHtml(customerLabel)}</div>
             </div>`;
         });
@@ -837,14 +943,10 @@
         return;
       }
 
-      const baseAdmin = (window.ajaxurl || '').replace('/admin-ajax.php','');
       const rows = sortedItems.map(b => {
         const isConflict = String(b.status || '').toLowerCase() === 'conflict';
         const rowClass = isConflict ? 'class="koopo-row--conflict"' : '';
         
-        const orderLink = b.wc_order_id && baseAdmin
-          ? `<a href="${escapeHtml(baseAdmin)}/post.php?post=${b.wc_order_id}&action=edit" target="_blank">#${b.wc_order_id}</a>`
-          : (b.wc_order_id ? '#'+b.wc_order_id : '—');
 
         // Commit 22: Use formatted dates from API
         const dateTimeDisplay = b.start_datetime_formatted || escapeHtml(b.start_datetime || '');
@@ -873,7 +975,6 @@
             <td class="koopo-col-booked" data-label="Booked On" style="font-size:13px;opacity:0.8;">${bookedAtDisplay}</td>
             <td data-label="Status">${badgeForStatus(b.status)}</td>
             <td data-label="Total">${fmtMoney(b.price, b.currency)}</td>
-            <td class="koopo-col-order" data-label="Order">${orderLink}</td>
             <td data-label="Actions">${actionsForBooking(b)}</td>
           </tr>
         `;
@@ -890,7 +991,6 @@
               <th class="koopo-col-booked koopo-sortable" data-sort="booked">${sortLabel('booked', 'Booked On')}</th>
               <th>Status</th>
               <th class="koopo-sortable" data-sort="total">${sortLabel('total', 'Total')}</th>
-              <th class="koopo-col-order">Order</th>
               <th>Actions</th>
             </tr>
           </thead>
@@ -987,6 +1087,7 @@
       apptState.page = 1;
       loadAppointments();
       if (apptState.view === 'calendar') loadCalendar();
+      loadAnalytics();
       loadApptServices(apptState.listingId);
       loadApptTimezone(apptState.listingId);
     });
@@ -1362,6 +1463,18 @@
       $('#koopo-appt-details-duration').text(durationParts.length ? durationParts.join(' · ') : (b.duration_formatted || '—'));
       $('#koopo-appt-details-when').text(`${b.start_datetime_formatted || b.start_datetime} - ${b.end_datetime_formatted || ''}`);
       $('#koopo-appt-details-status').html(badgeForStatus(b.status));
+      const cancelledByLabel = (b.cancelled_by || '').trim();
+      const cancelledText = cancelledByLabel ? `Cancelled by ${cancelledByLabel}` : '—';
+      $('#koopo-appt-details-cancelled').text(cancelledText);
+      const refundAmount = Number(b.refund_amount || 0);
+      const refundStatus = (b.refund_status || '').trim();
+      let refundText = 'No refund';
+      if (refundStatus === 'refunded' || refundAmount > 0) {
+        refundText = `${fmtMoney(refundAmount, b.currency)} refunded`;
+      } else if (refundStatus === 'pending') {
+        refundText = `Refund pending (${fmtMoney(refundAmount, b.currency)})`;
+      }
+      $('#koopo-appt-details-refund').text(refundText);
       $('#koopo-appt-details-total').text(fmtMoney(b.price, b.currency));
       const basePrice = Number(b.service_price || 0);
       const addonTotal = Number(b.addon_total_price || 0);
@@ -1370,13 +1483,6 @@
       if (addonTotal) priceParts.push(`Add-ons: ${fmtMoney(addonTotal, b.currency)}`);
       if (basePrice || addonTotal) priceParts.push(`Total: ${fmtMoney(b.price, b.currency)}`);
       $('#koopo-appt-details-pricing').text(priceParts.length ? priceParts.join(' · ') : '—');
-      const adminBase = (window.KOOPO_APPT_VENDOR && KOOPO_APPT_VENDOR.admin_url)
-        ? String(KOOPO_APPT_VENDOR.admin_url).replace(/\/$/, '')
-        : (window.ajaxurl || '').replace('/admin-ajax.php','');
-      const orderLink = b.wc_order_id && adminBase
-        ? `<a href="${escapeHtml(adminBase)}/post.php?post=${b.wc_order_id}&action=edit" target="_blank">#${b.wc_order_id}</a>`
-        : (b.wc_order_id ? '#'+b.wc_order_id : '—');
-      $('#koopo-appt-details-order').html(orderLink);
       $apptDetailsActions.html(actionsForBooking(b));
       $apptDetailsModal.show();
     }
@@ -1401,6 +1507,7 @@
         if (apptState.search) params.search = apptState.search;
         if (apptState.month) params.month = apptState.month;
         if (apptState.year) params.year = apptState.year;
+        if (KOOPO_APPT_VENDOR.nonce) params._wpnonce = KOOPO_APPT_VENDOR.nonce;
 
         const qs = new URLSearchParams(params);
         const url = `${KOOPO_APPT_VENDOR.rest}/vendor/bookings/export?${qs.toString()}`;

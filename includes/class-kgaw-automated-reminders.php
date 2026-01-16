@@ -12,6 +12,7 @@ class Automated_Reminders {
   public static function init(): void {
     // Schedule reminder check cron
     add_action('koopo_appt_send_reminders', [__CLASS__, 'send_reminders']);
+    add_action('koopo_appt_send_review_invites', [__CLASS__, 'send_review_invites']);
     
     // Register cron schedules
     add_filter('cron_schedules', [__CLASS__, 'add_cron_schedules']);
@@ -46,6 +47,9 @@ class Automated_Reminders {
     if (!wp_next_scheduled('koopo_appt_send_reminders')) {
       wp_schedule_event(time(), 'koopo_hourly', 'koopo_appt_send_reminders');
     }
+    if (!wp_next_scheduled('koopo_appt_send_review_invites')) {
+      wp_schedule_event(time() + 120, 'koopo_hourly', 'koopo_appt_send_review_invites');
+    }
   }
 
   /**
@@ -65,6 +69,35 @@ class Automated_Reminders {
     
     foreach ($reminder_hours as $hours) {
       self::send_reminders_for_window($hours);
+    }
+  }
+
+  /**
+   * Send review invites for completed appointments.
+   */
+  public static function send_review_invites(): void {
+    global $wpdb;
+    $table = DB::table();
+
+    $bookings = $wpdb->get_results(
+      "SELECT * FROM {$table}
+       WHERE status IN ('confirmed', 'completed')
+         AND end_datetime <= (NOW() - INTERVAL 2 HOUR)
+       ORDER BY end_datetime ASC
+       LIMIT 100"
+    );
+
+    foreach ($bookings as $booking) {
+      $booking_id = (int) $booking->id;
+      if (!$booking_id) {
+        continue;
+      }
+      $sent = get_option("koopo_booking_{$booking_id}_review_invite_sent", '');
+      if ($sent) {
+        continue;
+      }
+      do_action('koopo_booking_review_invite', $booking_id, $booking);
+      update_option("koopo_booking_{$booking_id}_review_invite_sent", current_time('mysql'));
     }
   }
 
