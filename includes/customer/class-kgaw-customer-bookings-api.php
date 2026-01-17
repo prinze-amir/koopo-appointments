@@ -8,6 +8,12 @@ defined('ABSPATH') || exit;
  * REST API endpoints for customers to view and manage their own bookings
  */
 class Customer_Bookings_API {
+  private static array $listing_title_cache = [];
+  private static array $service_title_cache = [];
+  private static array $service_meta_cache = [];
+  private static array $booking_option_cache = [];
+  private static array $listing_settings_cache = [];
+  private static array $listing_author_cache = [];
 
   public static function init(): void {
     add_action('rest_api_init', [__CLASS__, 'register_routes']);
@@ -75,6 +81,110 @@ class Customer_Bookings_API {
     ]);
   }
 
+  private static function listing_title(int $listing_id): string {
+    if (!$listing_id) return '';
+    if (!array_key_exists($listing_id, self::$listing_title_cache)) {
+      self::$listing_title_cache[$listing_id] = (string) get_the_title($listing_id);
+    }
+    return self::$listing_title_cache[$listing_id];
+  }
+
+  private static function service_title(int $service_id): string {
+    if (!$service_id) return '';
+    if (!array_key_exists($service_id, self::$service_title_cache)) {
+      self::$service_title_cache[$service_id] = (string) get_the_title($service_id);
+    }
+    return self::$service_title_cache[$service_id];
+  }
+
+  private static function get_service_meta(int $service_id): array {
+    if (!$service_id) {
+      return ['price' => 0.0, 'duration' => 0];
+    }
+    if (!array_key_exists($service_id, self::$service_meta_cache)) {
+      $price = get_post_meta($service_id, Services_API::META_PRICE, true);
+      if ($price === '' || $price === null) {
+        $price = get_post_meta($service_id, '_koopo_price', true);
+      }
+      $duration = get_post_meta($service_id, Services_API::META_DURATION, true);
+      if ($duration === '' || $duration === null) {
+        $duration = get_post_meta($service_id, '_koopo_duration_minutes', true);
+      }
+      self::$service_meta_cache[$service_id] = [
+        'price' => is_numeric($price) ? (float) $price : 0.0,
+        'duration' => (int) $duration,
+      ];
+    }
+    return self::$service_meta_cache[$service_id];
+  }
+
+  private static function get_listing_settings_cached(int $listing_id): array {
+    if (!$listing_id) return [];
+    if (!array_key_exists($listing_id, self::$listing_settings_cache)) {
+      self::$listing_settings_cache[$listing_id] = Settings_API::read_settings($listing_id);
+    }
+    return self::$listing_settings_cache[$listing_id];
+  }
+
+  private static function get_listing_author_id(int $listing_id): int {
+    if (!$listing_id) return 0;
+    if (!array_key_exists($listing_id, self::$listing_author_cache)) {
+      self::$listing_author_cache[$listing_id] = (int) get_post_field('post_author', $listing_id);
+    }
+    return self::$listing_author_cache[$listing_id];
+  }
+
+  private static function invalidate_vendor_analytics_cache(int $listing_id): void {
+    $vendor_id = self::get_listing_author_id($listing_id);
+    if (!$vendor_id) return;
+    delete_transient(sprintf('koopo_vendor_analytics_%d_%d', $vendor_id, 0));
+    delete_transient(sprintf('koopo_vendor_analytics_%d_%d', $vendor_id, $listing_id));
+  }
+
+  private static function prime_booking_options(array $booking_ids): void {
+    global $wpdb;
+    $booking_ids = array_values(array_filter(array_map('absint', $booking_ids)));
+    if (!$booking_ids) return;
+
+    $fields = [
+      'cancelled_by',
+      'refund_amount',
+      'refund_status',
+    ];
+
+    $option_names = [];
+    foreach ($booking_ids as $id) {
+      foreach ($fields as $field) {
+        $option_names[] = "koopo_booking_{$id}_{$field}";
+      }
+    }
+    if (!$option_names) return;
+
+    $placeholders = implode(',', array_fill(0, count($option_names), '%s'));
+    $sql = $wpdb->prepare(
+      "SELECT option_name, option_value FROM {$wpdb->options} WHERE option_name IN ($placeholders)",
+      $option_names
+    );
+    $rows = $wpdb->get_results($sql, ARRAY_A) ?: [];
+    foreach ($rows as $row) {
+      if (!isset($row['option_name'])) continue;
+      if (!preg_match('/^koopo_booking_(\d+)_(.+)$/', $row['option_name'], $m)) continue;
+      $booking_id = (int) $m[1];
+      $key = $m[2];
+      if (!isset(self::$booking_option_cache[$booking_id])) {
+        self::$booking_option_cache[$booking_id] = [];
+      }
+      self::$booking_option_cache[$booking_id][$key] = $row['option_value'];
+    }
+  }
+
+  private static function get_booking_option(int $booking_id, string $key, string $default = ''): string {
+    if (isset(self::$booking_option_cache[$booking_id]) && array_key_exists($key, self::$booking_option_cache[$booking_id])) {
+      return (string) self::$booking_option_cache[$booking_id][$key];
+    }
+    return $default;
+  }
+
   /**
    * Permission check: user must be logged in
    */
@@ -92,8 +202,13 @@ class Customer_Bookings_API {
     $table = DB::table();
 
     $status_filter = sanitize_text_field((string) $request->get_param('status'));
+    if ($status_filter === '') {
+      $status_filter = 'upcoming';
+    }
     $page = max(1, absint($request->get_param('page')));
-    $per_page = min(50, max(1, absint($request->get_param('per_page'))));
+    $max_per_page = (int) apply_filters('koopo_appt_customer_per_page_max', 20, $customer_id);
+    if ($max_per_page < 1) $max_per_page = 20;
+    $per_page = min($max_per_page, max(1, absint($request->get_param('per_page'))));
 
     // Build WHERE clause based on status filter
     $where = $wpdb->prepare('WHERE customer_id = %d', $customer_id);
@@ -150,6 +265,37 @@ class Customer_Bookings_API {
 
     $rows = $wpdb->get_results($sql_items, ARRAY_A) ?: [];
     $items = [];
+    if (!$rows) {
+      return rest_ensure_response([
+        'items' => [],
+        'pagination' => [
+          'page' => $page,
+          'per_page' => $per_page,
+          'total' => $total,
+          'total_pages' => (int) ceil($total / max(1, $per_page)),
+        ],
+      ]);
+    }
+
+    $booking_ids = [];
+    $service_ids = [];
+    $listing_ids = [];
+    foreach ($rows as $r) {
+      $booking_ids[] = (int) $r['id'];
+      if (!empty($r['service_id'])) $service_ids[] = (int) $r['service_id'];
+      if (!empty($r['listing_id'])) $listing_ids[] = (int) $r['listing_id'];
+    }
+    $service_ids = array_values(array_unique($service_ids));
+    $listing_ids = array_values(array_unique($listing_ids));
+
+    if (function_exists('_prime_post_caches')) {
+      if ($service_ids) _prime_post_caches($service_ids, false, false);
+      if ($listing_ids) _prime_post_caches($listing_ids, false, false);
+    }
+    if ($service_ids) {
+      update_postmeta_cache($service_ids);
+    }
+    self::prime_booking_options($booking_ids);
 
     foreach ($rows as $r) {
       $booking = (object) $r;
@@ -279,6 +425,10 @@ class Customer_Bookings_API {
       update_option("koopo_booking_{$booking_id}_cancel_reason", sanitize_textarea_field($reason));
     }
 
+    if (!empty($booking->listing_id)) {
+      self::invalidate_vendor_analytics_cache((int) $booking->listing_id);
+    }
+
     // Trigger notification
     do_action('koopo_customer_cancelled_booking', $booking_id, $customer_id, $reason, $refund_amount);
 
@@ -340,6 +490,10 @@ class Customer_Bookings_API {
     $updated = Bookings::get_booking($booking_id);
     do_action('koopo_booking_rescheduled', $booking_id, $new_start, $new_end, $updated);
 
+    if (!empty($updated->listing_id)) {
+      self::invalidate_vendor_analytics_cache((int) $updated->listing_id);
+    }
+
     return rest_ensure_response([
       'ok' => true,
       'booking' => self::format_booking_for_customer($updated),
@@ -382,7 +536,7 @@ class Customer_Bookings_API {
     
     $vendor_id = (int) $booking->listing_author_id;
     $customer = get_userdata($customer_id);
-    $service_title = get_the_title((int) $booking->service_id);
+    $service_title = self::service_title((int) $booking->service_id);
 
     // Trigger notification
     do_action('koopo_customer_reschedule_request', [
@@ -457,8 +611,8 @@ class Customer_Bookings_API {
    */
   private static function format_booking_for_customer(object $booking): array {
     
-    $service_title = get_the_title((int) $booking->service_id);
-    $listing_title = get_the_title((int) $booking->listing_id);
+    $service_title = self::service_title((int) $booking->service_id);
+    $listing_title = self::listing_title((int) $booking->listing_id);
     $listing_url = $booking->listing_id ? get_permalink((int) $booking->listing_id) : '';
     
     $tz = !empty($booking->timezone) ? (string) $booking->timezone : '';
@@ -473,22 +627,14 @@ class Customer_Bookings_API {
 
     $addon_summary = self::get_addons_summary((int) $booking->id);
 
-    $service_price = get_post_meta((int) $booking->service_id, Services_API::META_PRICE, true);
-    if ($service_price === '' || $service_price === null) {
-      $service_price = get_post_meta((int) $booking->service_id, '_koopo_price', true);
-    }
-    $service_price = is_numeric($service_price) ? (float) $service_price : 0.0;
+    $service_meta = self::get_service_meta((int) $booking->service_id);
+    $service_price = $service_meta['price'];
+    $service_duration = $service_meta['duration'];
 
-    $service_duration = get_post_meta((int) $booking->service_id, Services_API::META_DURATION, true);
-    if ($service_duration === '' || $service_duration === null) {
-      $service_duration = get_post_meta((int) $booking->service_id, '_koopo_duration_minutes', true);
-    }
-    $service_duration = (int) $service_duration;
-
-    $cancelled_by = get_option("koopo_booking_{$booking->id}_cancelled_by", '');
-    $refund_amount_meta = get_option("koopo_booking_{$booking->id}_refund_amount", '');
+    $cancelled_by = self::get_booking_option((int) $booking->id, 'cancelled_by', '');
+    $refund_amount_meta = self::get_booking_option((int) $booking->id, 'refund_amount', '');
     $refund_amount_meta = is_numeric($refund_amount_meta) ? (float) $refund_amount_meta : 0.0;
-    $refund_status = get_option("koopo_booking_{$booking->id}_refund_status", '');
+    $refund_status = self::get_booking_option((int) $booking->id, 'refund_status', '');
 
     // Determine what actions customer can take
     $status = (string) $booking->status;
@@ -498,7 +644,7 @@ class Customer_Bookings_API {
     $cutoff_value = 0;
     $cutoff_unit = 'hours';
     if (!empty($booking->listing_id)) {
-      $settings = Settings_API::read_settings((int) $booking->listing_id);
+      $settings = self::get_listing_settings_cached((int) $booking->listing_id);
       $cutoff_value = isset($settings['reschedule_cutoff_value']) ? (int) $settings['reschedule_cutoff_value'] : 0;
       $cutoff_unit = isset($settings['reschedule_cutoff_unit']) ? (string) $settings['reschedule_cutoff_unit'] : 'hours';
     }
@@ -582,7 +728,7 @@ class Customer_Bookings_API {
     $total_duration = 0;
 
     foreach ($ids as $id) {
-      $title = get_the_title($id);
+      $title = self::listing_title($id);
       if ($title) {
         $titles[] = $title;
       }
@@ -614,7 +760,7 @@ class Customer_Bookings_API {
 
   private static function get_reschedule_cutoff_minutes(int $listing_id): int {
     if (!$listing_id) return 0;
-    $settings = Settings_API::read_settings($listing_id);
+    $settings = self::get_listing_settings_cached($listing_id);
     if (isset($settings['reschedule_enabled']) && !$settings['reschedule_enabled']) {
       return 0;
     }
@@ -638,7 +784,7 @@ class Customer_Bookings_API {
   private static function is_reschedule_allowed(object $booking): bool {
     $listing_id = isset($booking->listing_id) ? (int) $booking->listing_id : 0;
     if ($listing_id) {
-      $settings = Settings_API::read_settings($listing_id);
+      $settings = self::get_listing_settings_cached($listing_id);
       if (isset($settings['reschedule_enabled']) && !$settings['reschedule_enabled']) {
         return false;
       }

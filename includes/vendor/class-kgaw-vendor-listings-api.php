@@ -20,10 +20,20 @@ class Vendor_Listings_API {
     ]);
   }
 
+  public static function get_listings_for_user(int $user_id): array {
+    if (!$user_id) return [];
+    return self::query_listings($user_id);
+  }
+
   public static function get_my_listings(\WP_REST_Request $req) {
     $user_id = get_current_user_id();
     if (!$user_id) return new \WP_REST_Response([], 200);
 
+    $out = self::query_listings($user_id);
+    return new \WP_REST_Response($out, 200);
+  }
+
+  private static function query_listings(int $user_id): array {
     // GeoDirectory listing post type(s). Default: gd_place.
     $types = apply_filters('koopo_appt_listing_post_types', ['gd_place']);
     if (!is_array($types) || !$types) $types = ['gd_place'];
@@ -47,6 +57,6 @@ class Vendor_Listings_API {
       ];
     }
 
-    return new \WP_REST_Response($out, 200);
+    return $out;
   }
 }

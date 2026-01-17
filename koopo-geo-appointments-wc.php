@@ -30,7 +30,7 @@ final class Koopo_Appointments {
   }
 
   public function activate() {
-    require_once __DIR__ . '/includes/class-kgaw-db.php';
+    require_once __DIR__ . '/includes/core/class-kgaw-db.php';
     Koopo_Appointments\DB::create_tables();
   }
 
@@ -42,50 +42,67 @@ final class Koopo_Appointments {
     if (!class_exists('WooCommerce')) return;
 
     // Core classes
-    require_once __DIR__ . '/includes/class-kgaw-db.php';
-    require_once __DIR__ . '/includes/class-kgaw-date-formatter.php';
-    require_once __DIR__ . '/includes/class-kgaw-bookings.php';
-    require_once __DIR__ . '/includes/class-kgaw-checkout.php';
-    require_once __DIR__ . '/includes/class-kgaw-order-hooks.php';
-    require_once __DIR__ . '/includes/class-kgaw-order-display.php';
-    require_once __DIR__ . '/includes/class-kgaw-notifications.php';
-    require_once __DIR__ . '/includes/class-kgaw-services-cpt.php';
-    require_once __DIR__ . '/includes/class-kgaw-service-categories.php';
-    require_once __DIR__ . '/includes/class-kgaw-services-api.php';
-    require_once __DIR__ . '/includes/class-kgaw-wc-service-product.php';
-    require_once __DIR__ . '/includes/class-kgaw-product-guard.php';
-    require_once __DIR__ . '/includes/class-kgaw-cart.php';
-    require_once __DIR__ . '/includes/class-kgaw-checkout-cart.php';
-    require_once __DIR__ . '/includes/class-kgaw-ui.php';
-    //Vendor facing classes
-    require_once __DIR__ . '/includes/class-kgaw-services-list.php';
-    require_once __DIR__ . '/includes/class-kgaw-vendor-listings-api.php';
-    //Admin Settings 
-    require_once __DIR__ . '/includes/class-kgaw-admin-settings.php';
-    require_once __DIR__ . '/includes/class-kgaw-admin-dashboard.php';
-    require_once __DIR__ . '/includes/class-kgaw-analytics-dashboard.php';
-    require_once __DIR__ . '/includes/class-kgaw-automated-reminders.php';
+    require_once __DIR__ . '/includes/core/class-kgaw-db.php';
+    require_once __DIR__ . '/includes/core/class-kgaw-date-formatter.php';
+    require_once __DIR__ . '/includes/core/class-kgaw-bookings.php';
+    require_once __DIR__ . '/includes/core/class-kgaw-availability.php';
+    require_once __DIR__ . '/includes/core/class-kgaw-features.php';
+    require_once __DIR__ . '/includes/core/class-kgaw-access.php';
 
+    \Koopo_Appointments\DB::maybe_upgrade();
 
-    // Commit 20: Enhanced Refund Tooling
-    require_once __DIR__ . '/includes/class-kgaw-refund-policy.php';
-    require_once __DIR__ . '/includes/class-kgaw-refund-processor.php';
-    require_once __DIR__ . '/includes/class-kgaw-vendor-bookings-api.php';
-    
-    require_once __DIR__ . '/includes/class-kgaw-availability.php';
-    require_once __DIR__ . '/includes/class-kgaw-settings-api.php';
-    require_once __DIR__ . '/includes/class-kgaw-dokan-dashboard.php';
-    require_once __DIR__ . '/includes/class-kgaw-settings-ui-shortcodes.php';
-    require_once __DIR__ . '/includes/class-kgaw-settings-assets.php';
-    require_once __DIR__ . '/includes/class-kgaw-features.php';
-    require_once __DIR__ . '/includes/class-kgaw-myaccount.php';
-    require_once __DIR__ . '/includes/class-kgaw-buddyboss-appointments.php';
-    require_once __DIR__ . '/includes/class-kgaw-access.php';
-    require_once __DIR__ . '/includes/class-kgaw-pack-features-admin.php';
-    require_once __DIR__ . '/includes/class-kgaw-dokan-pack-adapter.php';
-    //customer front facing classes
-    require_once __DIR__ . '/includes/class-kgaw-customer-bookings-api.php';
-    require_once __DIR__ . '/includes/class-kgaw-customer-dashboard.php';
+    // WooCommerce / cart
+    require_once __DIR__ . '/includes/woocommerce/class-kgaw-checkout.php';
+    require_once __DIR__ . '/includes/woocommerce/class-kgaw-order-hooks.php';
+    require_once __DIR__ . '/includes/woocommerce/class-kgaw-order-display.php';
+    require_once __DIR__ . '/includes/woocommerce/class-kgaw-cart.php';
+    require_once __DIR__ . '/includes/woocommerce/class-kgaw-checkout-cart.php';
+    require_once __DIR__ . '/includes/woocommerce/class-kgaw-product-guard.php';
+    require_once __DIR__ . '/includes/woocommerce/class-kgaw-wc-service-product.php';
+
+    // Services
+    require_once __DIR__ . '/includes/services/class-kgaw-services-cpt.php';
+    require_once __DIR__ . '/includes/services/class-kgaw-service-categories.php';
+    require_once __DIR__ . '/includes/services/class-kgaw-services-api.php';
+    require_once __DIR__ . '/includes/services/class-kgaw-services-list.php';
+
+    // UI
+    require_once __DIR__ . '/includes/ui/class-kgaw-ui.php';
+
+    // Vendor
+    require_once __DIR__ . '/includes/vendor/class-kgaw-vendor-listings-api.php';
+    require_once __DIR__ . '/includes/vendor/class-kgaw-vendor-bookings-api.php';
+
+    // Customer
+    require_once __DIR__ . '/includes/customer/class-kgaw-customer-bookings-api.php';
+    require_once __DIR__ . '/includes/customer/class-kgaw-customer-dashboard.php';
+    require_once __DIR__ . '/includes/customer/class-kgaw-myaccount.php';
+
+    // Settings
+    require_once __DIR__ . '/includes/settings/class-kgaw-settings-api.php';
+    require_once __DIR__ . '/includes/settings/class-kgaw-settings-ui-shortcodes.php';
+    require_once __DIR__ . '/includes/settings/class-kgaw-settings-assets.php';
+
+    // Admin
+    require_once __DIR__ . '/includes/admin/class-kgaw-admin-settings.php';
+    require_once __DIR__ . '/includes/admin/class-kgaw-admin-dashboard.php';
+    require_once __DIR__ . '/includes/admin/class-kgaw-analytics-dashboard.php';
+    require_once __DIR__ . '/includes/admin/class-kgaw-pack-features-admin.php';
+
+    // Dokan
+    require_once __DIR__ . '/includes/dokan/class-kgaw-dokan-dashboard.php';
+    require_once __DIR__ . '/includes/dokan/class-kgaw-dokan-pack-adapter.php';
+
+    // Notifications
+    require_once __DIR__ . '/includes/notifications/class-kgaw-notifications.php';
+    require_once __DIR__ . '/includes/notifications/class-kgaw-automated-reminders.php';
+
+    // Refunds
+    require_once __DIR__ . '/includes/refunds/class-kgaw-refund-policy.php';
+    require_once __DIR__ . '/includes/refunds/class-kgaw-refund-processor.php';
+
+    // Integrations
+    require_once __DIR__ . '/includes/integrations/class-kgaw-buddyboss-appointments.php';
     
       Koopo_Appointments\Customer_Bookings_API::init();
       Koopo_Appointments\Customer_Dashboard::init();
@@ -94,8 +111,8 @@ final class Koopo_Appointments {
     Koopo_Appointments\BuddyBoss_Appointments::init();
 
     if (Koopo_Appointments\Features::memberships_enabled()) {
-      require_once __DIR__ . '/includes/class-kgaw-entitlements.php';
-      require_once __DIR__ . '/includes/class-kgaw-membership-ui.php';
+      require_once __DIR__ . '/includes/integrations/class-kgaw-entitlements.php';
+      require_once __DIR__ . '/includes/integrations/class-kgaw-membership-ui.php';
       Koopo_Appointments\Entitlements::init();
       Koopo_Appointments\Membership_UI::init();
     }

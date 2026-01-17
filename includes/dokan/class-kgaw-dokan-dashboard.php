@@ -92,9 +92,12 @@ public static function load_templates($query_vars) {
     if (!$is_koopo) return;
 
     wp_enqueue_style('koopo-appt-vendor', KOOPO_APPT_URL . 'assets/vendor.css', [], KOOPO_APPT_VERSION);
-    wp_enqueue_script('koopo-appt-vendor', KOOPO_APPT_URL . 'assets/vendor.js', ['jquery'], KOOPO_APPT_VERSION, true);
+    wp_enqueue_script('koopo-appt-vendor-core', KOOPO_APPT_URL . 'assets/vendor-core.js', ['jquery'], KOOPO_APPT_VERSION, true);
+    wp_enqueue_script('koopo-appt-vendor-services', KOOPO_APPT_URL . 'assets/vendor-services.js', ['jquery', 'koopo-appt-vendor-core'], KOOPO_APPT_VERSION, true);
+    wp_enqueue_script('koopo-appt-vendor-settings', KOOPO_APPT_URL . 'assets/vendor-settings.js', ['jquery', 'koopo-appt-vendor-core'], KOOPO_APPT_VERSION, true);
+    wp_enqueue_script('koopo-appt-vendor-appointments', KOOPO_APPT_URL . 'assets/vendor-appointments.js', ['jquery', 'koopo-appt-vendor-core'], KOOPO_APPT_VERSION, true);
 
-    wp_localize_script('koopo-appt-vendor', 'KOOPO_APPT_VENDOR', [
+    wp_localize_script('koopo-appt-vendor-core', 'KOOPO_APPT_VENDOR', [
       'rest' => esc_url_raw(rest_url('koopo/v1')),
       'nonce' => wp_create_nonce('wp_rest'),
       'userId' => get_current_user_id(),
@@ -104,6 +107,7 @@ public static function load_templates($query_vars) {
         : home_url('/seller-dashboard/orders/'),
       'orders_nonce' => wp_create_nonce('dokan_view_order'),
       'currency_symbol' => function_exists('get_woocommerce_currency_symbol') ? get_woocommerce_currency_symbol() : '$',
+      'listings' => Vendor_Listings_API::get_listings_for_user(get_current_user_id()),
     ]);
 
     // status badges reused (colors)

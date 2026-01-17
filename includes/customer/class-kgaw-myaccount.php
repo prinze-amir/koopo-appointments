@@ -235,7 +235,7 @@ class MyAccount {
 
     wp_enqueue_style(
       'koopo-appt-badges',
-      plugins_url('../assets/appointments-badges.css', __FILE__),
+      KOOPO_APPT_URL . 'assets/appointments-badges.css',
       [],
       '0.1.0'
     );

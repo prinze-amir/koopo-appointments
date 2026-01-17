@@ -133,7 +133,6 @@ The codebase includes the originally planned commits 17-22 and additional work l
 
 ## 6. Known Gaps / Tech Debt
 
-* Duplicate vendor bookings API file exists (`includes/class-kgaw-vendor-bookings-api-enhanced.php`) while boot loads `includes/class-kgaw-vendor-bookings-api.php`.
 * README history was previously tied to commit numbering; keep this doc aligned with current code to avoid drift.
 
 ---
@@ -142,16 +141,16 @@ The codebase includes the originally planned commits 17-22 and additional work l
 
 | Feature | UI / Template | JS / CSS | API / PHP |
 | --- | --- | --- | --- |
-| Vendor dashboard (appointments) | `templates/dokan/appointments.php` | `assets/vendor.js`, `assets/vendor.css` | `includes/class-kgaw-dokan-dashboard.php`, `includes/class-kgaw-vendor-bookings-api.php` |
-| Vendor services CRUD | `templates/dokan/services.php` | `assets/vendor.js`, `assets/vendor.css` | `includes/class-kgaw-services-api.php`, `includes/class-kgaw-services-list.php` |
-| Vendor settings | `templates/dokan/settings.php` | `assets/vendor.js`, `assets/appointments-settings.css` | `includes/class-kgaw-settings-api.php` |
-| Customer dashboard | `templates/customer/my-appointments.php` | `assets/customer-dashboard.js`, `assets/customer-dashboard.css` | `includes/class-kgaw-customer-dashboard.php`, `includes/class-kgaw-customer-bookings-api.php` |
-| Availability / slots | N/A | N/A | `includes/class-kgaw-availability.php` |
-| Refund policy + processing | N/A | N/A | `includes/class-kgaw-refund-policy.php`, `includes/class-kgaw-refund-processor.php` |
-| Reschedule (vendor) | Vendor modal in `assets/vendor.js` | `assets/vendor.js`, `assets/vendor.css` | `includes/class-kgaw-vendor-bookings-api.php`, `includes/class-kgaw-availability.php` |
-| Reschedule (customer request) | `templates/customer/my-appointments.php` | `assets/customer-dashboard.js`, `assets/customer-dashboard.css` | `includes/class-kgaw-customer-bookings-api.php` |
-| Order + email display | `templates/woocommerce/order/booking-details.php`, `templates/woocommerce/emails/booking-details.php` | N/A | `includes/class-kgaw-order-display.php` |
-| Admin dashboards | `templates/admin/dashboard.php`, `templates/admin/bookings.php`, `templates/admin/analytics.php` | `assets/admin-dashboard.css` | `includes/class-kgaw-admin-dashboard.php`, `includes/class-kgaw-analytics-dashboard.php` |
+| Vendor dashboard (appointments) | `templates/dokan/appointments.php` | `assets/vendor-core.js`, `assets/vendor-appointments.js`, `assets/vendor.css` | `includes/dokan/class-kgaw-dokan-dashboard.php`, `includes/vendor/class-kgaw-vendor-bookings-api.php` |
+| Vendor services CRUD | `templates/dokan/services.php` | `assets/vendor-core.js`, `assets/vendor-services.js`, `assets/vendor.css` | `includes/services/class-kgaw-services-api.php`, `includes/services/class-kgaw-services-list.php` |
+| Vendor settings | `templates/dokan/settings.php` | `assets/vendor-core.js`, `assets/vendor-settings.js`, `assets/appointments-settings.css` | `includes/settings/class-kgaw-settings-api.php` |
+| Customer dashboard | `templates/customer/my-appointments.php` | `assets/customer-dashboard-core.js`, `assets/customer-dashboard-app.js`, `assets/customer-dashboard.css` | `includes/customer/class-kgaw-customer-dashboard.php`, `includes/customer/class-kgaw-customer-bookings-api.php` |
+| Availability / slots | N/A | N/A | `includes/core/class-kgaw-availability.php` |
+| Refund policy + processing | N/A | N/A | `includes/refunds/class-kgaw-refund-policy.php`, `includes/refunds/class-kgaw-refund-processor.php` |
+| Reschedule (vendor) | Vendor modal in `assets/vendor-appointments.js` | `assets/vendor-appointments.js`, `assets/vendor.css` | `includes/vendor/class-kgaw-vendor-bookings-api.php`, `includes/core/class-kgaw-availability.php` |
+| Reschedule (customer request) | `templates/customer/my-appointments.php` | `assets/customer-dashboard-app.js`, `assets/customer-dashboard.css` | `includes/customer/class-kgaw-customer-bookings-api.php` |
+| Order + email display | `templates/woocommerce/order/booking-details.php`, `templates/woocommerce/emails/booking-details.php` | N/A | `includes/woocommerce/class-kgaw-order-display.php` |
+| Admin dashboards | `templates/admin/dashboard.php`, `templates/admin/bookings.php`, `templates/admin/analytics.php` | `assets/admin-dashboard.css` | `includes/admin/class-kgaw-admin-dashboard.php`, `includes/admin/class-kgaw-analytics-dashboard.php` |
 
 ---
 

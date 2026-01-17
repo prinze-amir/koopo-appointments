@@ -134,15 +134,22 @@ class Customer_Dashboard {
 
     // Enqueue JS
     wp_enqueue_script(
-      'koopo-customer-dashboard',
-      KOOPO_APPT_URL . 'assets/customer-dashboard.js',
+      'koopo-customer-dashboard-core',
+      KOOPO_APPT_URL . 'assets/customer-dashboard-core.js',
       ['jquery'],
+      KOOPO_APPT_VERSION,
+      true
+    );
+    wp_enqueue_script(
+      'koopo-customer-dashboard-app',
+      KOOPO_APPT_URL . 'assets/customer-dashboard-app.js',
+      ['jquery', 'koopo-customer-dashboard-core'],
       KOOPO_APPT_VERSION,
       true
     );
 
     // Localize script
-    wp_localize_script('koopo-customer-dashboard', 'KOOPO_CUSTOMER', [
+    wp_localize_script('koopo-customer-dashboard-core', 'KOOPO_CUSTOMER', [
       'api_url' => rest_url('koopo/v1'),
       'nonce' => wp_create_nonce('wp_rest'),
       'currency_symbol' => get_woocommerce_currency_symbol(),

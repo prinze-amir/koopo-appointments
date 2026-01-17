@@ -4,6 +4,8 @@ namespace Koopo_Appointments;
 defined('ABSPATH') || exit;
 
 class DB {
+  const VERSION = '1.1';
+
   public static function table() {
     global $wpdb;
     return $wpdb->prefix . 'koopo_gd_bookings';
@@ -32,15 +34,26 @@ class DB {
       updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       PRIMARY KEY (id),
       KEY listing_id (listing_id),
+      KEY listing_author_id (listing_author_id),
       KEY customer_id (customer_id),
       KEY wc_order_id (wc_order_id),
       KEY status (status),
       KEY start_datetime (start_datetime),
+      KEY listing_author_start (listing_author_id, start_datetime),
+      KEY customer_start (customer_id, start_datetime),
       KEY listing_status_start (listing_id, status, start_datetime),
       KEY listing_start_end (listing_id, start_datetime, end_datetime)
     ) {$charset};";
 
     require_once ABSPATH . 'wp-admin/includes/upgrade.php';
     dbDelta($sql);
+    update_option('koopo_appt_db_version', self::VERSION);
+  }
+
+  public static function maybe_upgrade(): void {
+    $current = (string) get_option('koopo_appt_db_version', '');
+    if ($current !== self::VERSION) {
+      self::create_tables();
+    }
   }
 }

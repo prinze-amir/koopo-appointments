@@ -50,7 +50,7 @@ Koopo Geo Appointments is a Places‑only (`gd_place`) booking system that conne
 ## Roadmap vs. README — Gaps / Deviations
 1) **“Cart‑based checkout only”**: free bookings now bypass cart/checkout to create a zero‑total order immediately. This is a deliberate UX optimization but deviates from the strict cart‑only requirement. If strict cart‑only is still required, the free‑booking flow should be reverted or guarded by a setting.
 2) **Advanced reporting**: vendor analytics exist, but richer reporting (e.g., export of trends, cohort views) remains limited.
-3) **Duplicate API class**: `class-kgaw-vendor-bookings-api-enhanced.php` still exists while the app uses `class-kgaw-vendor-bookings-api.php`.
+3) **Vendor JS was previously monolithic**: now split into core/services/settings/appointments modules; keep this modular structure to avoid regressions.
 
 Everything else in the README roadmap appears implemented or exceeded (rescheduling, refunds, customer dashboard, calendar links, BuddyBoss hooks, etc.).
 

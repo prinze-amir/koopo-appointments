@@ -17,18 +17,18 @@ class UI {
   public static function enqueue_assets() {
     if (!self::should_load_assets()) return;
 
-    $ver = defined('KOOPO_VERSION') ? KOOPO_VERSION : time(); // or plugin version constant
+    $ver = defined('KOOPO_APPT_VERSION') ? KOOPO_APPT_VERSION : time();
 
     wp_register_style(
       'koopo-appointments-ui',
-      plugins_url('../assets/appointments.css', __FILE__),
+      KOOPO_APPT_URL . 'assets/appointments.css',
       [],
       $ver
     );
 
     wp_register_script(
       'koopo-appointments-ui',
-      plugins_url('../assets/appointments.js', __FILE__),
+      KOOPO_APPT_URL . 'assets/appointments.js',
       ['jquery'],
       $ver,
       true

@@ -39,14 +39,14 @@ class Settings_Assets {
 
     wp_enqueue_style(
       'koopo-appt-settings-ui',
-      plugins_url('../assets/appointments-settings.css', __FILE__),
+      KOOPO_APPT_URL . 'assets/appointments-settings.css',
       [],
       $ver
     );
 
     wp_enqueue_script(
       'koopo-appt-settings-ui',
-      plugins_url('../assets/appointments-settings.js', __FILE__),
+      KOOPO_APPT_URL . 'assets/appointments-settings.js',
       ['jquery'],
       $ver,
       true
