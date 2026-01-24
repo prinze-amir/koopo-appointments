@@ -55,10 +55,68 @@
     return `${s}${n.toFixed(2)}`;
   }
 
+  function formatMoney(amount, currency){
+    const n = Number(amount||0);
+    const c = String(currency||'').trim();
+    return (c ? escapeHtml(c) + ' ' : '$') + n.toFixed(2);
+  }
+
+  function parseDateTime(str){
+    if (!str) return null;
+    const iso = String(str).replace(' ', 'T');
+    const d = new Date(iso);
+    return isNaN(d.getTime()) ? null : d;
+  }
+
+  function toYmd(date){
+    const d = new Date(date);
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  }
+
+  function toYmdHms(date){
+    const d = new Date(date);
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mi = String(d.getMinutes()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd} ${hh}:${mi}:00`;
+  }
+
+  function formatTime(str){
+    const d = parseDateTime(str);
+    if (!d) return '';
+    return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  }
+
+  function renderAvatar(booking, opts = {}){
+    const showName = !!opts.showName;
+    const name = (booking && (booking.customer_name || booking.customer_email)) || 'Guest';
+    if (!booking || !booking.customer_avatar || !booking.customer_profile) {
+      return `<span>${escapeHtml(name)}</span>`;
+    }
+    return `
+      <a class="koopo-avatar" href="${escapeHtml(booking.customer_profile)}" target="_blank" rel="noopener">
+        <img class="koopo-avatar__img" src="${escapeHtml(booking.customer_avatar)}" alt="${escapeHtml(name)}" />
+        ${showName ? `<span>${escapeHtml(name)}</span>` : ''}
+        <span class="koopo-avatar__pop">View ${escapeHtml(name)}&#39;s profile</span>
+      </a>
+    `;
+  }
+
   utils.api = api;
   utils.loadVendorListings = loadVendorListings;
   utils.escapeHtml = escapeHtml;
   utils.formatCurrency = formatCurrency;
+  utils.formatMoney = formatMoney;
+  utils.parseDateTime = parseDateTime;
+  utils.toYmd = toYmd;
+  utils.toYmdHms = toYmdHms;
+  utils.formatTime = formatTime;
+  utils.renderAvatar = renderAvatar;
 
   window.KOOPO_VENDOR_UTILS = utils;
 })(jQuery);

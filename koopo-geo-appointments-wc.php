@@ -88,6 +88,8 @@ final class Koopo_Appointments {
     require_once __DIR__ . '/includes/admin/class-kgaw-admin-dashboard.php';
     require_once __DIR__ . '/includes/admin/class-kgaw-analytics-dashboard.php';
     require_once __DIR__ . '/includes/admin/class-kgaw-pack-features-admin.php';
+    require_once __DIR__ . '/includes/admin/class-kgaw-place-metabox.php';
+    require_once __DIR__ . '/includes/admin/class-kgaw-user-feature-overrides.php';
 
     // Dokan
     require_once __DIR__ . '/includes/dokan/class-kgaw-dokan-dashboard.php';
@@ -108,14 +110,10 @@ final class Koopo_Appointments {
       Koopo_Appointments\Customer_Dashboard::init();
     Koopo_Appointments\Dokan_Pack_Adapter::init();
     Koopo_Appointments\Pack_Features_Admin::init();
+    Koopo_Appointments\Place_Metabox::init();
+    Koopo_Appointments\User_Feature_Overrides::init();
     Koopo_Appointments\BuddyBoss_Appointments::init();
 
-    if (Koopo_Appointments\Features::memberships_enabled()) {
-      require_once __DIR__ . '/includes/integrations/class-kgaw-entitlements.php';
-      require_once __DIR__ . '/includes/integrations/class-kgaw-membership-ui.php';
-      Koopo_Appointments\Entitlements::init();
-      Koopo_Appointments\Membership_UI::init();
-    }
     Koopo_Appointments\Service_Categories::init();
     Koopo_Appointments\Settings_Assets::init();
     Koopo_Appointments\Admin_Settings::init();

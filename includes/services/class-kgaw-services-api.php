@@ -57,7 +57,7 @@ class Services_API {
     if (!is_user_logged_in()) return false;
     $user_id = get_current_user_id();
     if (function_exists('dokan_is_user_seller') && dokan_is_user_seller($user_id)) {
-      return Access::vendor_has_feature($user_id, 'booking_calendar');
+      return Access::vendor_has_feature($user_id, 'appointments');
     }
     return current_user_can('manage_options');
   }

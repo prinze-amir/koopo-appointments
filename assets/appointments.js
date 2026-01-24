@@ -160,6 +160,7 @@
       $root.find('.koopo-appt__customer-name').val(state.userInfo.name || '');
       $root.find('.koopo-appt__customer-email').val(state.userInfo.email || '');
       $root.find('.koopo-appt__customer-phone').val(formatPhoneInput(state.userInfo.phone || ''));
+      updateSummary($root);
       return;
     }
 
@@ -171,6 +172,7 @@
         $root.find('.koopo-appt__customer-name').val(userInfo.name || '');
         $root.find('.koopo-appt__customer-email').val(userInfo.email || '');
         $root.find('.koopo-appt__customer-phone').val(formatPhoneInput(userInfo.phone || ''));
+        updateSummary($root);
       } catch(e) {
         // Silently fail - user can fill in manually
       }
@@ -259,7 +261,13 @@
   function isClosedDay(settings, isoDate){
     if (!settings) return false;
     if (!settings.enabled) return true;
-    if ((settings.days_off || []).includes(isoDate)) return true;
+    const daysOff = Array.isArray(settings.days_off) ? settings.days_off : [];
+    const hasAllDayClosure = daysOff.some(d => {
+      if (typeof d === 'string') return d === isoDate;
+      if (!d || typeof d !== 'object') return false;
+      return d.date === isoDate && !d.start && !d.end;
+    });
+    if (hasAllDayClosure) return true;
 
     const dt = new Date(isoDate + 'T00:00:00');
     const map = ['sun','mon','tue','wed','thu','fri','sat'];

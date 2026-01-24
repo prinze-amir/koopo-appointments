@@ -202,7 +202,7 @@ class Vendor_Bookings_API {
     if (function_exists('dokan_is_user_seller')) {
       $vendor_id = get_current_user_id();
       if (!dokan_is_user_seller($vendor_id)) return false;
-      return Access::vendor_has_feature($vendor_id, 'booking_calendar');
+      return Access::vendor_has_feature($vendor_id, 'appointments');
     }
     return current_user_can('manage_options');
   }

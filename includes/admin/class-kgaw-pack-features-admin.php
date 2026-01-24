@@ -50,10 +50,8 @@ class Pack_Features_Admin {
     }
     if (!is_array($features)) $features = [];
 
-    self::checkbox('_koopo_features[booking_calendar]', 'Booking Calendar', !empty($features['booking_calendar']));
-    self::checkbox('_koopo_features[memberships]', 'Appointment Memberships', !empty($features['memberships']));
+    self::checkbox('_koopo_features[appointments]', 'Appointments', !empty($features['appointments']));
     self::checkbox('_koopo_features[event_tickets]', 'Event Tickets', !empty($features['event_tickets']));
-    self::checkbox('_koopo_features[print_on_demand]', 'Print on Demand', !empty($features['print_on_demand']));
 
     echo '</div>';
   }
@@ -72,10 +70,8 @@ class Pack_Features_Admin {
 
     $posted = isset($_POST['_koopo_features']) && is_array($_POST['_koopo_features']) ? $_POST['_koopo_features'] : [];
     $features = [
-      'booking_calendar' => !empty($posted['booking_calendar']),
-      'memberships'      => !empty($posted['memberships']),
+      'appointments'     => !empty($posted['appointments']),
       'event_tickets'    => !empty($posted['event_tickets']),
-      'print_on_demand'  => !empty($posted['print_on_demand']),
     ];
 
     $product->update_meta_data('_koopo_features', wp_json_encode($features));

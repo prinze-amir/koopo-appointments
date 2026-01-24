@@ -29,7 +29,7 @@ class Settings_API {
   private static function is_listing_owner(int $listing_id): bool {
     $listing = get_post($listing_id);
     if (!$listing || $listing->post_type !== 'gd_place') return false;
-    return Access::can_manage_listing_feature($listing_id, 'booking_calendar');
+    return Access::can_manage_listing_feature($listing_id, 'appointments');
   }
 
   public static function get_settings(\WP_REST_Request $req) {
@@ -130,9 +130,9 @@ class Settings_API {
       update_post_meta($listing_id, '_koopo_appt_reschedule_cutoff_unit', $unit);
     }
 
-    // Days off
+    // Days off / vacations (array of {date, start, end} or legacy date strings)
     if (isset($payload['days_off']) && is_array($payload['days_off'])) {
-      $days = array_values(array_filter(array_map('sanitize_text_field', $payload['days_off'])));
+      $days = self::sanitize_days_off($payload['days_off']);
       update_post_meta($listing_id, '_koopo_appt_days_off', wp_json_encode($days));
     }
 
@@ -176,7 +176,7 @@ class Settings_API {
       'reschedule_cutoff_unit' => $reschedule_cutoff_unit,
       'refund_policy_rules' => $refund_policy_rules,
       'refund_policy_custom' => $refund_policy_custom,
-      'days_off' => self::decode_json_arr($days_off_json) ?: [],
+      'days_off' => self::sanitize_days_off(self::decode_json_arr($days_off_json) ?: []),
     ];
   }
 
@@ -189,6 +189,41 @@ class Settings_API {
     if (!$json) return null;
     $d = json_decode($json, true);
     return is_array($d) ? $d : null;
+  }
+
+  private static function sanitize_days_off(array $input): array {
+    $out = [];
+    foreach ($input as $item) {
+      if (is_string($item)) {
+        $date = sanitize_text_field($item);
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+          $out[] = ['date' => $date, 'start' => '', 'end' => ''];
+        }
+        continue;
+      }
+      if (!is_array($item)) continue;
+      $date = isset($item['date']) ? sanitize_text_field((string) $item['date']) : '';
+      if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) continue;
+      $start = isset($item['start']) ? sanitize_text_field((string) $item['start']) : '';
+      $end = isset($item['end']) ? sanitize_text_field((string) $item['end']) : '';
+      if (($start && !preg_match('/^\d{2}:\d{2}$/', $start)) || ($end && !preg_match('/^\d{2}:\d{2}$/', $end))) {
+        $start = '';
+        $end = '';
+      }
+      if (($start && !$end) || (!$start && $end)) {
+        $start = '';
+        $end = '';
+      }
+      if ($start && $end && $start >= $end) {
+        continue;
+      }
+      $out[] = [
+        'date' => $date,
+        'start' => $start,
+        'end' => $end,
+      ];
+    }
+    return $out;
   }
 
   private static function default_hours(): array {

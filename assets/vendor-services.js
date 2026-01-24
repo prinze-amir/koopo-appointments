@@ -4,7 +4,8 @@
   const api = utils.api;
   const loadVendorListings = utils.loadVendorListings;
   const escapeHtml = utils.escapeHtml;
-  if (!api || !loadVendorListings || !escapeHtml) return;
+  const formatCurrency = utils.formatCurrency;
+  if (!api || !loadVendorListings || !escapeHtml || !formatCurrency) return;
 
 // ---------- Services page ----------
   const $servicesPicker = $('#koopo-listing-picker');
@@ -37,7 +38,7 @@
     const cards = state.services.map(s => {
       const badge = (s.status === 'inactive') ? '<span class="koopo-badge koopo-badge--gray">Inactive</span>' : '<span class="koopo-badge koopo-badge--green">Active</span>';
       const addonBadge = s.is_addon ? '<span class="koopo-badge koopo-badge--purple">Add-on</span>' : '';
-      const price = (s.price_label && s.price_label.trim()) ? escapeHtml(s.price_label) : `$${Number(s.price||0).toFixed(2)}`;
+      const price = (s.price_label && s.price_label.trim()) ? escapeHtml(s.price_label) : formatCurrency(s.price);
       const colorDot = s.color ? `<span class="koopo-dot" style="background:${escapeHtml(s.color)}"></span>` : '';
       return `
         <div class="koopo-card koopo-card--click" data-service-id="${s.id}">
@@ -162,11 +163,15 @@
   }
 
   if ($servicesPicker.length) {
-    loadVendorListings($servicesPicker).catch(()=>{});
     $servicesPicker.on('change', async function(){
       state.listingId = parseInt($(this).val(),10) || null;
       await refreshServices();
     });
+    loadVendorListings($servicesPicker).then(listings => {
+      if (Array.isArray(listings) && listings.length) {
+        $servicesPicker.prop('selectedIndex', 1).trigger('change');
+      }
+    }).catch(()=>{});
     $('#koopo-add-service').on('click', async function(){
       if (!state.listingId) { alert('Select a listing first.'); return; }
       await openModal(null);

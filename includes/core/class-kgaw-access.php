@@ -28,6 +28,11 @@ class Access {
     // Admin bypass always passes
     if (self::is_admin_bypass()) return true;
 
+    // User-level overrides (admin-set)
+    if (self::user_has_feature_override($vendor_id, $feature_key)) {
+      return true;
+    }
+
     // Must be vendor
     if (!function_exists('dokan_is_user_seller') || !dokan_is_user_seller($vendor_id)) {
       return false;
@@ -50,6 +55,16 @@ class Access {
     if (!is_array($features)) $features = [];
 
     return !empty($features[$feature_key]);
+  }
+
+  private static function user_has_feature_override(int $user_id, string $feature_key): bool {
+    if (!$user_id || !$feature_key) return false;
+    $map = apply_filters('koopo_appt_user_feature_override_keys', [
+      'appointments' => '_koopo_feature_appointments',
+    ]);
+    if (!is_array($map) || empty($map[$feature_key])) return false;
+    $meta_key = (string) $map[$feature_key];
+    return get_user_meta($user_id, $meta_key, true) === '1';
   }
 
   /**

@@ -88,6 +88,7 @@ function breaksOutsideHours(breaksMin, hoursMin){
     $mount.html(`
       <div class="kas">
         <div class="kas__notice kas__notice--hidden"></div>
+        <div class="kas__loading kas__loading--hidden"><span class="kas__spinner"></span></div>
         <div class="kas__warnings kas__warnings--hidden"></div>
         <label class="kas__row kas__row--toggle kas__row--primary">
           <span>Enable booking</span>
@@ -216,12 +217,24 @@ function breaksOutsideHours(breaksMin, hoursMin){
           </div>
         </div>
 
-        <label class="kas__row kas__row--block">
-          <span>Days off (YYYY-MM-DD, comma-separated)</span>
-          <textarea class="kas__days_off" rows="3" placeholder="2026-01-01, 2026-01-15"></textarea>
-        </label>
+        <div class="kas__section">
+          <h4>Vacation/Holiday Dates</h4>
+          <div class="kas__hint">Add full-day closures or specific time ranges.</div>
+          <div class="kas__vacation-form">
+            <input type="text" class="kas__vacation-date" placeholder="MM/DD/YYYY" />
+            <label class="kas__vacation-allday">
+              <input type="checkbox" class="kas__vacation-all-day" />
+              All day
+            </label>
+            <input type="time" class="kas__vacation-start" />
+            <input type="time" class="kas__vacation-end" />
+            <button type="button" class="kas__vacation-add">Add</button>
+          </div>
+          <div class="kas__vacation-list"></div>
+        </div>
 
         <button type="button" class="kas__save">Save Settings</button>
+        <div class="kas__save-msg kas__save-msg--hidden"></div>
       </div>
     `);
 
@@ -233,6 +246,91 @@ function breaksOutsideHours(breaksMin, hoursMin){
     $n.removeClass('kas__notice--hidden kas__notice--error kas__notice--success')
       .addClass(type === 'success' ? 'kas__notice--success' : 'kas__notice--error')
       .text(msg);
+  }
+
+  function setLoading($mount, isLoading){
+    const $loader = $mount.find('.kas__loading');
+    $loader.toggleClass('kas__loading--hidden', !isLoading);
+  }
+
+  function setSaveMessage($mount, msg, type){
+    const $m = $mount.find('.kas__save-msg');
+    if (!$m.length) return;
+    if (!msg) {
+      $m.addClass('kas__save-msg--hidden').removeClass('kas__save-msg--success kas__save-msg--error').text('');
+      return;
+    }
+    $m.removeClass('kas__save-msg--hidden kas__save-msg--success kas__save-msg--error')
+      .addClass(type === 'success' ? 'kas__save-msg--success' : 'kas__save-msg--error')
+      .text(msg);
+    if (type === 'success') {
+      setTimeout(() => {
+        $m.addClass('kas__save-msg--hidden');
+      }, 2000);
+    }
+  }
+
+  function normalizeVacationItems(items){
+    if (!Array.isArray(items)) return [];
+    return items.map(item => {
+      if (typeof item === 'string') {
+        return { date: item, start: '', end: '' };
+      }
+      if (!item || typeof item !== 'object') return null;
+      return {
+        date: item.date || '',
+        start: item.start || '',
+        end: item.end || ''
+      };
+    }).filter(v => v && v.date);
+  }
+
+  function formatDateMmddyyyy(isoDate){
+    const parts = String(isoDate || '').split('-');
+    if (parts.length !== 3) return isoDate || '';
+    const [yyyy, mm, dd] = parts;
+    if (!yyyy || !mm || !dd) return isoDate || '';
+    return `${mm}/${dd}/${yyyy}`;
+  }
+
+  function parseDateMmddyyyy(input){
+    const value = String(input || '').trim();
+    const match = value.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    if (!match) return '';
+    const mm = match[1];
+    const dd = match[2];
+    const yyyy = match[3];
+    const iso = `${yyyy}-${mm}-${dd}`;
+    const date = new Date(`${iso}T00:00:00`);
+    if (isNaN(date.getTime())) return '';
+    return iso;
+  }
+
+  function getVacationItems($mount){
+    const items = $mount.data('kasVacations');
+    return Array.isArray(items) ? items : [];
+  }
+
+  function renderVacationList($mount, items){
+    const list = normalizeVacationItems(items);
+    $mount.data('kasVacations', list);
+    const $list = $mount.find('.kas__vacation-list');
+    if (!$list.length) return;
+    if (!list.length) {
+      $list.html('<div class="kas__vacation-empty">No vacation/holiday dates added.</div>');
+      return;
+    }
+    const rows = list.map((v, idx) => {
+      const labelDate = formatDateMmddyyyy(v.date);
+      const label = v.start && v.end ? `${labelDate} ${v.start}–${v.end}` : `${labelDate} (All day)`;
+      return `
+        <div class="kas__vacation-row" data-idx="${idx}">
+          <span>${label}</span>
+          <button type="button" class="kas__vacation-remove" data-idx="${idx}">Remove</button>
+        </div>
+      `;
+    }).join('');
+    $list.html(rows);
   }
     function rangeRow(kind, day, from = '', to = '') {
     return `
@@ -489,6 +587,7 @@ function validateAll($mount){
 
   async function load($mount, listingId){
     try {
+      setLoading($mount, true);
       const data = await api(`/appointments/settings/${listingId}`, { method:'GET' });
 
       setToggleState($mount.find('.kas__enabled_toggle'), !!data.enabled);
@@ -530,18 +629,19 @@ function validateAll($mount){
       $mount.find('.kas__reschedule_unit').val(cutoffUnit || 'days');
       updateRescheduleVisibility($mount);
       renderRefundRules($mount, data.refund_policy_rules || []);
-      $mount.find('.kas__days_off').val((data.days_off || []).join(', '));
+      renderVacationList($mount, data.days_off || []);
 
-      showNotice($mount, 'Loaded.', 'success');
-      setTimeout(()=> $mount.find('.kas__notice').addClass('kas__notice--hidden'), 800);
+      setLoading($mount, false);
 
     } catch(e) {
+      setLoading($mount, false);
       showNotice($mount, e.message || 'Failed to load settings.', 'error');
     }
   }
 
   async function save($mount, listingId){
     try {
+        setLoading($mount, true);
         const enabled = isToggleOn($mount.find('.kas__enabled_toggle'));
         const timezone = $mount.find('.kas__tz').val().trim() || KOOPO_APPT_SETTINGS.tzDefault;
 
@@ -583,10 +683,7 @@ function validateAll($mount){
         : 'days';
       const refund_policy_rules = collectRefundRules($mount);
 
-      const days_off = ($mount.find('.kas__days_off').val() || '')
-        .split(',')
-        .map(s => s.trim())
-        .filter(Boolean);
+      const days_off = getVacationItems($mount);
 
       await api(`/appointments/settings/${listingId}`, {
         method:'POST',
@@ -607,9 +704,13 @@ function validateAll($mount){
         })
       });
 
+      setLoading($mount, false);
       showNotice($mount, 'Saved successfully.', 'success');
+      setSaveMessage($mount, 'Saved successfully.', 'success');
     } catch(e) {
+      setLoading($mount, false);
       showNotice($mount, e.message || 'Save failed.', 'error');
+      setSaveMessage($mount, e.message || 'Save failed.', 'error');
     }
   }
     // Add range/break row
@@ -621,10 +722,75 @@ function validateAll($mount){
     $wrap.append(rangeRow(kind, day, '', ''));
     });
 
-    // Remove range/break row
-    $(document).on('click', '.kas__remove-range', function(){
+  // Remove range/break row
+  $(document).on('click', '.kas__remove-range', function(){
     $(this).closest('.kas__range').remove();
-    });
+  });
+
+  // Vacation list add/remove
+  $(document).on('change', '.kas__vacation-all-day', function(){
+    const $mount = $(this).closest('.koopo-appt-settings-mount');
+    const isAllDay = $(this).is(':checked');
+    const $start = $mount.find('.kas__vacation-start');
+    const $end = $mount.find('.kas__vacation-end');
+    $start.prop('disabled', isAllDay);
+    $end.prop('disabled', isAllDay);
+    if (isAllDay) {
+      $start.val('');
+      $end.val('');
+    }
+  });
+
+  $(document).on('click', '.kas__vacation-add', function(){
+    const $mount = $(this).closest('.koopo-appt-settings-mount');
+    const rawDate = String($mount.find('.kas__vacation-date').val() || '').trim();
+    const date = parseDateMmddyyyy(rawDate);
+    const start = String($mount.find('.kas__vacation-start').val() || '').trim();
+    const end = String($mount.find('.kas__vacation-end').val() || '').trim();
+    const isAllDay = $mount.find('.kas__vacation-all-day').is(':checked');
+    if (!date) {
+      showNotice($mount, 'Enter a date in MM/DD/YYYY format.', 'error');
+      return;
+    }
+    if (!isAllDay && ((start && !end) || (!start && end))) {
+      showNotice($mount, 'Provide both start and end time, or leave both blank for all-day.', 'error');
+      return;
+    }
+    if (!isAllDay && start && end && start >= end) {
+      showNotice($mount, 'End time must be after start time.', 'error');
+      return;
+    }
+    const list = getVacationItems($mount);
+    const normalizedStart = isAllDay ? '' : start;
+    const normalizedEnd = isAllDay ? '' : end;
+    const hasAllDay = list.some(v => v.date === date && !v.start && !v.end);
+    if (hasAllDay) {
+      showNotice($mount, 'An all-day closure already exists for this date.', 'error');
+      return;
+    }
+    if (isAllDay && list.some(v => v.date === date)) {
+      showNotice($mount, 'Remove existing time ranges before adding an all-day closure.', 'error');
+      return;
+    }
+    const duplicate = list.some(v => v.date === date && (v.start || '') === normalizedStart && (v.end || '') === normalizedEnd);
+    if (duplicate) {
+      showNotice($mount, 'This date/time range already exists.', 'error');
+      return;
+    }
+    list.push({ date, start: normalizedStart, end: normalizedEnd });
+    renderVacationList($mount, list);
+    $mount.find('.kas__vacation-date').val('');
+    $mount.find('.kas__vacation-start').val('');
+    $mount.find('.kas__vacation-end').val('');
+    $mount.find('.kas__vacation-all-day').prop('checked', false);
+  });
+
+  $(document).on('click', '.kas__vacation-remove', function(){
+    const $mount = $(this).closest('.koopo-appt-settings-mount');
+    const idx = parseInt($(this).data('idx'), 10);
+    const list = getVacationItems($mount).filter((_, i) => i !== idx);
+    renderVacationList($mount, list);
+  });
 
   // Load vendor listings into dropdown on Dokan dashboard
   async function loadVendorListings($select) {
@@ -651,9 +817,13 @@ function validateAll($mount){
 
   // Initialize listing dropdown on page load if on Dokan dashboard
   $(document).ready(function(){
-    const $dokanSelect = $('.koopo-appt-settings__listing[data-mode!="listing"]');
+    const $dokanSelect = $('.koopo-appt-settings__listing');
     if ($dokanSelect.length) {
-      loadVendorListings($dokanSelect);
+      loadVendorListings($dokanSelect).then(listings => {
+        if (Array.isArray(listings) && listings.length) {
+          $dokanSelect.prop('selectedIndex', 1).trigger('change');
+        }
+      });
     }
   });
 

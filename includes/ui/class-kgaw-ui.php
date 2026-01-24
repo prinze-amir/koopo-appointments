@@ -104,6 +104,21 @@ class UI {
 
     if (!in_array($post_type, ['gd_place'], true)) return '';
 
+    if (!is_user_logged_in()) {
+      $login_url = wp_login_url(get_permalink($listing_id));
+      $register_url = wp_registration_url();
+      return sprintf(
+        '<div class="koopo-appt koopo-appt--login-required"><p>%s</p></div>',
+        wp_kses_post(
+          sprintf(
+            'Please <a href="%s">log in</a> or <a href="%s">sign up</a> to book.',
+            esc_url($login_url),
+            esc_url($register_url)
+          )
+        )
+      );
+    }
+
     $atts = shortcode_atts([
       'button_text' => 'Book Now',
     ], $atts, 'koopo_appointments');

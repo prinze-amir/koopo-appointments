@@ -8,6 +8,22 @@
 .kas__notice--hidden { display:none; }
 .kas__notice--error { background:#ffecec; border:1px solid #ffbdbd; }
 .kas__notice--success { background:#eaffea; border:1px solid #bff0bf; }
+.kas__vacation-form { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; align-items:center; }
+.kas__vacation-form input { padding:8px; border-radius:10px; border:1px solid #ddd; }
+.kas__vacation-form button { padding:8px 10px; border-radius:10px; border:1px solid #ddd; background:#fff; cursor:pointer; color:#333; }
+.kas__vacation-allday { display:flex; align-items:center; gap:6px; padding:6px 8px; border:1px solid #ddd; border-radius:10px; background:#fafafa; }
+.kas__vacation-list { margin-top:10px; display:flex; flex-direction:column; gap:8px; }
+.kas__vacation-row { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:8px 10px; border-radius:10px; border:1px solid #eee; background:#fff; }
+.kas__vacation-remove { padding:6px 10px; border-radius:8px; border:1px solid #ddd; background:#fff; cursor:pointer; color:#b03b3b; }
+.kas__vacation-empty { color:#666; font-size:13px; }
+.kas__save-msg { margin-top:10px; padding:10px; border-radius:10px; }
+.kas__save-msg--hidden { display:none; }
+.kas__save-msg--success { background:#eaffea; border:1px solid #bff0bf; }
+.kas__save-msg--error { background:#ffecec; border:1px solid #ffbdbd; }
+.kas__loading { display:flex; align-items:center; gap:10px; margin:10px 0; }
+.kas__loading--hidden { display:none; }
+.kas__spinner { width:18px; height:18px; border-radius:50%; border:2px solid #ddd; border-top-color:#111; animation: kasSpin 0.9s linear infinite; }
+@keyframes kasSpin { to { transform: rotate(360deg); } }
 
 .kas__section { margin:16px 0; padding:12px; border:1px solid #eee; border-radius:12px; background:#fafafa; }
 .kas__day { display:grid; grid-template-columns: 70px 1fr 1fr; gap:10px; align-items:center; margin:8px 0; }
@@ -61,7 +77,9 @@
 .kas__toolbar { display:flex; flex-direction:column; gap:10px; margin:12px 0; padding:12px; border:1px solid #eee; border-radius:12px; background:#fafafa; }
 .kas__presets, .kas__bulk { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
 .kas__toolbar button { padding:8px 10px; border-radius:10px; border:1px solid #ddd; background:#fff; cursor:pointer; color:#333 }
-
+.koopo-appt-settings-mount button {
+    font-size: .9rem !important;
+}
 .kas__range.is-invalid { outline: 2px solid #ff3b3b; border-radius:12px; }
 .kas__range.is-overlap { outline: 2px solid #ff9f0a; border-radius:12px; }
 .kas__range.is-outside { outline: 2px solid #8e44ad; border-radius:12px; }

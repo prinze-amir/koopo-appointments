@@ -15,10 +15,13 @@ class Settings_Assets {
     if (!is_singular('gd_place')) return;
 
     // Only enqueue if shortcode exists in content OR we assume you added it to template:
-    // We'll enqueue if the user is the owner (so normal visitors don’t load settings UI).
+    // We'll enqueue if the user is the owner (so normal visitors don’t load settings UI),
+    // or if the user is an admin (bypass).
     if (!is_user_logged_in()) return;
     $listing_id = (int) get_the_ID();
-    if (get_current_user_id() !== (int)get_post_field('post_author', $listing_id)) return;
+    $owner_id = (int) get_post_field('post_author', $listing_id);
+    $current_id = (int) get_current_user_id();
+    if ($current_id !== $owner_id && !Access::is_admin_bypass($current_id)) return;
 
     self::enqueue_common($listing_id);
   }

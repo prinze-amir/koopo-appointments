@@ -51,8 +51,9 @@ class Availability {
     return new \WP_REST_Response(['service_id'=>$service_id,'date'=>$date,'slots'=>[]], 200);
     }
 
-    if (in_array($date, $settings['days_off'], true)) {
-    return new \WP_REST_Response(['service_id'=>$service_id,'date'=>$date,'slots'=>[]], 200);
+    $vacation_ranges = self::vacation_ranges_for_date($settings['days_off'] ?? [], $date);
+    if ($vacation_ranges['all_day']) {
+      return new \WP_REST_Response(['service_id'=>$service_id,'date'=>$date,'slots'=>[]], 200);
     }
 
     $tz = new \DateTimeZone($settings['timezone'] ?: 'America/Detroit');
@@ -64,6 +65,9 @@ class Availability {
 
     $hours  = $settings['hours'][$dayKey] ?? [];
     $breaks = $settings['breaks'][$dayKey] ?? [];
+    if (!empty($vacation_ranges['ranges'])) {
+      $breaks = array_merge($breaks, $vacation_ranges['ranges']);
+    }
 
     $duration = (int) get_post_meta($service_id, '_koopo_duration_minutes', true);
     if (!$duration) $duration = 30;
@@ -147,6 +151,33 @@ $busy = self::get_busy_ranges($listing_id, $date);
     'slot_interval' => $interval,
     'slots' => $available,
     ], 200);
+  }
+
+  private static function vacation_ranges_for_date(array $days_off, string $date): array {
+    $ranges = [];
+    $all_day = false;
+    foreach ($days_off as $item) {
+      if (is_string($item)) {
+        if ($item === $date) {
+          $all_day = true;
+          break;
+        }
+        continue;
+      }
+      if (!is_array($item)) continue;
+      $item_date = isset($item['date']) ? (string) $item['date'] : '';
+      if ($item_date !== $date) continue;
+      $start = isset($item['start']) ? (string) $item['start'] : '';
+      $end = isset($item['end']) ? (string) $item['end'] : '';
+      if (!$start && !$end) {
+        $all_day = true;
+        break;
+      }
+      if ($start && $end) {
+        $ranges[] = [$start, $end];
+      }
+    }
+    return ['all_day' => $all_day, 'ranges' => $ranges];
   }
 
   private static function generate_slots(string $start, string $end, int $duration, int $interval): array {

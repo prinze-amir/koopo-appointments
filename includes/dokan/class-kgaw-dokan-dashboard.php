@@ -85,17 +85,26 @@ public static function load_templates($query_vars) {
 
     // Load only on our Koopo sub-pages
     global $wp_query;
-    $is_koopo = isset($wp_query->query_vars['koopo-appointments'])
-      || isset($wp_query->query_vars['koopo-services'])
-      || isset($wp_query->query_vars['koopo-appointment-settings']);
+    $is_appointments = isset($wp_query->query_vars['koopo-appointments']);
+    $is_services = isset($wp_query->query_vars['koopo-services']);
+    $is_settings = isset($wp_query->query_vars['koopo-appointment-settings']);
+    $is_koopo = $is_appointments || $is_services || $is_settings;
 
     if (!$is_koopo) return;
 
     wp_enqueue_style('koopo-appt-vendor', KOOPO_APPT_URL . 'assets/vendor.css', [], KOOPO_APPT_VERSION);
     wp_enqueue_script('koopo-appt-vendor-core', KOOPO_APPT_URL . 'assets/vendor-core.js', ['jquery'], KOOPO_APPT_VERSION, true);
-    wp_enqueue_script('koopo-appt-vendor-services', KOOPO_APPT_URL . 'assets/vendor-services.js', ['jquery', 'koopo-appt-vendor-core'], KOOPO_APPT_VERSION, true);
-    wp_enqueue_script('koopo-appt-vendor-settings', KOOPO_APPT_URL . 'assets/vendor-settings.js', ['jquery', 'koopo-appt-vendor-core'], KOOPO_APPT_VERSION, true);
-    wp_enqueue_script('koopo-appt-vendor-appointments', KOOPO_APPT_URL . 'assets/vendor-appointments.js', ['jquery', 'koopo-appt-vendor-core'], KOOPO_APPT_VERSION, true);
+
+    if ($is_services) {
+      wp_enqueue_script('koopo-appt-vendor-services', KOOPO_APPT_URL . 'assets/vendor-services.js', ['jquery', 'koopo-appt-vendor-core'], KOOPO_APPT_VERSION, true);
+    }
+    if ($is_settings) {
+      wp_enqueue_script('koopo-appt-vendor-settings', KOOPO_APPT_URL . 'assets/vendor-settings.js', ['jquery', 'koopo-appt-vendor-core'], KOOPO_APPT_VERSION, true);
+    }
+    if ($is_appointments) {
+      wp_enqueue_script('koopo-appt-vendor-calendar', KOOPO_APPT_URL . 'assets/vendor-calendar.js', ['jquery', 'koopo-appt-vendor-core'], KOOPO_APPT_VERSION, true);
+      wp_enqueue_script('koopo-appt-vendor-appointments', KOOPO_APPT_URL . 'assets/vendor-appointments.js', ['jquery', 'koopo-appt-vendor-core', 'koopo-appt-vendor-calendar'], KOOPO_APPT_VERSION, true);
+    }
 
     wp_localize_script('koopo-appt-vendor-core', 'KOOPO_APPT_VENDOR', [
       'rest' => esc_url_raw(rest_url('koopo/v1')),
@@ -116,7 +125,7 @@ public static function load_templates($query_vars) {
 
   public static function vendor_has_appointments_access(int $vendor_id): bool {
     if (!$vendor_id) return false;
-    return Access::vendor_has_feature($vendor_id, 'booking_calendar');
+    return Access::vendor_has_feature($vendor_id, 'appointments');
   }
 
   public static function vendor_has_listings(int $vendor_id): bool {
@@ -141,7 +150,7 @@ public static function load_templates($query_vars) {
 
   public static function render_access_notice(): void {
     $url = self::get_upgrade_plan_url();
-    echo '<div class="dokan-dashboard-wrap"><div class="dokan-dashboard-content">';
+    echo '<div class="dokan-dashboard-wrap">' . do_action( 'dokan_dashboard_content_before' ) . '<div class="dokan-dashboard-content">';
     echo '<div class="koopo-upgrade-card">';
     echo '<span class="koopo-upgrade-pill">' . esc_html__('Upgrade Required', 'koopo-appointments') . '</span>';
     echo '<h3>' . esc_html__('Unlock Appointments and start earning more per booking', 'koopo-appointments') . '</h3>';
