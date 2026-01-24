@@ -20,6 +20,64 @@
 .kas__save-msg--hidden { display:none; }
 .kas__save-msg--success { background:#eaffea; border:1px solid #bff0bf; }
 .kas__save-msg--error { background:#ffecec; border:1px solid #ffbdbd; }
+.koopo-appt-settings__menu { position:relative; display:inline-block; }
+.koopo-appt-settings__menu-toggle { padding:10px 14px; border-radius:10px; border:1px solid #ddd; background:#fff; cursor:pointer; }
+.koopo-appt-settings__menu-list { position:absolute; top:calc(100% + 6px); left:0; min-width:200px; background:#fff; border:1px solid #eee; border-radius:10px; box-shadow:0 10px 20px rgba(0,0,0,0.08); padding:6px; display:none; z-index:20; }
+.koopo-appt-settings__menu-list.is-open { display:block; }
+.koopo-appt-settings__menu-item { display:block; width:100%; text-align:left; padding:8px 10px; border-radius:8px; border:none; background:transparent; cursor:pointer; color:inherit; text-decoration:none; }
+.koopo-appt-settings__menu-item:hover { background:#f5f5f5; }
+.koopo-appt-services { display:flex; flex-direction:column; gap:14px; }
+.koopo-appt-services__step { display:none; }
+.koopo-appt-services__step.is-active { display:block; }
+.koopo-appt-services__list { display:flex; flex-direction:column; gap:8px; }
+.koopo-appt-services__row { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 12px; border:1px solid #eee; border-radius:10px; background:#fff; }
+.koopo-appt-services__row-title { font-weight:600; }
+.koopo-appt-services__row-meta { font-size:12px; color:#666; }
+.koopo-appt-services__edit { padding:6px 10px; border-radius:8px; border:1px solid #ddd; background:#fff; cursor:pointer; }
+.koopo-appt-services__empty { color:#666; font-size:13px; }
+.koopo-appt-services__add { display:flex; align-items:center; gap:8px; padding:12px; border-radius:10px; border:1px dashed #ddd; background:#fafafa; cursor:pointer; }
+.koopo-appt-services__add-icon { font-size:18px; }
+.koopo-appt-services__form { display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
+.koopo-appt-services__form input, .koopo-appt-services__form select { padding:8px; border-radius:10px; border:1px solid #ddd; }
+.koopo-appt-services__actions { grid-column: 1 / -1; display:flex; gap:8px; }
+.koopo-appt-services__actions button { padding:8px 10px; border-radius:10px; border:1px solid #ddd; background:#fff; cursor:pointer; }
+.koopo-appt-services__notice { grid-column: 1 / -1; font-size:13px; color:#666; }
+.koopo-appt-services__notice[data-type="error"] { color:#b03b3b; }
+.koopo-appt-services__notice[data-type="success"] { color:#1d7a3f; }
+.koopo-appt-services__back { margin-bottom:10px; padding:6px 10px; border-radius:8px; border:1px solid #ddd; background:#fff; cursor:pointer; }
+.koopo-appt-appointments { display:flex; flex-direction:column; gap:12px; }
+.koopo-appt-appointments__list { display:flex; flex-direction:column; gap:8px; }
+.koopo-appt-appointments__row { padding:12px 14px; border-radius:14px; border:1px solid #eee; background:linear-gradient(180deg, #fff 0%, #fafafa 100%); display:flex; align-items:center; gap:12px; box-shadow: 0 6px 14px rgba(0,0,0,0.06); transition: transform 120ms ease, box-shadow 120ms ease, border-color 120ms ease; }
+.koopo-appt-appointments__row:hover { transform: translateY(-2px); box-shadow: 0 10px 24px rgba(0,0,0,0.10); border-color:#e2e2e2; }
+.koopo-appt-appointments__content { flex:1; }
+.koopo-appt-appointments__title { font-weight:700; letter-spacing:-0.2px; }
+.koopo-appt-appointments__meta { font-size:12px; color:#666; }
+.koopo-appt-appointments__aside { text-align:right; display:flex; flex-direction:column; gap:6px; }
+.koopo-appt-appointments__amount { font-weight:700; font-size:14px; }
+.koopo-appt-appointments__status { font-size:11px; color:#666; text-transform:capitalize; background:#f1f1f1; border-radius:999px; padding:2px 8px; display:inline-block; align-self:flex-end; }
+.koopo-appt-appointments__status--confirmed { background:#e8f5e9; color:#2c7a3c; }
+.koopo-appt-appointments__status--pending_payment,
+.koopo-appt-appointments__status--pending { background:#fff3cd; color:#856404; }
+.koopo-appt-appointments__status--cancelled,
+.koopo-appt-appointments__status--refunded { background:#ffecec; color:#b03b3b; }
+.koopo-appt-appointments__status--expired { background:#f1f1f1; color:#666; }
+.koopo-appt-appointments__status--conflict { background:#fce8e6; color:#b3261e; }
+a.koopo-appt-appointments__avatar img { width:60px; height:60px; border-radius:50%; object-fit:cover; }
+.koopo-appt-appointments__avatar-fallback { width:40px; height:40px; border-radius:50%; background:#f2f2f2; display:flex; align-items:center; justify-content:center; font-size:12px; color:#555; padding:6px; text-align:center; border:1px solid #e6e6e6; }
+.koopo-appt-appointments__title { font-weight:600; }
+.koopo-appt-appointments__meta { font-size:1rem; color:#666; }
+.koopo-appt-appointments__all { align-self:flex-start; padding:8px 10px; border-radius:10px; border:1px solid #ddd; background:#fff; text-decoration:none; color:inherit; }
+.koopo-appt-appointments__empty { color:#666; font-size:13px; }
+.koopo-appt-calendar { display:flex; flex-direction:column; gap:12px; }
+.koopo-appt-calendar__header { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+.koopo-appt-calendar__nav { padding:6px 10px; border-radius:8px; border:1px solid #ddd; background:#fff; cursor:pointer; }
+.koopo-appt-calendar__grid { display:flex; flex-direction:column; gap:6px; }
+.koopo-appt-calendar__row { display:grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap:6px; }
+.koopo-appt-calendar__cell { padding:8px; border-radius:8px; border:1px solid #eee; background:#fff; text-align:left; cursor:pointer; min-height:48px; display:flex; align-items:flex-start; justify-content:space-between; }
+.koopo-appt-calendar__cell--head { background:#f7f7f7; border:none; font-weight:600; cursor:default; }
+.koopo-appt-calendar__cell--empty { background:transparent; border:none; }
+.koopo-appt-calendar__num { font-weight:600; }
+.koopo-appt-calendar__dot { background:#222; color:#fff; border-radius:10px; font-size:11px; padding:2px 6px; }
 .kas__loading { display:flex; align-items:center; gap:10px; margin:10px 0; }
 .kas__loading--hidden { display:none; }
 .kas__spinner { width:18px; height:18px; border-radius:50%; border:2px solid #ddd; border-top-color:#111; animation: kasSpin 0.9s linear infinite; }
@@ -55,10 +113,10 @@
 
 .kas__save { width:100%; padding:12px 14px; border-radius:12px; border:none; cursor:pointer; }
 
-.koopo-appt-settings__overlay { position:fixed; inset:0; display:none; align-items:center; justify-content:center; padding:16px; background:rgba(0,0,0,0.45); z-index:999999; }
+.koopo-appt-settings__overlay { position:fixed; inset:0; display:none; align-items:center; justify-content:center; padding:16px; background:rgba(0,0,0,0.6); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); z-index:999999; overflow-y:auto; }
 .koopo-appt-settings__overlay.is-open { display:flex; }
-.koopo-appt-settings__modal { width:100%; max-width:720px; background:#fff; border-radius:14px; padding:18px; position:relative; transform: translateY(12px); opacity:0; transition: transform 180ms ease, opacity 180ms ease; }
-.koopo-appt-settings__overlay.is-open .koopo-appt-settings__modal { transform: translateY(0); opacity:1; height: 80vh;overflow: scroll;}
+.koopo-appt-settings__modal { width:100%; max-width:700px; background:#fff; border-radius:16px; padding:24px; position:relative; transform: translateY(12px); opacity:0; transition: transform 200ms ease, opacity 200ms ease; margin:auto; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
+.koopo-appt-settings__overlay.is-open .koopo-appt-settings__modal { transform: translateY(0); opacity:1; }
 .koopo-appt-settings__close { position:absolute; right:12px; top:8px; font-size:22px; background:transparent; border:none; cursor:pointer; }
 
 .koopo-appt-settings-picker select { padding:10px; border-radius:10px; border:1px solid #ddd; min-width:320px; }

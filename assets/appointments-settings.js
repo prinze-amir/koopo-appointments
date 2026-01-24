@@ -842,25 +842,369 @@ function validateAll($mount){
     mount($mount, listingId);
   }
 
-  // Modal open/close
-  $(document).on('click', '.koopo-appt-settings__open', function(){
+  // Dropdown menu
+  $(document).on('click', '.koopo-appt-settings__menu-toggle', function(){
+    const $menu = $(this).closest('.koopo-appt-settings__menu');
+    const $list = $menu.find('.koopo-appt-settings__menu-list');
+    const isOpen = !$list.attr('aria-hidden') || $list.attr('aria-hidden') === 'false';
+    $list.attr('aria-hidden', isOpen ? 'true' : 'false').toggleClass('is-open', !isOpen);
+  });
+
+  $(document).on('click', function(e){
+    if (!$(e.target).closest('.koopo-appt-settings__menu').length) {
+      $('.koopo-appt-settings__menu-list').attr('aria-hidden','true').removeClass('is-open');
+    }
+  });
+
+  $(document).on('click', '.koopo-appt-settings__menu-item', function(e){
+    e.preventDefault();
+    const action = $(this).data('action');
     const $wrap = $(this).closest('.koopo-appt-settings-inline');
-    $wrap.find('.koopo-appt-settings__overlay').attr('aria-hidden','false').addClass('is-open');
-    $('body').addClass('koopo-appt--modal-open');
-    mountListingModal($wrap);
+    $wrap.find('.koopo-appt-settings__menu-list').attr('aria-hidden','true').removeClass('is-open');
+    if (action === 'settings') {
+      $wrap.find('.koopo-appt-settings__overlay[data-modal="settings"]').attr('aria-hidden','false').addClass('is-open');
+      $('body').addClass('koopo-appt--modal-open');
+      mountListingModal($wrap);
+    } else if (action === 'services') {
+      $wrap.find('.koopo-appt-settings__overlay[data-modal="services"]').attr('aria-hidden','false').addClass('is-open');
+      $('body').addClass('koopo-appt--modal-open');
+      initServicesModal($wrap);
+    } else if (action === 'appointments') {
+      $wrap.find('.koopo-appt-settings__overlay[data-modal="appointments"]').attr('aria-hidden','false').addClass('is-open');
+      $('body').addClass('koopo-appt--modal-open');
+      initAppointmentsModal($wrap);
+    } else if (action === 'calendar') {
+      $wrap.find('.koopo-appt-settings__overlay[data-modal="calendar"]').attr('aria-hidden','false').addClass('is-open');
+      $('body').addClass('koopo-appt--modal-open');
+      initCalendarModal($wrap);
+    }
   });
 
   $(document).on('click', '.koopo-appt-settings__close', function(){
-    const $wrap = $(this).closest('.koopo-appt-settings-inline');
-    $wrap.find('.koopo-appt-settings__overlay').attr('aria-hidden','true').removeClass('is-open');
-    $('body').removeClass('koopo-appt--modal-open');
+    const $overlay = $(this).closest('.koopo-appt-settings__overlay');
+    $overlay.attr('aria-hidden','true').removeClass('is-open');
+    if (!$('.koopo-appt-settings__overlay.is-open').length) {
+      $('body').removeClass('koopo-appt--modal-open');
+    }
   });
 
   $(document).on('click', '.koopo-appt-settings__overlay', function(e){
     if ($(e.target).hasClass('koopo-appt-settings__overlay')) {
       $(this).attr('aria-hidden','true').removeClass('is-open');
-      $('body').removeClass('koopo-appt--modal-open');
+      if (!$('.koopo-appt-settings__overlay.is-open').length) {
+        $('body').removeClass('koopo-appt--modal-open');
+      }
     }
+  });
+
+  // Services modal helpers
+  function setServicesNotice($wrap, msg, type){
+    const $n = $wrap.find('.koopo-appt-services__notice');
+    if (!msg) { $n.text(''); return; }
+    $n.text(msg).attr('data-type', type || 'info');
+  }
+
+  function renderServicesList($wrap, services){
+    const $list = $wrap.find('.koopo-appt-services__list');
+    if (!Array.isArray(services) || !services.length) {
+      $list.html('<div class="koopo-appt-services__empty">No services yet.</div>');
+    }
+    const html = (Array.isArray(services) ? services : []).map(s => {
+      const status = (s.status || 'active') === 'inactive' ? 'Inactive' : 'Active';
+      return `
+        <div class="koopo-appt-services__row" data-id="${s.id}">
+          <div class="koopo-appt-services__row-title">${s.title}</div>
+          <div class="koopo-appt-services__row-meta">${Number(s.duration_minutes||0)} min • ${status}</div>
+          <button type="button" class="koopo-appt-services__edit" data-id="${s.id}">Edit</button>
+        </div>
+      `;
+    }).join('');
+    const addCard = `
+      <button type="button" class="koopo-appt-services__add">
+        <span class="koopo-appt-services__add-icon">＋</span>
+        <span>Add Service</span>
+      </button>
+    `;
+    $list.html(html + addCard);
+  }
+
+  async function loadServicesForListing(listingId, $wrap){
+    if (!listingId) return;
+    try {
+      const services = await api(`/services/by-listing/${listingId}`, { method:'GET' });
+      $wrap.data('koopoServices', services || []);
+      renderServicesList($wrap, services || []);
+    } catch (e) {
+      setServicesNotice($wrap, 'Failed to load services.', 'error');
+    }
+  }
+
+  function fillServiceForm($wrap, service){
+    $wrap.find('.koopo-appt-services__title').val(service ? service.title || '' : '');
+    $wrap.find('.koopo-appt-services__duration').val(service ? service.duration_minutes || '' : '');
+    $wrap.find('.koopo-appt-services__price').val(service ? service.price || '' : '');
+    $wrap.find('.koopo-appt-services__status').val(service && service.status ? service.status : 'active');
+    $wrap.data('koopoEditingServiceId', service ? service.id : 0);
+  }
+
+  function setServicesStep($wrap, step){
+    $wrap.find('.koopo-appt-services__step').removeClass('is-active');
+    $wrap.find(`.koopo-appt-services__step[data-step="${step}"]`).addClass('is-active');
+  }
+
+  function initServicesModal($wrap){
+    const listingId = parseInt($wrap.data('listing-id'), 10);
+    if (!listingId) return;
+    fillServiceForm($wrap, null);
+    setServicesNotice($wrap, '', '');
+    setServicesStep($wrap, 1);
+    loadServicesForListing(listingId, $wrap);
+  }
+
+  $(document).on('click', '.koopo-appt-services__edit', function(){
+    const $wrap = $(this).closest('.koopo-appt-settings-inline');
+    const id = parseInt($(this).data('id'), 10);
+    const services = $wrap.data('koopoServices') || [];
+    const svc = services.find(s => Number(s.id) === id);
+    if (svc) {
+      fillServiceForm($wrap, svc);
+      setServicesStep($wrap, 2);
+    }
+  });
+
+  $(document).on('click', '.koopo-appt-services__add', function(){
+    const $wrap = $(this).closest('.koopo-appt-settings-inline');
+    fillServiceForm($wrap, null);
+    setServicesStep($wrap, 2);
+  });
+
+  $(document).on('click', '.koopo-appt-services__back', function(){
+    const $wrap = $(this).closest('.koopo-appt-settings-inline');
+    setServicesStep($wrap, 1);
+  });
+
+  $(document).on('click', '.koopo-appt-services__cancel', function(){
+    const $wrap = $(this).closest('.koopo-appt-settings-inline');
+    fillServiceForm($wrap, null);
+  });
+
+  $(document).on('click', '.koopo-appt-services__save', async function(){
+    const $wrap = $(this).closest('.koopo-appt-settings-inline');
+    const listingId = parseInt($wrap.data('listing-id'), 10);
+    if (!listingId) return;
+    const title = String($wrap.find('.koopo-appt-services__title').val() || '').trim();
+    const duration = parseInt($wrap.find('.koopo-appt-services__duration').val(), 10) || 0;
+    const price = parseFloat($wrap.find('.koopo-appt-services__price').val()) || 0;
+    const status = $wrap.find('.koopo-appt-services__status').val() || 'active';
+    if (!title || !duration) {
+      setServicesNotice($wrap, 'Service name and duration are required.', 'error');
+      return;
+    }
+    const payload = { title, duration_minutes: duration, price, status, listing_id: listingId };
+    const editingId = parseInt($wrap.data('koopoEditingServiceId'), 10) || 0;
+    try {
+      if (editingId) {
+        await api(`/services/${editingId}`, { method:'POST', body: JSON.stringify(payload) });
+      } else {
+        await api('/services', { method:'POST', body: JSON.stringify(payload) });
+      }
+      setServicesNotice($wrap, 'Service saved.', 'success');
+      fillServiceForm($wrap, null);
+      loadServicesForListing(listingId, $wrap);
+    } catch (e) {
+      setServicesNotice($wrap, e.message || 'Failed to save service.', 'error');
+    }
+  });
+
+  function formatShortDateTime(dtStr){
+    if (!dtStr) return '';
+    const d = new Date(String(dtStr).replace(' ', 'T'));
+    if (isNaN(d.getTime())) return dtStr;
+    return d.toLocaleString(undefined, { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' });
+  }
+
+  function formatDayName(dtStr){
+    if (!dtStr) return '';
+    const d = new Date(String(dtStr).replace(' ', 'T'));
+    if (isNaN(d.getTime())) return '';
+    return d.toLocaleDateString(undefined, { weekday:'short' });
+  }
+
+  function formatMoney(amount, currency){
+    const n = Number(amount || 0);
+    const c = String(currency || '').trim();
+    return (c ? `${c} ` : '$') + n.toFixed(2);
+  }
+
+  function renderAvatar(booking){
+    const name = booking.customer_name || booking.customer_email || 'Guest';
+    if (!booking.customer_avatar || !booking.customer_profile) {
+      return `<span class="koopo-appt-appointments__avatar-fallback">${name}</span>`;
+    }
+    return `
+      <a class="koopo-appt-appointments__avatar" href="${booking.customer_profile}" target="_blank" rel="noopener">
+        <img src="${booking.customer_avatar}" alt="${name}" />
+      </a>
+    `;
+  }
+
+  function toIsoDate(date){
+    const d = new Date(date);
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  }
+
+  async function initAppointmentsModal($wrap){
+    const listingId = parseInt($wrap.data('listing-id'), 10);
+    if (!listingId) return;
+    const $list = $wrap.find('.koopo-appt-appointments__list');
+    $list.html('<div class="koopo-appt-appointments__empty">Loading appointments...</div>');
+    const start = new Date();
+    const end = new Date();
+    end.setDate(end.getDate() + 30);
+    try {
+      const params = new URLSearchParams({
+        listing_id: String(listingId),
+        range_start: `${toIsoDate(start)} 00:00:00`,
+        range_end: `${toIsoDate(end)} 23:59:59`
+      });
+      const res = await api(`/vendor/bookings?${params.toString()}`, { method:'GET' });
+      const items = Array.isArray(res && res.items) ? res.items : (Array.isArray(res) ? res : []);
+      if (!items.length) {
+        $list.html('<div class="koopo-appt-appointments__empty">No upcoming appointments.</div>');
+        return;
+      }
+      const rows = items.map(b => {
+        const title = b.service_title || 'Appointment';
+        const time = formatShortDateTime(b.start_datetime || '');
+        const day = formatDayName(b.start_datetime || '');
+        const customer = b.customer_name || b.customer_email || 'Guest';
+        const amount = formatMoney(b.price, b.currency);
+        const statusKey = (b.status || '').toLowerCase();
+        const statusLabel = statusKey.replace('_', ' ');
+        return `
+          <div class="koopo-appt-appointments__row">
+            ${renderAvatar(b)}
+            <div class="koopo-appt-appointments__content">
+              <div class="koopo-appt-appointments__title">${title}</div>
+              <div class="koopo-appt-appointments__meta">${day} • ${time} • ${customer}</div>
+            </div>
+            <div class="koopo-appt-appointments__aside">
+              <div class="koopo-appt-appointments__amount">${amount}</div>
+              <div class="koopo-appt-appointments__status koopo-appt-appointments__status--${statusKey}">${statusLabel}</div>
+            </div>
+          </div>
+        `;
+      }).join('');
+      $list.html(rows);
+    } catch (e) {
+      $list.html('<div class="koopo-appt-appointments__empty">Failed to load appointments.</div>');
+    }
+  }
+
+  function renderCalendar($wrap, cursor, items){
+    const $title = $wrap.find('.koopo-appt-calendar__title');
+    const $grid = $wrap.find('.koopo-appt-calendar__grid');
+    const $list = $wrap.find('.koopo-appt-calendar__list');
+    const month = cursor.getMonth();
+    const year = cursor.getFullYear();
+    $title.text(cursor.toLocaleDateString(undefined, { month:'long', year:'numeric' }));
+    const first = new Date(year, month, 1);
+    const last = new Date(year, month + 1, 0);
+    const startDay = first.getDay();
+    const totalCells = Math.ceil((startDay + last.getDate()) / 7) * 7;
+    const byDate = {};
+    (items || []).forEach(b => {
+      const dateKey = String(b.start_datetime || '').slice(0,10);
+      if (!dateKey) return;
+      if (!byDate[dateKey]) byDate[dateKey] = [];
+      byDate[dateKey].push(b);
+    });
+    let html = '<div class="koopo-appt-calendar__row koopo-appt-calendar__head">';
+    ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].forEach(d => {
+      html += `<div class="koopo-appt-calendar__cell koopo-appt-calendar__cell--head">${d}</div>`;
+    });
+    html += '</div>';
+    let day = 1;
+    for (let i = 0; i < totalCells; i++) {
+      if (i % 7 === 0) html += '<div class="koopo-appt-calendar__row">';
+      if (i < startDay || day > last.getDate()) {
+        html += '<div class="koopo-appt-calendar__cell koopo-appt-calendar__cell--empty"></div>';
+      } else {
+        const dateKey = `${year}-${String(month + 1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+        const count = byDate[dateKey] ? byDate[dateKey].length : 0;
+        html += `<button type="button" class="koopo-appt-calendar__cell" data-date="${dateKey}">
+          <span class="koopo-appt-calendar__num">${day}</span>
+          ${count ? `<span class="koopo-appt-calendar__dot">${count}</span>` : ''}
+        </button>`;
+        day++;
+      }
+      if (i % 7 === 6) html += '</div>';
+    }
+    $grid.html(html);
+    $list.html('<div class="koopo-appt-appointments__empty">Select a day to view appointments.</div>');
+  }
+
+  async function initCalendarModal($wrap){
+    const listingId = parseInt($wrap.data('listing-id'), 10);
+    if (!listingId) return;
+    const cursor = new Date();
+    $wrap.data('koopoCalendarCursor', cursor);
+    await loadCalendarData($wrap, listingId, cursor);
+  }
+
+  async function loadCalendarData($wrap, listingId, cursor){
+    const start = new Date(cursor.getFullYear(), cursor.getMonth(), 1);
+    const end = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0);
+    try {
+      const params = new URLSearchParams({
+        listing_id: String(listingId),
+        range_start: `${toIsoDate(start)} 00:00:00`,
+        range_end: `${toIsoDate(end)} 23:59:59`
+      });
+      const res = await api(`/vendor/bookings?${params.toString()}`, { method:'GET' });
+      const items = Array.isArray(res && res.items) ? res.items : (Array.isArray(res) ? res : []);
+      $wrap.data('koopoCalendarItems', items);
+      renderCalendar($wrap, cursor, items);
+    } catch (e) {
+      $wrap.find('.koopo-appt-calendar__grid').html('<div class="koopo-appt-appointments__empty">Failed to load calendar.</div>');
+    }
+  }
+
+  $(document).on('click', '.koopo-appt-calendar__nav', function(){
+    const $wrap = $(this).closest('.koopo-appt-settings-inline');
+    const listingId = parseInt($wrap.data('listing-id'), 10);
+    const dir = parseInt($(this).data('dir'), 10);
+    const cursor = $wrap.data('koopoCalendarCursor') || new Date();
+    const next = new Date(cursor.getFullYear(), cursor.getMonth() + dir, 1);
+    $wrap.data('koopoCalendarCursor', next);
+    loadCalendarData($wrap, listingId, next);
+  });
+
+  $(document).on('click', '.koopo-appt-calendar__cell[data-date]', function(){
+    const $wrap = $(this).closest('.koopo-appt-settings-inline');
+    const dateKey = $(this).data('date');
+    const items = $wrap.data('koopoCalendarItems') || [];
+    const dayItems = items.filter(b => String(b.start_datetime || '').slice(0,10) === dateKey);
+    const $list = $wrap.find('.koopo-appt-calendar__list');
+    if (!dayItems.length) {
+      $list.html('<div class="koopo-appt-appointments__empty">No appointments on this day.</div>');
+      return;
+    }
+    const rows = dayItems.map(b => {
+      const title = b.service_title || 'Appointment';
+      const time = formatShortDateTime(b.start_datetime || '');
+      const customer = b.customer_name || b.customer_email || 'Guest';
+      return `
+        <div class="koopo-appt-appointments__row">
+          <div class="koopo-appt-appointments__title">${title}</div>
+          <div class="koopo-appt-appointments__meta">${time} • ${customer}</div>
+        </div>
+      `;
+    }).join('');
+    $list.html(rows);
   });
 
   $(document).on('change input', '.kas__rfrom, .kas__rto', function(){
