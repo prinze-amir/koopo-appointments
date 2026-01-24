@@ -2,13 +2,13 @@
 /**
  * Plugin Name: Koopo Appointments
  * Description: GeoDirectory Addon For Appointments with WooCommerce/Dokan Integration.
- * Version: 0.1.4
+ * Version: 0.1.7
  * Author: Koopo
  */
 
 defined('ABSPATH') || exit;
 
-define('KOOPO_APPT_VERSION', '0.1.4');
+define('KOOPO_APPT_VERSION', '0.1.7');
 define('KOOPO_APPT_PATH', plugin_dir_path(__FILE__));
 define('KOOPO_APPT_URL', plugin_dir_url(__FILE__));
 
