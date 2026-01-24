@@ -13,7 +13,7 @@ define('KOOPO_APPT_PATH', plugin_dir_path(__FILE__));
 define('KOOPO_APPT_URL', plugin_dir_url(__FILE__));
 
 final class Koopo_Appointments {
-  const VERSION = '0.1.4';
+  const VERSION = '0.1.7';
   const SLUG = 'koopo-geo-appointments-wc';
 
   private static $instance = null;
