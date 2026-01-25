@@ -33,6 +33,7 @@ class Dokan_Dashboard {
       'icon'  => '<i class="fas fa-calendar-check"></i>',
       'url'   => dokan_get_navigation_url('koopo-appointments'),
       'pos'   => 55,
+      'icon_name' => 'CalendarCheck',
       'submenu' => [
         'koopo-appointments' => [
           'title' => __('My Appointments', 'appointments'),

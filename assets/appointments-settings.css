@@ -70,7 +70,7 @@ a.koopo-appt-appointments__avatar img { width:60px; height:60px; border-radius:5
 .koopo-appt-appointments__empty { color:#666; font-size:13px; }
 .koopo-appt-calendar { display:flex; flex-direction:column; gap:12px; }
 .koopo-appt-calendar__header { display:flex; align-items:center; justify-content:space-between; gap:10px; }
-.koopo-appt-calendar__nav { padding:6px 10px; border-radius:8px; border:1px solid #ddd; background:#fff; cursor:pointer; }
+.koopo-appt-calendar__nav { padding:6px 10px; border-radius:8px; border:1px solid #ddd !important; background:#fff; cursor:pointer; }
 .koopo-appt-calendar__grid { display:flex; flex-direction:column; gap:6px; }
 .koopo-appt-calendar__row { display:grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap:6px; }
 .koopo-appt-calendar__cell { padding:8px; border-radius:8px; border:1px solid #eee; background:#fff; text-align:left; cursor:pointer; min-height:48px; display:flex; align-items:flex-start; justify-content:space-between; }
@@ -80,7 +80,7 @@ a.koopo-appt-appointments__avatar img { width:60px; height:60px; border-radius:5
 .koopo-appt-calendar__dot { background:#222; color:#fff; border-radius:10px; font-size:11px; padding:2px 6px; }
 .kas__loading { display:flex; align-items:center; gap:10px; margin:10px 0; }
 .kas__loading--hidden { display:none; }
-.kas__spinner { width:18px; height:18px; border-radius:50%; border:2px solid #ddd; border-top-color:#111; animation: kasSpin 0.9s linear infinite; }
+.kas__spinner { width:18px; height:18px; border-radius:50%; border:2px solid #ffba12; border-top-color:#111; animation: kasSpin 0.9s linear infinite; }
 @keyframes kasSpin { to { transform: rotate(360deg); } }
 
 .kas__section { margin:16px 0; padding:12px; border:1px solid #eee; border-radius:12px; background:#fafafa; }
@@ -91,7 +91,7 @@ a.koopo-appt-appointments__avatar img { width:60px; height:60px; border-radius:5
 .kas__grid input { width:100%; padding:8px; border-radius:10px; border:1px solid #ddd; }
 .kas__grid--two { grid-template-columns: repeat(2, minmax(0,1fr)); }
 .kas__grid select { width:100%; padding:8px; border-radius:10px; border:1px solid #ddd; }
-.kas__toggle-btn { position:relative; display:inline-flex; align-items:center; width:46px; height:26px; padding:0; border:1px solid #ddd; border-radius:999px; background:#e5e5e5; cursor:pointer; transition: background 0.2s ease, border-color 0.2s ease; }
+.kas__toggle-btn { position:relative; display:inline-flex; align-items:center; width:46px; height:26px; padding:0; border:1px solid #ddd !important; border-radius:999px !important; background:#e5e5e5; cursor:pointer; transition: background 0.2s ease, border-color 0.2s ease; }
 .kas__toggle-btn .kas__toggle-knob { width:20px; height:20px; border-radius:50%; background:#fff; box-shadow:0 1px 3px rgba(0,0,0,0.2); transform: translateX(3px); transition: transform 0.2s ease; }
 .kas__toggle-btn.is-on { background:#35c759; border-color:#35c759; }
 .kas__toggle-btn.is-on .kas__toggle-knob { transform: translateX(23px); }
@@ -117,7 +117,7 @@ a.koopo-appt-appointments__avatar img { width:60px; height:60px; border-radius:5
 .koopo-appt-settings__overlay.is-open { display:flex; }
 .koopo-appt-settings__modal { width:100%; max-width:700px; background:#fff; border-radius:16px; padding:24px; position:relative; transform: translateY(12px); opacity:0; transition: transform 200ms ease, opacity 200ms ease; margin:auto; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
 .koopo-appt-settings__overlay.is-open .koopo-appt-settings__modal { transform: translateY(0); opacity:1; }
-.koopo-appt-settings__close { position:absolute; right:12px; top:8px; font-size:22px; background:transparent; border:none; cursor:pointer; }
+.koopo-appt-settings__close { position:absolute; right:12px; top:8px; font-size:22px; background:transparent; border:solid 1px #333 !important; cursor:pointer; }
 
 .koopo-appt-settings-picker select { padding:10px; border-radius:10px; border:1px solid #ddd; min-width:320px; }
 .kas__dayblock { margin: 10px 0; padding: 10px; border-radius: 12px; border: 1px solid #eee; background: #fff; }
@@ -149,4 +149,7 @@ a.koopo-appt-appointments__avatar img { width:60px; height:60px; border-radius:5
   .kas__dayactions {
     justify-content: center;
   }
+}
+.koopo-appt-settings__modal button:hover {
+    border: solid 1px #333;
 }
