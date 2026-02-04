@@ -16,6 +16,9 @@
         <select id="koopo-listing-picker" class="koopo-input">
           <option value=""><?php esc_html_e('Select listing…', 'appointments'); ?></option>
         </select>
+        <a id="koopo-view-listing-services" class="koopo-btn koopo-btn--secondary koopo-view-listing is-disabled" href="#" target="_blank" rel="noopener noreferrer">
+          <?php esc_html_e('View Listing', 'appointments'); ?>
+        </a>
         <button type="button" class="koopo-btn koopo-btn--gold" id="koopo-add-service">
           <?php esc_html_e('Add Service', 'appointments'); ?>
         </button>

@@ -16,10 +16,36 @@ class Settings_UI_Shortcodes {
     $owner_id = (int) get_post_field('post_author', $listing_id);
 
     if (get_current_user_id() !== $owner_id && !current_user_can('manage_options')) return '';
+    $has_access = current_user_can('manage_options') || Access::vendor_has_feature($owner_id, 'booking_calendar');
 
     $atts = shortcode_atts([
       'text' => 'Manage Booking Settings',
     ], $atts, 'koopo_appointments_settings_button');
+
+    if (!$has_access) {
+      $upgrade_url = apply_filters(
+        'koopo_appt_upgrade_url',
+        function_exists('dokan_get_navigation_url')
+          ? dokan_get_navigation_url('subscription')
+          : home_url('/seller-dashboard/subscription/')
+      );
+      $upgrade_label = apply_filters('koopo_appt_upgrade_label', 'Upgrade to Unlock Booking Tools');
+      $upgrade_body = apply_filters(
+        'koopo_appt_upgrade_body',
+        'Appointments are part of your upgraded plan. Enable bookings to manage services, schedules, and appointments.'
+      );
+      ob_start();
+      ?>
+      <div class="koopo-appt-settings-inline koopo-appt-settings-inline--locked" data-listing-id="<?php echo esc_attr($listing_id); ?>">
+        <div class="koopo-appt-settings__locked">
+          <strong><?php echo esc_html($upgrade_label); ?></strong>
+          <p><?php echo esc_html($upgrade_body); ?></p>
+          <a class="koopo-appt-settings__cta" href="<?php echo esc_url($upgrade_url); ?>">Upgrade Plan</a>
+        </div>
+      </div>
+      <?php
+      return ob_get_clean();
+    }
 
     // This mounts the same settings UI in a modal
     ob_start();

@@ -14,7 +14,14 @@ defined('ABSPATH') || exit;
     <?php return; ?>
   <?php endif; ?>
   
-  <h2 class="koopo-page-title">Appointments</h2>
+  <header class="koopo-vendor-header">
+    <h2 class="koopo-page-title">Appointments</h2>
+    <div class="koopo-vendor-header__right">
+      <a id="koopo-view-listing-appointments" class="koopo-btn koopo-btn--secondary koopo-view-listing is-disabled" href="#" target="_blank" rel="noopener noreferrer">
+        <?php esc_html_e('View Listing', 'appointments'); ?>
+      </a>
+    </div>
+  </header>
 
   <div id="koopo-appointments-analytics" class="koopo-appointments-analytics">
     <div class="koopo-analytics-loading">

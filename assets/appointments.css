@@ -291,6 +291,7 @@ textarea.koopo-appt__field {
 .koopo-appt__calendar-day:not(.koopo-appt__calendar-day--past):hover {
   background: #000000;
   border-color: #bbb;
+  color:#fff;
 }
 
 .koopo-appt__calendar-day--today {

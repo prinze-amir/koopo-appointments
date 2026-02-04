@@ -15,6 +15,9 @@
         <select class="koopo-appt-settings__listing koopo-input">
           <option value=""><?php esc_html_e('Select listing…', 'appointments'); ?></option>
         </select>
+        <a id="koopo-view-listing-settings" class="koopo-btn koopo-btn--secondary koopo-view-listing is-disabled" href="#" target="_blank" rel="noopener noreferrer">
+          <?php esc_html_e('View Listing', 'appointments'); ?>
+        </a>
       </div>
     </header>
 

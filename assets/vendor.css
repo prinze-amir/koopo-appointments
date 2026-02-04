@@ -1,6 +1,7 @@
 .koopo-vendor-page { padding: 10px; }
 .koopo-vendor-header { display:flex; align-items:center; justify-content:space-between; gap:12px; margin: 8px 0 16px; }
 .koopo-vendor-header__right { display:flex; align-items:center; gap:10px; }
+.koopo-view-listing.is-disabled { opacity:0.5; pointer-events:none; }
 .koopo-input { padding: 8px 10px; border:1px solid #dcdcdc; border-radius:8px; }
 .koopo-btn { padding:8px 12px; border-radius:10px; background:#fff; box-shadow:1px 1px 8px 1px #eee;cursor:pointer; color:#333 }
 .koopo-btn--gold { border-color:#f4b400; }

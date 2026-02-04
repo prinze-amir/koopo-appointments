@@ -26,6 +26,12 @@
 .koopo-appt-settings__menu-list.is-open { display:block; }
 .koopo-appt-settings__menu-item { display:block; width:100%; text-align:left; padding:8px 10px; border-radius:8px; border:none; background:transparent; cursor:pointer; color:inherit; text-decoration:none; }
 .koopo-appt-settings__menu-item:hover { background:#f5f5f5; }
+.koopo-appt-settings-inline--locked { margin-top:12px; }
+.koopo-appt-settings__locked { background:#f6f1ff; border:1px solid #e4daf8; border-radius:12px; padding:16px 18px; }
+.koopo-appt-settings__locked strong { display:block; color:#2b2348; font-size:15px; margin-bottom:6px; }
+.koopo-appt-settings__locked p { margin:0 0 12px; color:#5d5675; font-size:13px; line-height:1.4; }
+.koopo-appt-settings__cta { display:inline-flex; align-items:center; justify-content:center; padding:8px 14px; border-radius:999px; background:#2c1f57; color:#fff; text-decoration:none; font-size:13px; font-weight:600; transition:transform 0.2s ease, box-shadow 0.2s ease; box-shadow:0 6px 18px rgba(44, 31, 87, 0.18); }
+.koopo-appt-settings__cta:hover { transform:translateY(-1px); color:#fff; box-shadow:0 10px 20px rgba(44, 31, 87, 0.22); }
 .koopo-appt-services { display:flex; flex-direction:column; gap:14px; }
 .koopo-appt-services__step { display:none; }
 .koopo-appt-services__step.is-active { display:block; }
@@ -91,9 +97,9 @@ a.koopo-appt-appointments__avatar img { width:60px; height:60px; border-radius:5
 .kas__grid input { width:100%; padding:8px; border-radius:10px; border:1px solid #ddd; }
 .kas__grid--two { grid-template-columns: repeat(2, minmax(0,1fr)); }
 .kas__grid select { width:100%; padding:8px; border-radius:10px; border:1px solid #ddd; }
-.kas__toggle-btn { position:relative; display:inline-flex; align-items:center; width:46px; height:26px; padding:0; border:1px solid #ddd !important; border-radius:999px !important; background:#e5e5e5; cursor:pointer; transition: background 0.2s ease, border-color 0.2s ease; }
+.kas__toggle-btn { position:relative; display:inline-flex; align-items:center; width:46px; height:26px; padding:0; border:1px solid #ddd !important; border-radius:999px !important; background:#e5e5e5 !important; cursor:pointer; transition: background 0.2s ease, border-color 0.2s ease; }
 .kas__toggle-btn .kas__toggle-knob { width:20px; height:20px; border-radius:50%; background:#fff; box-shadow:0 1px 3px rgba(0,0,0,0.2); transform: translateX(3px); transition: transform 0.2s ease; }
-.kas__toggle-btn.is-on { background:#35c759; border-color:#35c759; }
+.kas__toggle-btn.is-on { background:#35c759 !important; border-color:#35c759; }
 .kas__toggle-btn.is-on .kas__toggle-knob { transform: translateX(23px); }
 .kas__toggle-label { display:none; }
 .kas__toggle-btn:disabled { opacity:0.5; cursor:not-allowed; }

@@ -35,9 +35,20 @@
       return listings;
     }
     listings.forEach(l => {
-      $select.append(`<option value="${l.id}">${escapeHtml(l.title)}</option>`);
+      const url = l.permalink ? String(l.permalink) : '';
+      $select.append(`<option value="${l.id}" data-url="${escapeHtml(url)}">${escapeHtml(l.title)}</option>`);
     });
     return listings;
+  }
+
+  function updateListingLink($select, $link) {
+    if (!$select || !$select.length || !$link || !$link.length) return;
+    const url = $select.find('option:selected').data('url');
+    if (url) {
+      $link.attr('href', url).removeClass('is-disabled').show();
+    } else {
+      $link.attr('href', '#').addClass('is-disabled');
+    }
   }
 
   function escapeHtml(str){
@@ -109,6 +120,7 @@
 
   utils.api = api;
   utils.loadVendorListings = loadVendorListings;
+  utils.updateListingLink = updateListingLink;
   utils.escapeHtml = escapeHtml;
   utils.formatCurrency = formatCurrency;
   utils.formatMoney = formatMoney;

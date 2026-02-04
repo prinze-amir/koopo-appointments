@@ -38,6 +38,7 @@
   const $apptCreateModal = $('#koopo-appt-create-modal');
   const $apptDetailsModal = $('#koopo-appt-details-modal');
   const $apptDetailsActions = $('#koopo-appt-details-actions');
+  const $viewListing = $('#koopo-view-listing-appointments');
 
   const apptState = { listingId: null, status: 'all', search: '', month: '', year: '', page: 1, perPage: 20, totalPages: 1, view: 'table', sortKey: 'when', sortDir: 'asc' };
   const calendarState = { view: 'month', cursor: new Date(), items: [], mobileDay: null };
@@ -788,6 +789,7 @@
 
     $apptPicker.on('change', function(){
       apptState.listingId = $(this).val() || '';
+      if (utils.updateListingLink) utils.updateListingLink($apptPicker, $viewListing);
       apptState.page = 1;
       loadAppointments();
       if (apptState.view === 'calendar') loadCalendar();
@@ -799,6 +801,7 @@
       if (Array.isArray(listings) && listings.length) {
         $apptPicker.prop('selectedIndex', 1).trigger('change');
       }
+      if (utils.updateListingLink) utils.updateListingLink($apptPicker, $viewListing);
     }).catch(()=>{});
     $apptStatus.on('change', function(){
       apptState.status = $(this).val() || 'all';

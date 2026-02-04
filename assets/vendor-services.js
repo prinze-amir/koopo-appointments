@@ -5,11 +5,13 @@
   const loadVendorListings = utils.loadVendorListings;
   const escapeHtml = utils.escapeHtml;
   const formatCurrency = utils.formatCurrency;
+  const updateListingLink = utils.updateListingLink;
   if (!api || !loadVendorListings || !escapeHtml || !formatCurrency) return;
 
 // ---------- Services page ----------
   const $servicesPicker = $('#koopo-listing-picker');
   const $servicesGrid   = $('#koopo-services-grid');
+  const $viewListing    = $('#koopo-view-listing-services');
   const $modal          = $('#koopo-service-modal');
 
   const state = {
@@ -165,12 +167,14 @@
   if ($servicesPicker.length) {
     $servicesPicker.on('change', async function(){
       state.listingId = parseInt($(this).val(),10) || null;
+      if (updateListingLink) updateListingLink($servicesPicker, $viewListing);
       await refreshServices();
     });
     loadVendorListings($servicesPicker).then(listings => {
       if (Array.isArray(listings) && listings.length) {
         $servicesPicker.prop('selectedIndex', 1).trigger('change');
       }
+      if (updateListingLink) updateListingLink($servicesPicker, $viewListing);
     }).catch(()=>{});
     $('#koopo-add-service').on('click', async function(){
       if (!state.listingId) { alert('Select a listing first.'); return; }

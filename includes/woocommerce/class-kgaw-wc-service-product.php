@@ -74,6 +74,9 @@ class WC_Service_Product {
     // Hide from shop/catalog
     wp_set_object_terms($product_id, ['exclude-from-catalog', 'exclude-from-search'], 'product_visibility', false);
 
+    // Tax handling (default non-taxable unless filter says otherwise)
+    self::apply_tax_status($product_id, $service_id, $listing_id);
+
     // Store reverse link
     update_post_meta($service_id, '_koopo_wc_product_id', $product_id);
 
@@ -97,5 +100,32 @@ class WC_Service_Product {
     wp_set_object_terms($product_id, ['exclude-from-catalog', 'exclude-from-search'], 'product_visibility', false);
     update_post_meta($product_id, '_virtual', 'yes');
     update_post_meta($product_id, '_sold_individually', 'yes');
+
+    // Keep tax status aligned with listing/state rules
+    self::apply_tax_status($product_id, (int) get_post_meta($product_id, '_koopo_service_id', true), $listing_id);
+  }
+
+  private static function apply_tax_status(int $product_id, int $service_id, int $listing_id): void {
+    $listing_state = self::get_listing_state($listing_id);
+    $is_taxable = (bool) apply_filters('koopo_appt_service_is_taxable', false, $service_id, $listing_id, $listing_state);
+    update_post_meta($product_id, '_tax_status', $is_taxable ? 'taxable' : 'none');
+    if ($is_taxable) {
+      $tax_class = (string) apply_filters('koopo_appt_service_tax_class', '', $service_id, $listing_id, $listing_state);
+      update_post_meta($product_id, '_tax_class', $tax_class);
+    } else {
+      update_post_meta($product_id, '_tax_class', '');
+    }
+  }
+
+  private static function get_listing_state(int $listing_id): string {
+    if (!$listing_id) return '';
+    $keys = ['state', 'region', 'gd_region', 'geodir_region', 'gd_state', 'geodir_state'];
+    foreach ($keys as $key) {
+      $val = get_post_meta($listing_id, $key, true);
+      if (is_string($val) && $val !== '') {
+        return $val;
+      }
+    }
+    return '';
   }
 }

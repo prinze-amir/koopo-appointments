@@ -54,6 +54,7 @@ class Vendor_Listings_API {
         'id'    => (int) $id,
         'title' => get_the_title($id),
         'type'  => get_post_type($id),
+        'permalink' => get_permalink($id),
       ];
     }
 
