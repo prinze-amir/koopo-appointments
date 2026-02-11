@@ -16,7 +16,7 @@ class Settings_UI_Shortcodes {
     $owner_id = (int) get_post_field('post_author', $listing_id);
 
     if (get_current_user_id() !== $owner_id && !current_user_can('manage_options')) return '';
-    $has_access = current_user_can('manage_options') || Access::vendor_has_feature($owner_id, 'booking_calendar');
+    $has_access = current_user_can('manage_options') || Access::vendor_has_feature($owner_id, 'appointments');
 
     $atts = shortcode_atts([
       'text' => 'Manage Booking Settings',
