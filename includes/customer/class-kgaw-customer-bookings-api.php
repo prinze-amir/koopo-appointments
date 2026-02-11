@@ -409,6 +409,9 @@ class Customer_Bookings_API {
 
         if ($refund_result['success']) {
           $refund_processed = true;
+          if (isset($refund_result['amount']) && is_numeric($refund_result['amount'])) {
+            $refund_amount = (float) $refund_result['amount'];
+          }
           
           // Mark booking as refunded if full refund
           if ($refund_amount >= (float) $booking->price) {

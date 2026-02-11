@@ -8,6 +8,17 @@ defined('ABSPATH') || exit;
  * Handles actual WooCommerce refund creation and payment gateway integration
  */
 class Refund_Processor {
+  private const STRIPE_FEE_META_KEYS = [
+    '_stripe_fee',
+    'stripe_fee',
+    '_stripe_fee_amount',
+    '_stripe_processing_fee',
+    '_stripe_net',
+    'stripe_net',
+    '_dokan_stripe_fee',
+    'dokan_stripe_fee',
+    '_transaction_fee',
+  ];
 
   /**
    * Process a refund through WooCommerce
@@ -29,6 +40,8 @@ class Refund_Processor {
         'message' => 'Order not found',
       ];
     }
+
+    $amount = self::maybe_adjust_refund_amount_for_stripe_fee($amount, $order);
 
     // Validate refund amount
     $order_total = (float) $order->get_total();
@@ -91,12 +104,17 @@ class Refund_Processor {
         $api_refund ? ' (automatic via payment gateway)' : ' (manual refund required)',
         $refund_reason
       );
+      $fee_note = self::get_stripe_fee_note($order, $api_refund);
+      if ($fee_note) {
+        $note .= ' ' . $fee_note;
+      }
       $order->add_order_note($note);
 
       return [
         'success' => true,
         'refund_id' => $refund_id,
         'automatic' => $api_refund,
+        'amount' => $amount,
         'message' => $api_refund 
           ? 'Refund processed successfully via payment gateway'
           : 'Refund created. Please process manually in your payment gateway.',
@@ -110,6 +128,67 @@ class Refund_Processor {
         'message' => 'Refund creation failed: ' . $e->getMessage(),
       ];
     }
+  }
+
+  private static function maybe_adjust_refund_amount_for_stripe_fee(float $amount, \WC_Order $order): float {
+    if ($amount <= 0) return $amount;
+    $supports_refunds = self::gateway_supports_refunds($order);
+    if (!$supports_refunds) return $amount;
+    if (!self::is_stripe_gateway($order)) return $amount;
+    if (!apply_filters('koopo_appt_exclude_stripe_fee_from_refunds', true, $order)) {
+      return $amount;
+    }
+
+    $fee = self::get_stripe_fee_from_order($order);
+    if ($fee <= 0) return $amount;
+
+    $order_total = (float) $order->get_total();
+    $already_refunded = (float) $order->get_total_refunded();
+    $max_refundable = max(0.0, $order_total - $fee - $already_refunded);
+    if ($max_refundable <= 0) return 0.0;
+    return min($amount, $max_refundable);
+  }
+
+  private static function is_stripe_gateway(\WC_Order $order): bool {
+    $method = (string) $order->get_payment_method();
+    if ($method && stripos($method, 'stripe') !== false) return true;
+    $gateway = WC()->payment_gateways()->payment_gateways()[$method] ?? null;
+    $title = $gateway ? (string) $gateway->get_title() : '';
+    if ($title && stripos($title, 'stripe') !== false) return true;
+    return (bool) apply_filters('koopo_appt_is_stripe_gateway', false, $order);
+  }
+
+  private static function get_stripe_fee_from_order(\WC_Order $order): float {
+    foreach (self::STRIPE_FEE_META_KEYS as $key) {
+      $raw = $order->get_meta($key, true);
+      if ($raw === '' || $raw === null) continue;
+      $value = self::to_decimal_amount($raw);
+      if ($value > 0) {
+        if (in_array($key, ['_stripe_net', 'stripe_net'], true)) {
+          $total = (float) $order->get_total();
+          $fee = max(0.0, $total - $value);
+          if ($fee > 0) return $fee;
+          continue;
+        }
+        return $value;
+      }
+    }
+
+    return (float) apply_filters('koopo_appt_stripe_fee_amount', 0.0, $order);
+  }
+
+  private static function to_decimal_amount($raw): float {
+    if (is_numeric($raw)) return (float) $raw;
+    if (!is_string($raw)) return 0.0;
+    $clean = preg_replace('/[^0-9.\-]/', '', $raw);
+    return is_numeric($clean) ? (float) $clean : 0.0;
+  }
+
+  private static function get_stripe_fee_note(\WC_Order $order, bool $api_refund): string {
+    if (!$api_refund || !self::is_stripe_gateway($order)) return '';
+    $fee = self::get_stripe_fee_from_order($order);
+    if ($fee <= 0) return '';
+    return sprintf('(Stripe fee $%.2f is non-refundable unless refunded manually by admin.)', $fee);
   }
 
   /**

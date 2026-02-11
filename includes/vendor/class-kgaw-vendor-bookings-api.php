@@ -696,6 +696,9 @@ class Vendor_Bookings_API {
       if (!$refund_result['success']) {
         return new \WP_Error('koopo_refund_failed', $refund_result['message'], ['status' => 500]);
       }
+      if (isset($refund_result['amount']) && is_numeric($refund_result['amount'])) {
+        $refund_amount = (float) $refund_result['amount'];
+      }
 
       // Step 5: Mark booking as refunded
       $result = Bookings::cancel_booking_safely($booking_id, 'refunded');

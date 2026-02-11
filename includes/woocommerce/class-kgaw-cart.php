@@ -47,6 +47,9 @@ class Cart {
    * Attach booking meta when product is added to cart using ?koopo_booking_id=123
    */
   public static function add_cart_item_data($cart_item_data, $product_id, $variation_id) {
+    if (!Product_Guard::is_koopo_service_product((int) $product_id)) {
+      return $cart_item_data;
+    }
     // Prefer explicit cart item data (e.g. from WC()->cart->add_to_cart(..., ['koopo_booking_id'=>..]))
     $booking_id = 0;
     if (!empty($cart_item_data['koopo_booking_id'])) {
@@ -56,7 +59,7 @@ class Cart {
       $booking_id = absint($_REQUEST['koopo_booking_id']);
     }
 
-    if (!$booking_id) return $cart_item_data;if (!$booking_id) return $cart_item_data;
+    if (!$booking_id) return $cart_item_data;
 
     $booking = Bookings::get_booking($booking_id);
     if (!$booking) return $cart_item_data;

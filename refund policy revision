@@ -1,0 +1,31 @@
+# Refund Policy Revision (Marketplace + Stripe)
+
+## Overview
+This policy update clarifies how refunds are handled for bookings processed through Stripe on our marketplace. The goal is to protect sellers from unrecoverable payment processor fees while remaining transparent with customers.
+
+## Key Principles
+1. **Stripe processing fees are non‑refundable** for automatic refunds.
+2. **Full refunds (including fees)** are only possible if an administrator manually refunds the fee from the Stripe dashboard.
+3. Refund eligibility still follows each listing’s cancellation/refund rules.
+
+## What Customers Can Expect
+- If a booking is eligible for a refund, we will process the refund automatically.
+- The refunded amount **may exclude Stripe processing fees**, because Stripe does not return these fees on automatic refunds.
+- If a full refund is required, an administrator can issue a manual refund that includes the fee.
+
+## What Sellers Can Expect
+- Automatic refunds will **protect seller balances** by excluding Stripe’s non‑refundable fees.
+- Manual refunds initiated by an administrator can include fees at the platform’s discretion.
+
+## Example
+Booking total: $100.00
+Stripe fee: $3.20
+Automatic refund issued: **$96.80**
+
+## Notes
+- This policy applies to Stripe payments.
+- Other payment gateways may have different refund fee behaviors.
+- Local tax rules and marketplace facilitator obligations remain unchanged.
+
+## Effective Date
+This revision is effective immediately and applies to all new refunds processed via the platform.
