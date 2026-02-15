@@ -74,11 +74,11 @@
   border-radius: 12px;
   padding: 20px;
   transition: all 0.2s;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
 }
 
 .koopo-appointment-card:hover {
-  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
   border-color: #ccc;
 }
 
@@ -179,22 +179,27 @@
   font-weight: 600;
   color: #2c7a3c;
 }
+
 .koopo-pending-payment-row .koopo-info-text {
   font-weight: 600;
   color: #8a6d3b;
 }
+
 .koopo-cancel-info-row .koopo-info-text {
   font-weight: 600;
   color: #b03b3b;
 }
+
 .koopo-refund-info-row .koopo-info-text {
   font-weight: 600;
   color: #5a3d9c;
 }
+
 .koopo-inline-link {
   color: #7a5b12;
   text-decoration: underline;
 }
+
 .koopo-inline-link:hover {
   color: #5f470e;
 }
@@ -275,7 +280,7 @@
   background: #fff;
   border: 1px solid #ddd;
   border-radius: 6px;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   min-width: 160px;
   z-index: 10;
 }
@@ -319,7 +324,9 @@
 }
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* === Empty State === */
@@ -395,13 +402,14 @@
 .koopo-modal {
   position: fixed;
   inset: 0;
-  background: rgba(0,0,0,0.5);
+  background: rgba(0, 0, 0, 0.5);
   z-index: 999999;
   display: none;
   align-items: center;
   justify-content: center;
   padding: 20px;
-  overflow-y: scroll;;
+  overflow-y: scroll;
+  ;
 }
 
 .koopo-modal__card {
@@ -411,7 +419,7 @@
   border-radius: 14px;
   padding: 24px;
   overflow-y: auto;
-  margin:auto;
+  margin: auto;
 }
 
 .koopo-modal__close {
@@ -547,7 +555,7 @@
   width: 28px;
   border-radius: 6px;
   cursor: pointer;
-  color:#333;
+  color: #333;
 }
 
 .koopo-calendar__grid {
@@ -561,6 +569,11 @@
   font-size: 11px;
   text-align: center;
   color: #888;
+}
+
+.woocommerce .woocommerce-MyAccount-navigation ul li.woocommerce-MyAccount-navigation-link--appointments a:before {
+  font-family: bb-icons;
+  content: '\e803';
 }
 
 .koopo-calendar__date {
@@ -603,7 +616,7 @@
   padding: 8px 8px;
   font-size: 14px !important;
   cursor: pointer;
-  color:#333;
+  color: #333;
 }
 
 .koopo-reschedule-slot.is-selected {
