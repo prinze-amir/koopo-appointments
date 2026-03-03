@@ -115,7 +115,7 @@
 
     // Show Refund when there is a WooCommerce order and the booking is in a refundable state.
     // (Actual eligibility is validated server-side via /refund-info.)
-    if (b.wc_order_id && st !== 'refunded' && (st === 'confirmed' || st === 'cancelled')) {
+    if (b.wc_order_id && st !== 'refunded' && (st === 'pending_payment' || st === 'confirmed')) {
       html += `<button class="koopo-btn koopo-btn--sm koopo-btn--danger koopo-appt-action" data-action="refund" data-id="${id}">Refund</button> `;
     }    
 
@@ -1326,6 +1326,7 @@
       const policy = info.policy || {};
       const wc = info.woocommerce || {};
       const bookingPrice = info.booking_price || 0;
+      const koopoPolicy = info.koopo_refund_policy || {};
 
       // Build modal HTML
       let modalHtml = `
@@ -1412,7 +1413,22 @@
               Refund Reason (Optional)
               <textarea class="koopo-input koopo-refund-reason" rows="3" placeholder="Enter reason for refund (visible to customer)"></textarea>
             </label>
+        `;
 
+        if (koopoPolicy.active && koopoPolicy.supports_fraud_type) {
+          modalHtml += `
+            <label class="koopo-label">
+              Refund Type
+              <select class="koopo-input koopo-refund-type">
+                <option value="standard"${koopoPolicy.default_type === 'fraud' ? '' : ' selected'}>Standard (minus processing fee)</option>
+                <option value="fraud"${koopoPolicy.default_type === 'fraud' ? ' selected' : ''}>Fraud (full refund)</option>
+              </select>
+              <small>Fraud refunds return full amount under Koopo Refund Policy.</small>
+            </label>
+          `;
+        }
+
+        modalHtml += `
             <label class="koopo-label">
               <input type="checkbox" class="koopo-refund-custom-amount-toggle" />
               Use custom refund amount
@@ -1459,12 +1475,15 @@
   /**
    * Commit 20: Process refund with enhanced API
    */
-  async function processRefund(bookingId, reason, customAmount) {
+  async function processRefund(bookingId, reason, customAmount, refundType) {
     const $btn = $(`.koopo-refund-submit[data-booking-id="${bookingId}"]`);
     $btn.prop('disabled', true).text('Processing...');
 
     try {
       const payload = { action: 'refund', note: reason };
+      if (refundType) {
+        payload.refund_type = refundType;
+      }
       
       if (customAmount !== null) {
         payload.amount = customAmount;
@@ -1517,12 +1536,13 @@
     const reason = $('.koopo-refund-reason').val().trim();
     const useCustom = $('.koopo-refund-custom-amount-toggle').is(':checked');
     const customAmount = useCustom ? parseFloat($('.koopo-refund-custom-amount').val()) : null;
+    const refundType = $('.koopo-refund-type').length ? String($('.koopo-refund-type').val() || 'standard') : 'standard';
 
     if (!confirm('Process this refund? This action cannot be undone.')) {
       return;
     }
 
-    await processRefund(bookingId, reason, customAmount);
+    await processRefund(bookingId, reason, customAmount, refundType);
   });
 
   // MODIFY EXISTING: Update refund button click handler in appointments table

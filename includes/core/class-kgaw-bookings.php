@@ -4,6 +4,19 @@ namespace Koopo_Appointments;
 defined('ABSPATH') || exit;
 
 class Bookings {
+  private const EXTRA_FIELD_DEFAULTS = [
+    'customer_name' => '',
+    'customer_email' => '',
+    'customer_phone' => '',
+    'customer_notes' => '',
+    'booking_for_other' => 0,
+    'addon_ids' => '',
+    'cancelled_by' => '',
+    'cancel_reason' => '',
+    'refund_amount' => 0.0,
+    'refund_status' => '',
+    'review_invite_sent' => null,
+  ];
 
   public static function init() {
     // REST is cleaner than admin-ajax; use REST so mobile/app can hit it later.
@@ -217,6 +230,12 @@ private static function release_lock(int $listing_id): void {
       'listing_author_id'  => $listing_author_id,
       'service_id'         => (string) $service_id,
       'customer_id'        => $customer_id,
+      'customer_name'      => sanitize_text_field((string) ($data['customer_name'] ?? '')),
+      'customer_email'     => sanitize_email((string) ($data['customer_email'] ?? '')),
+      'customer_phone'     => sanitize_text_field((string) ($data['customer_phone'] ?? '')),
+      'customer_notes'     => sanitize_textarea_field((string) ($data['customer_notes'] ?? '')),
+      'booking_for_other'  => !empty($data['booking_for_other']) ? 1 : 0,
+      'addon_ids'          => !empty($addon_ids) ? wp_json_encode($addon_ids) : '',
       'start_datetime'     => $start,
       'end_datetime'       => $end,
       'timezone'           => $timezone,
@@ -226,7 +245,7 @@ private static function release_lock(int $listing_id): void {
       'created_at'         => current_time('mysql'),
       'updated_at'         => current_time('mysql'),
     ], [
-      '%d','%d','%s','%d','%s','%s','%s','%f','%s','%s','%s','%s'
+      '%d','%d','%s','%d','%s','%s','%s','%s','%d','%s','%s','%s','%s','%f','%s','%s','%s','%s'
     ]);
 
       if (!$inserted) {
@@ -234,31 +253,11 @@ private static function release_lock(int $listing_id): void {
       }
 
       $booking_id = (int) $wpdb->insert_id;
-
-      // Store additional customer information as custom fields (using options table with prefix)
-      if (!empty($data['customer_name'])) {
-        update_option("koopo_booking_{$booking_id}_customer_name", $data['customer_name']);
-      }
-      if (!empty($data['customer_email'])) {
-        update_option("koopo_booking_{$booking_id}_customer_email", $data['customer_email']);
-      }
-      if (!empty($data['customer_phone'])) {
-        update_option("koopo_booking_{$booking_id}_customer_phone", $data['customer_phone']);
-      }
-      if (!empty($data['customer_notes'])) {
-        update_option("koopo_booking_{$booking_id}_customer_notes", $data['customer_notes']);
-      }
       if ($status === 'pending_payment') {
         $booking = self::get_booking($booking_id);
         if ($booking) {
           do_action('koopo_booking_pending_payment', $booking_id, $booking);
         }
-      }
-      if (isset($data['booking_for_other']) && $data['booking_for_other']) {
-        update_option("koopo_booking_{$booking_id}_booking_for_other", '1');
-      }
-      if (!empty($addon_ids)) {
-        update_option("koopo_booking_{$booking_id}_addon_ids", wp_json_encode($addon_ids));
       }
 
       return $booking_id;
@@ -398,9 +397,9 @@ private static function release_lock(int $listing_id): void {
       $order->set_currency((string) $booking->currency);
     }
 
-    $customer_name = get_option("koopo_booking_{$booking_id}_customer_name", '');
-    $customer_email = get_option("koopo_booking_{$booking_id}_customer_email", '');
-    $customer_phone = get_option("koopo_booking_{$booking_id}_customer_phone", '');
+    $customer_name = (string) self::extra_from_record($booking, 'customer_name', '');
+    $customer_email = (string) self::extra_from_record($booking, 'customer_email', '');
+    $customer_phone = (string) self::extra_from_record($booking, 'customer_phone', '');
     $user = $booking->customer_id ? get_userdata((int) $booking->customer_id) : null;
     $first_name = '';
     $last_name = '';
@@ -623,8 +622,11 @@ public static function cancel_booking_safely(int $booking_id, string $new_status
     $booking = self::get_booking($booking_id);
     if (!$booking) return ['ok' => false, 'reason' => 'not_found'];
 
-    // If already terminal, keep idempotent behavior
-    if (in_array($booking->status, ['cancelled', 'refunded', 'expired'], true)) {
+    // Allow an explicit cancelled -> refunded transition (e.g. refund posted after cancellation).
+    $is_cancelled_to_refunded = ($booking->status === 'cancelled' && $new_status === 'refunded');
+
+    // Otherwise if already terminal, keep idempotent behavior.
+    if (!$is_cancelled_to_refunded && in_array($booking->status, ['cancelled', 'refunded', 'expired'], true)) {
       return ['ok' => true, 'reason' => 'already_' . $booking->status];
     }
 
@@ -636,7 +638,11 @@ public static function cancel_booking_safely(int $booking_id, string $new_status
       ['%d']
     );
 
-    do_action('koopo_booking_cancelled_safe', $booking_id, $new_status, $booking);
+    $updated_booking = self::get_booking($booking_id);
+    do_action('koopo_booking_cancelled_safe', $booking_id, $new_status, $updated_booking ?: $booking);
+    if ($new_status === 'refunded') {
+      do_action('koopo_booking_refunded_safe', $booking_id, $updated_booking ?: $booking);
+    }
 
     return ['ok' => true, 'reason' => $new_status];
   } finally {
@@ -822,6 +828,140 @@ public static function init_cleanup_cron() {
       "DELETE FROM {$wpdb->options} WHERE option_name LIKE %s",
       $wpdb->esc_like("koopo_booking_{$booking_id}_") . '%'
     ));
+  }
+
+  private static function normalize_extra_update(array $data): array {
+    $out = [];
+    foreach ($data as $key => $value) {
+      if (!array_key_exists($key, self::EXTRA_FIELD_DEFAULTS)) continue;
+      switch ($key) {
+        case 'customer_email':
+          $out[$key] = sanitize_email((string) $value);
+          break;
+        case 'customer_notes':
+        case 'cancel_reason':
+          $out[$key] = sanitize_textarea_field((string) $value);
+          break;
+        case 'booking_for_other':
+          $out[$key] = !empty($value) ? 1 : 0;
+          break;
+        case 'refund_amount':
+          $out[$key] = is_numeric($value) ? (float) $value : 0.0;
+          break;
+        case 'addon_ids':
+          if (is_array($value)) {
+            $value = array_values(array_filter(array_map('absint', $value)));
+            $out[$key] = wp_json_encode($value);
+          } else {
+            $out[$key] = sanitize_text_field((string) $value);
+          }
+          break;
+        case 'review_invite_sent':
+          $value = sanitize_text_field((string) $value);
+          $out[$key] = $value !== '' ? $value : null;
+          break;
+        default:
+          $out[$key] = sanitize_text_field((string) $value);
+          break;
+      }
+    }
+    return $out;
+  }
+
+  private static function extra_update_formats(array $data): array {
+    $formats = [];
+    foreach ($data as $key => $value) {
+      if ($key === 'booking_for_other') {
+        $formats[] = '%d';
+      } elseif ($key === 'refund_amount') {
+        $formats[] = '%f';
+      } else {
+        $formats[] = '%s';
+      }
+    }
+    return $formats;
+  }
+
+  public static function update_booking_extras(int $booking_id, array $data): bool {
+    global $wpdb;
+    $table = DB::table();
+    $booking_id = (int) $booking_id;
+    if ($booking_id < 1) return false;
+
+    $update = self::normalize_extra_update($data);
+    if (!$update) return false;
+
+    $result = $wpdb->update(
+      $table,
+      $update,
+      ['id' => $booking_id],
+      self::extra_update_formats($update),
+      ['%d']
+    );
+
+    return $result !== false;
+  }
+
+  private static function cast_extra_value(string $key, $value) {
+    if ($value === null) return null;
+    switch ($key) {
+      case 'booking_for_other':
+        return !empty($value) ? 1 : 0;
+      case 'refund_amount':
+        return is_numeric($value) ? (float) $value : 0.0;
+      default:
+        return is_string($value) ? $value : (string) $value;
+    }
+  }
+
+  public static function get_booking_extra(int $booking_id, string $key, $default = '') {
+    if ($booking_id < 1 || !array_key_exists($key, self::EXTRA_FIELD_DEFAULTS)) {
+      return $default;
+    }
+    $booking = self::get_booking($booking_id);
+    if ($booking && property_exists($booking, $key)) {
+      $value = $booking->{$key};
+      if ($value !== null && $value !== '') {
+        return self::cast_extra_value($key, $value);
+      }
+    }
+
+    $legacy = get_option("koopo_booking_{$booking_id}_{$key}", null);
+    if ($legacy !== null && $legacy !== false && $legacy !== '') {
+      return self::cast_extra_value($key, $legacy);
+    }
+
+    return $default;
+  }
+
+  public static function extra_from_record($booking, string $key, $default = '') {
+    if (!array_key_exists($key, self::EXTRA_FIELD_DEFAULTS)) {
+      return $default;
+    }
+
+    if (is_array($booking) && array_key_exists($key, $booking)) {
+      $value = $booking[$key];
+      if ($value !== null && $value !== '') {
+        return self::cast_extra_value($key, $value);
+      }
+    } elseif (is_object($booking) && property_exists($booking, $key)) {
+      $value = $booking->{$key};
+      if ($value !== null && $value !== '') {
+        return self::cast_extra_value($key, $value);
+      }
+    }
+
+    $booking_id = 0;
+    if (is_array($booking) && !empty($booking['id'])) {
+      $booking_id = (int) $booking['id'];
+    } elseif (is_object($booking) && !empty($booking->id)) {
+      $booking_id = (int) $booking->id;
+    }
+    if ($booking_id > 0) {
+      return self::get_booking_extra($booking_id, $key, $default);
+    }
+
+    return $default;
   }
 
 

@@ -8,6 +8,8 @@ defined('ABSPATH') || exit;
  * Handles actual WooCommerce refund creation and payment gateway integration
  */
 class Refund_Processor {
+  private const KOOPO_REFUND_TYPE_TOKEN_REGEX = '/\[#koopo_refund_type:(standard|fraud)\]\s*/i';
+  private const KOOPO_REFUND_DEFAULT_FRAUD_KEYWORDS = 'fraud,fraudulent,chargeback,stolen card';
   private const STRIPE_FEE_META_KEYS = [
     '_stripe_fee',
     'stripe_fee',
@@ -41,7 +43,16 @@ class Refund_Processor {
       ];
     }
 
-    $amount = self::maybe_adjust_refund_amount_for_stripe_fee($amount, $order);
+    $base_reason = $reason ? wp_strip_all_tags($reason) : 'Koopo appointment refund';
+    $koopo_policy = self::maybe_apply_koopo_refund_policy($order, $amount, $base_reason);
+    if (!empty($koopo_policy['applied'])) {
+      $amount = (float) $koopo_policy['net_amount'];
+      $base_reason = (string) ($koopo_policy['clean_reason'] ?? $base_reason);
+    } else {
+      $parsed_reason = self::parse_koopo_refund_reason($base_reason);
+      $base_reason = $parsed_reason['reason'];
+      $amount = self::maybe_adjust_refund_amount_for_stripe_fee($amount, $order);
+    }
 
     // Validate refund amount
     $order_total = (float) $order->get_total();
@@ -67,7 +78,7 @@ class Refund_Processor {
     }
 
     // Prepare refund reason
-    $refund_reason = $reason ? wp_strip_all_tags($reason) : 'Koopo appointment refund';
+    $refund_reason = $base_reason;
     if ($booking_id) {
       $refund_reason = sprintf('[Booking #%d] %s', $booking_id, $refund_reason);
     }
@@ -96,6 +107,9 @@ class Refund_Processor {
       }
 
       $refund_id = $refund->get_id();
+      if (!empty($koopo_policy['applied'])) {
+        self::persist_koopo_refund_meta($refund, $koopo_policy);
+      }
 
       // Add order note with details
       $note = sprintf(
@@ -104,7 +118,12 @@ class Refund_Processor {
         $api_refund ? ' (automatic via payment gateway)' : ' (manual refund required)',
         $refund_reason
       );
-      $fee_note = self::get_stripe_fee_note($order, $api_refund);
+      $fee_note = '';
+      if (!empty($koopo_policy['applied'])) {
+        $fee_note = self::get_koopo_policy_note_for_order($order, $koopo_policy);
+      } else {
+        $fee_note = self::get_stripe_fee_note($order, $api_refund);
+      }
       if ($fee_note) {
         $note .= ' ' . $fee_note;
       }
@@ -128,6 +147,184 @@ class Refund_Processor {
         'message' => 'Refund creation failed: ' . $e->getMessage(),
       ];
     }
+  }
+
+  private static function maybe_apply_koopo_refund_policy(\WC_Order $order, float $amount, string $reason): array {
+    if (!class_exists('\Koopo\RefundPolicy\Plugin')) {
+      return ['applied' => false];
+    }
+    if (!self::koopo_policy_can_apply_to_order($order)) {
+      return ['applied' => false];
+    }
+    if ($amount <= 0) {
+      return ['applied' => false];
+    }
+
+    $requested_amount = (float) wc_format_decimal($amount, wc_get_price_decimals());
+    $parsed = self::parse_koopo_refund_reason($reason);
+    $type = $parsed['type'];
+    $clean_reason = $parsed['reason'];
+
+    if ($type === 'standard' && self::koopo_reason_matches_fraud_keywords($clean_reason)) {
+      $type = 'fraud';
+    }
+
+    $net_amount = $requested_amount;
+    $withheld_fee = 0.0;
+    if ($type === 'standard') {
+      $calculated = self::calculate_koopo_standard_refund_amount($order, $requested_amount);
+      $net_amount = (float) $calculated['net_amount'];
+      $withheld_fee = (float) $calculated['withheld_fee'];
+    }
+
+    if ($net_amount <= 0) {
+      $net_amount = $requested_amount;
+      $withheld_fee = 0.0;
+    }
+
+    return [
+      'applied' => true,
+      'type' => $type,
+      'clean_reason' => $clean_reason,
+      'requested_amount' => (float) wc_format_decimal($requested_amount, wc_get_price_decimals()),
+      'net_amount' => (float) wc_format_decimal($net_amount, wc_get_price_decimals()),
+      'withheld_fee' => (float) wc_format_decimal($withheld_fee, wc_get_price_decimals()),
+    ];
+  }
+
+  private static function parse_koopo_refund_reason(string $reason): array {
+    $type = 'standard';
+    $clean = trim($reason);
+
+    if (preg_match(self::KOOPO_REFUND_TYPE_TOKEN_REGEX, $clean, $m)) {
+      $type = strtolower((string) $m[1]) === 'fraud' ? 'fraud' : 'standard';
+    }
+
+    $clean = (string) preg_replace(self::KOOPO_REFUND_TYPE_TOKEN_REGEX, '', $clean);
+    $clean = trim($clean);
+    if ($clean === '') {
+      $clean = 'Koopo appointment refund';
+    }
+
+    return [
+      'type' => $type,
+      'reason' => $clean,
+    ];
+  }
+
+  private static function koopo_reason_matches_fraud_keywords(string $reason): bool {
+    $reason = strtolower(trim($reason));
+    if ($reason === '') return false;
+
+    $settings = get_option('koopo_refund_policy_settings', []);
+    $keywords = '';
+    if (is_array($settings) && isset($settings['fraud_keywords'])) {
+      $keywords = sanitize_text_field((string) $settings['fraud_keywords']);
+    }
+    if ($keywords === '') {
+      $keywords = self::KOOPO_REFUND_DEFAULT_FRAUD_KEYWORDS;
+    }
+
+    foreach (explode(',', $keywords) as $keyword) {
+      $keyword = strtolower(trim((string) $keyword));
+      if ($keyword === '') continue;
+      if (strpos($reason, $keyword) !== false) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  private static function koopo_policy_can_apply_to_order(\WC_Order $order): bool {
+    if ((string) $order->get_payment_method() !== 'dokan_stripe_express') {
+      return false;
+    }
+
+    $paid_by = (string) $order->get_meta('dokan_gateway_fee_paid_by', true);
+    if ($paid_by === '' && class_exists('\WeDevs\DokanPro\Modules\StripeExpress\Support\Settings')) {
+      $paid_by = \WeDevs\DokanPro\Modules\StripeExpress\Support\Settings::sellers_pay_processing_fees() ? 'seller' : 'admin';
+    }
+
+    return $paid_by === 'seller';
+  }
+
+  private static function calculate_koopo_standard_refund_amount(\WC_Order $order, float $requested_amount): array {
+    $decimals = wc_get_price_decimals();
+    $total_fee = self::koopo_order_processing_fee($order);
+    $order_total = (float) $order->get_total('edit');
+
+    if ($total_fee <= 0 || $order_total <= 0) {
+      return ['net_amount' => $requested_amount, 'withheld_fee' => 0.0];
+    }
+
+    $already_withheld = self::koopo_already_withheld_fee($order);
+    $remaining_fee = max(0.0, (float) wc_format_decimal($total_fee - $already_withheld, $decimals));
+    if ($remaining_fee <= 0) {
+      return ['net_amount' => $requested_amount, 'withheld_fee' => 0.0];
+    }
+
+    $proportional_fee = ($total_fee / $order_total) * $requested_amount;
+    $withheld_fee = min($remaining_fee, (float) wc_format_decimal($proportional_fee, $decimals));
+    $net_amount = (float) wc_format_decimal($requested_amount - $withheld_fee, $decimals);
+    if ($net_amount <= 0) {
+      return ['net_amount' => $requested_amount, 'withheld_fee' => 0.0];
+    }
+
+    return [
+      'net_amount' => $net_amount,
+      'withheld_fee' => (float) wc_format_decimal($withheld_fee, $decimals),
+    ];
+  }
+
+  private static function koopo_order_processing_fee(\WC_Order $order): float {
+    $fee = 0.0;
+
+    if (class_exists('\WeDevs\DokanPro\Modules\StripeExpress\Support\OrderMeta')) {
+      $fee = (float) \WeDevs\DokanPro\Modules\StripeExpress\Support\OrderMeta::get_stripe_fee($order);
+    }
+
+    if ($fee <= 0) {
+      $fee = (float) wc_format_decimal($order->get_meta('dokan_gateway_fee', true), wc_get_price_decimals());
+    }
+    if ($fee <= 0) {
+      $fee = self::get_stripe_fee_from_order($order);
+    }
+
+    return max(0.0, $fee);
+  }
+
+  private static function koopo_already_withheld_fee(\WC_Order $order): float {
+    $withheld = 0.0;
+    foreach ($order->get_refunds() as $refund_order) {
+      $withheld += (float) wc_format_decimal($refund_order->get_meta('_koopo_withheld_fee', true), wc_get_price_decimals());
+    }
+    return max(0.0, $withheld);
+  }
+
+  private static function persist_koopo_refund_meta(\WC_Order_Refund $refund, array $policy): void {
+    $refund->update_meta_data('_koopo_refund_type', (string) ($policy['type'] ?? 'standard'));
+    $refund->update_meta_data('_koopo_requested_amount', (float) ($policy['requested_amount'] ?? 0.0));
+    $refund->update_meta_data('_koopo_net_refund_amount', (float) ($policy['net_amount'] ?? 0.0));
+    $refund->update_meta_data('_koopo_withheld_fee', (float) ($policy['withheld_fee'] ?? 0.0));
+    $refund->save();
+  }
+
+  private static function get_koopo_policy_note_for_order(\WC_Order $order, array $policy): string {
+    $type = (string) ($policy['type'] ?? 'standard');
+    $label = $type === 'fraud' ? 'Fraud (full refund)' : 'Standard (processing fee withheld)';
+    $requested = (float) ($policy['requested_amount'] ?? 0.0);
+    $net = (float) ($policy['net_amount'] ?? 0.0);
+    $withheld = (float) ($policy['withheld_fee'] ?? 0.0);
+    $currency = $order->get_currency();
+
+    return sprintf(
+      '[Koopo Refund Policy] Type: %s. Requested: %s. Customer Refund: %s. Withheld Fee: %s.',
+      $label,
+      wp_strip_all_tags(wc_price($requested, ['currency' => $currency])),
+      wp_strip_all_tags(wc_price($net, ['currency' => $currency])),
+      wp_strip_all_tags(wc_price($withheld, ['currency' => $currency]))
+    );
   }
 
   private static function maybe_adjust_refund_amount_for_stripe_fee(float $amount, \WC_Order $order): float {

@@ -188,14 +188,18 @@ class Notifications {
   }
 
   public static function email_cancelled(int $booking_id, $booking_obj) {
+    if (is_string($booking_obj) && $booking_obj === 'refunded') {
+      return;
+    }
+
     $ctx = self::booking_context($booking_id);
     if (!$ctx) return;
 
     $customer = self::customer_email((int)$ctx['booking']->customer_id, $ctx['order_id'] ?: null);
     $customer_name  = get_userdata((int)$ctx['booking']->customer_id)?->first_name;
     $seller = self::listing_owner_email($ctx['listing_id']);
-    $cancelled_by = (string) get_option("koopo_booking_{$booking_id}_cancelled_by", '');
-    $cancel_reason = (string) get_option("koopo_booking_{$booking_id}_cancel_reason", '');
+    $cancelled_by = (string) Bookings::extra_from_record($ctx['booking'], 'cancelled_by', '');
+    $cancel_reason = (string) Bookings::extra_from_record($ctx['booking'], 'cancel_reason', '');
     $listing_url = $ctx['listing_id'] ? get_permalink($ctx['listing_id']) : home_url('/');
     $business = $ctx['listing_title'] ?: 'the business';
     $seller_user = get_user_by('email', $seller);
@@ -269,6 +273,48 @@ class Notifications {
 
     if ($customer) self::send_mail($customer, $subject_customer, $body_customer);
     if ($seller) self::send_mail($seller, $subject_vendor, $body_seller);
+  }
+
+  public static function email_refunded(int $booking_id, $booking_obj) {
+    $ctx = self::booking_context($booking_id);
+    if (!$ctx) return;
+
+    $customer = self::customer_email((int)$ctx['booking']->customer_id, $ctx['order_id'] ?: null);
+    $seller = self::listing_owner_email($ctx['listing_id']);
+    $refund_amount = (float) Bookings::extra_from_record($ctx['booking'], 'refund_amount', 0.0);
+
+    if ($refund_amount <= 0 && !empty($ctx['booking']->price)) {
+      $refund_amount = (float) $ctx['booking']->price;
+    }
+
+    $currency = !empty($ctx['booking']->currency) ? (string) $ctx['booking']->currency : get_woocommerce_currency();
+    $refund_display = wp_strip_all_tags(wc_price($refund_amount, ['currency' => $currency]));
+
+    $subject = sprintf('Koopo Appointment refunded – #%d', $booking_id);
+
+    $body_customer = self::render_email_html([
+      'title' => 'Your refund has been processed',
+      'lines' => [
+        "📍 <strong>Business:</strong> {$ctx['listing_title']}",
+        "🛎 <strong>Service:</strong> {$ctx['service_title']}",
+        "🗓 <strong>Date:</strong> {$ctx['start_formatted']} ({$ctx['timezone_abbr']})",
+        "💳 <strong>Refund Amount:</strong> {$refund_display}",
+        "📌 <strong>Booking ID:</strong> #{$booking_id}",
+      ],
+    ]);
+
+    $body_seller = self::render_email_html([
+      'title' => 'Appointment refunded',
+      'lines' => [
+        "📍 <strong>Business:</strong> {$ctx['listing_title']}",
+        "🛎 <strong>Service:</strong> {$ctx['service_title']}",
+        "💳 <strong>Refund Amount:</strong> {$refund_display}",
+        "📌 <strong>Booking ID:</strong> #{$booking_id}",
+      ],
+    ]);
+
+    if ($customer) self::send_mail($customer, $subject, $body_customer);
+    if ($seller) self::send_mail($seller, $subject, $body_seller);
   }
 
   public static function email_rescheduled(int $booking_id, string $new_start, string $new_end, $booking_obj) {
@@ -544,9 +590,10 @@ class Notifications {
   }
 
   private static function booking_customer_fields(int $booking_id, int $customer_id, ?int $order_id = null): array {
-    $name = (string) get_option("koopo_booking_{$booking_id}_customer_name", '');
-    $email = (string) get_option("koopo_booking_{$booking_id}_customer_email", '');
-    $phone = (string) get_option("koopo_booking_{$booking_id}_customer_phone", '');
+    $booking = Bookings::get_booking($booking_id);
+    $name = (string) Bookings::extra_from_record($booking, 'customer_name', '');
+    $email = (string) Bookings::extra_from_record($booking, 'customer_email', '');
+    $phone = (string) Bookings::extra_from_record($booking, 'customer_phone', '');
     $avatar = '';
 
     if ($customer_id) {

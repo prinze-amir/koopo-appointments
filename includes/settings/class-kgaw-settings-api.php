@@ -15,7 +15,7 @@ class Settings_API {
     register_rest_route('koopo/v1', '/appointments/settings/(?P<listing_id>\d+)', [
       'methods' => 'GET',
       'callback' => [__CLASS__, 'get_settings'],
-      'permission_callback' => '__return_true',
+      'permission_callback' => [__CLASS__, 'can_view_settings'],
     ]);
 
     // Update listing booking settings (vendor only)
@@ -32,6 +32,12 @@ class Settings_API {
     return Access::can_manage_listing_feature($listing_id, 'appointments');
   }
 
+  public static function can_view_settings(\WP_REST_Request $req): bool {
+    $listing_id = absint($req['listing_id']);
+    $listing = get_post($listing_id);
+    return (bool) ($listing && $listing->post_type === 'gd_place');
+  }
+
   public static function get_settings(\WP_REST_Request $req) {
     $listing_id = absint($req['listing_id']);
     $listing = get_post($listing_id);
@@ -39,7 +45,8 @@ class Settings_API {
       return new \WP_REST_Response(['error' => 'Invalid listing'], 404);
     }
 
-    return new \WP_REST_Response(self::read_settings($listing_id), 200);
+    $include_sensitive = self::is_listing_owner($listing_id) || current_user_can('manage_options');
+    return new \WP_REST_Response(self::read_settings($listing_id, $include_sensitive), 200);
   }
 
   public static function update_settings(\WP_REST_Request $req) {
@@ -139,7 +146,7 @@ class Settings_API {
     return new \WP_REST_Response(self::read_settings($listing_id), 200);
   }
 
-  public static function read_settings(int $listing_id): array {
+  public static function read_settings(int $listing_id, bool $include_sensitive = true): array {
     $enabled = get_post_meta($listing_id, '_koopo_appt_enabled', true);
     $tz      = get_post_meta($listing_id, '_koopo_appt_timezone', true);
     if (!$tz) $tz = 'America/Detroit'; // default; you can change
@@ -161,23 +168,28 @@ class Settings_API {
     $refund_policy_rules = Refund_Policy::get_policy_rules($listing_id);
     $refund_policy_custom = (bool) get_post_meta($listing_id, '_koopo_appt_refund_policy', true);
 
-    return [
+    $payload = [
       'listing_id' => $listing_id,
       'enabled' => ($enabled === '1'),
       'timezone' => $tz,
       'hours' => self::decode_json_obj($hours_json) ?: self::default_hours(),
-      'breaks' => self::decode_json_obj($breaks_json) ?: self::default_breaks(),
-      'slot_interval' => $slot_interval ?: 0,
-      'buffer_before' => $buffer_before ?: 0,
-      'buffer_after' => $buffer_after ?: 0,
-      'reschedule_enabled' => $reschedule_enabled,
-      'reschedule_restrict_enabled' => $reschedule_restrict_enabled,
-      'reschedule_cutoff_value' => $reschedule_cutoff_value ?: 0,
-      'reschedule_cutoff_unit' => $reschedule_cutoff_unit,
-      'refund_policy_rules' => $refund_policy_rules,
-      'refund_policy_custom' => $refund_policy_custom,
       'days_off' => self::sanitize_days_off(self::decode_json_arr($days_off_json) ?: []),
     ];
+
+    if ($include_sensitive) {
+      $payload['breaks'] = self::decode_json_obj($breaks_json) ?: self::default_breaks();
+      $payload['slot_interval'] = $slot_interval ?: 0;
+      $payload['buffer_before'] = $buffer_before ?: 0;
+      $payload['buffer_after'] = $buffer_after ?: 0;
+      $payload['reschedule_enabled'] = $reschedule_enabled;
+      $payload['reschedule_restrict_enabled'] = $reschedule_restrict_enabled;
+      $payload['reschedule_cutoff_value'] = $reschedule_cutoff_value ?: 0;
+      $payload['reschedule_cutoff_unit'] = $reschedule_cutoff_unit;
+      $payload['refund_policy_rules'] = $refund_policy_rules;
+      $payload['refund_policy_custom'] = $refund_policy_custom;
+    }
+
+    return $payload;
   }
 
   private static function decode_json_obj($json) {

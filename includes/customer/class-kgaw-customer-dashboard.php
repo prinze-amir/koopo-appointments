@@ -27,8 +27,22 @@ class Customer_Dashboard {
    */
   public static function add_endpoints(): void {
     add_rewrite_endpoint('appointments', EP_ROOT | EP_PAGES);
-    
-    // Flush rewrite rules on activation (done in main plugin file)
+  }
+
+  private static function is_account_appointments_page(): bool {
+    if (!function_exists('is_account_page') || !is_account_page()) {
+      return false;
+    }
+    if (function_exists('is_wc_endpoint_url') && is_wc_endpoint_url('appointments')) {
+      return true;
+    }
+    // Fallback for setups where endpoint detection can be inconsistent.
+    $query_var = get_query_var('appointments', null);
+    if ($query_var !== null && $query_var !== '') {
+      return true;
+    }
+    $path = wp_parse_url((string) ($_SERVER['REQUEST_URI'] ?? ''), PHP_URL_PATH);
+    return is_string($path) && strpos(trailingslashit($path), '/appointments/') !== false;
   }
 
   /**
@@ -100,11 +114,7 @@ class Customer_Dashboard {
     }
 
     $load_assets = false;
-    $url = wc_get_account_endpoint_url('appointments');
-    //is_wc_account_page('appointments') does not work reliably
-
-    // Check if we're on My Account appointments page
-    if (is_account_page() && $url === home_url('/my-account-koopo/appointments/')) {
+    if (self::is_account_appointments_page()) {
       $load_assets = true;
     }
 

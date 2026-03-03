@@ -150,16 +150,18 @@ class Admin_Dashboard {
     $table = DB::table();
 
     // Today's stats
-    $today = current_time('Y-m-d');
+    $today_start = current_time('Y-m-d 00:00:00');
+    $today_end = current_time('Y-m-d 23:59:59');
     $today_bookings = $wpdb->get_var($wpdb->prepare(
-      "SELECT COUNT(*) FROM {$table} WHERE DATE(start_datetime) = %s",
-      $today
+      "SELECT COUNT(*) FROM {$table} WHERE start_datetime >= %s AND start_datetime <= %s",
+      $today_start,
+      $today_end
     ));
 
     // This week's stats
-    $week_start = date('Y-m-d', strtotime('monday this week'));
+    $week_start = date('Y-m-d 00:00:00', strtotime('monday this week', current_time('timestamp')));
     $week_bookings = $wpdb->get_var($wpdb->prepare(
-      "SELECT COUNT(*) FROM {$table} WHERE DATE(start_datetime) >= %s",
+      "SELECT COUNT(*) FROM {$table} WHERE start_datetime >= %s",
       $week_start
     ));
 
@@ -171,12 +173,13 @@ class Admin_Dashboard {
 
     // Revenue stats
     $revenue_today = $wpdb->get_var($wpdb->prepare(
-      "SELECT SUM(price) FROM {$table} WHERE status = 'confirmed' AND DATE(created_at) = %s",
-      $today
+      "SELECT SUM(price) FROM {$table} WHERE status = 'confirmed' AND created_at >= %s AND created_at <= %s",
+      $today_start,
+      $today_end
     ));
 
     $revenue_week = $wpdb->get_var($wpdb->prepare(
-      "SELECT SUM(price) FROM {$table} WHERE status = 'confirmed' AND DATE(created_at) >= %s",
+      "SELECT SUM(price) FROM {$table} WHERE status = 'confirmed' AND created_at >= %s",
       $week_start
     ));
 
@@ -229,47 +232,49 @@ class Admin_Dashboard {
     $params = [];
 
     if ($status && $status !== 'all') {
-      $where .= ' AND status = %s';
+      $where .= ' AND b.status = %s';
       $params[] = $status;
     }
 
     if ($search) {
-      $where .= ' AND (id = %d OR customer_id = %d)';
+      $where .= ' AND (b.id = %d OR b.customer_id = %d)';
       $search_int = (int) $search;
       $params[] = $search_int;
       $params[] = $search_int;
     }
 
     if ($date_from) {
-      $where .= ' AND DATE(start_datetime) >= %s';
-      $params[] = $date_from;
+      $where .= ' AND b.start_datetime >= %s';
+      $params[] = $date_from . ' 00:00:00';
     }
 
     if ($date_to) {
-      $where .= ' AND DATE(start_datetime) <= %s';
-      $params[] = $date_to;
+      $where .= ' AND b.start_datetime < %s';
+      $params[] = date('Y-m-d 00:00:00', strtotime($date_to . ' +1 day'));
     }
 
-    $sql_count = "SELECT COUNT(*) FROM {$table} WHERE {$where}";
+    $sql_count = "SELECT COUNT(*) FROM {$table} b WHERE {$where}";
     $total = (int) $wpdb->get_var($params ? $wpdb->prepare($sql_count, $params) : $sql_count);
 
     // Build ORDER BY clause
-    $order_clause = 'ORDER BY created_at DESC'; // Default
+    $order_clause = 'ORDER BY b.created_at DESC'; // Default
     
     if ($orderby === 'date') {
-      $order_clause = "ORDER BY start_datetime {$order}";
+      $order_clause = "ORDER BY b.start_datetime {$order}";
     } elseif ($orderby === 'customer') {
-      // For customer name, we need to join with users table
-      $order_clause = "ORDER BY (SELECT display_name FROM {$wpdb->users} WHERE ID = {$table}.customer_id) {$order}";
+      $order_clause = "ORDER BY cu.display_name {$order}";
     } elseif ($orderby === 'vendor') {
-      // For vendor name, we need to join with users table  
-      $order_clause = "ORDER BY (SELECT display_name FROM {$wpdb->users} WHERE ID = {$table}.listing_author_id) {$order}";
+      $order_clause = "ORDER BY vu.display_name {$order}";
     } elseif ($orderby === 'created') {
-      $order_clause = "ORDER BY created_at {$order}";
+      $order_clause = "ORDER BY b.created_at {$order}";
     }
 
     $offset = ($page - 1) * $per_page;
-    $sql_items = "SELECT * FROM {$table} WHERE {$where} {$order_clause} LIMIT %d OFFSET %d";
+    $sql_items = "SELECT b.*, cu.display_name AS customer_name, cu.user_email AS customer_email, vu.display_name AS vendor_name
+                  FROM {$table} b
+                  LEFT JOIN {$wpdb->users} cu ON cu.ID = b.customer_id
+                  LEFT JOIN {$wpdb->users} vu ON vu.ID = b.listing_author_id
+                  WHERE {$where} {$order_clause} LIMIT %d OFFSET %d";
     $params[] = $per_page;
     $params[] = $offset;
 
@@ -297,9 +302,9 @@ class Admin_Dashboard {
   private static function format_booking_for_admin(array $row): array {
     
     $customer = get_userdata((int) $row['customer_id']);
+    $vendor = get_userdata((int) $row['listing_author_id']);
     $service_title = get_the_title((int) $row['service_id']);
     $listing_title = get_the_title((int) $row['listing_id']);
-    $vendor = get_userdata((int) $row['listing_author_id']);
 
     $tz = $row['timezone'] ?? '';
     $start_formatted = Date_Formatter::format($row['start_datetime'], $tz, 'full');
@@ -313,9 +318,9 @@ class Admin_Dashboard {
 
     return [
       'id' => (int) $row['id'],
-      'customer_name' => $customer ? $customer->display_name : '',
-      'customer_email' => $customer ? $customer->user_email : '',
-      'vendor_name' => $vendor ? $vendor->display_name : '',
+      'customer_name' => !empty($row['customer_name']) ? (string) $row['customer_name'] : ($customer ? (string) $customer->display_name : ''),
+      'customer_email' => !empty($row['customer_email']) ? (string) $row['customer_email'] : ($customer ? (string) $customer->user_email : ''),
+      'vendor_name' => !empty($row['vendor_name']) ? (string) $row['vendor_name'] : ($vendor ? (string) $vendor->display_name : ''),
       'listing_title' => $listing_title,
       'service_title' => $service_title,
       'start_datetime' => $row['start_datetime'],
@@ -412,13 +417,13 @@ class Admin_Dashboard {
     }
 
     if ($date_from) {
-      $where .= ' AND DATE(start_datetime) >= %s';
-      $params[] = $date_from;
+      $where .= ' AND start_datetime >= %s';
+      $params[] = $date_from . ' 00:00:00';
     }
 
     if ($date_to) {
-      $where .= ' AND DATE(start_datetime) <= %s';
-      $params[] = $date_to;
+      $where .= ' AND start_datetime < %s';
+      $params[] = date('Y-m-d 00:00:00', strtotime($date_to . ' +1 day'));
     }
 
     $sql = "SELECT * FROM {$table} WHERE {$where} ORDER BY start_datetime DESC LIMIT 10000";

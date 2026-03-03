@@ -11,7 +11,6 @@ class Customer_Bookings_API {
   private static array $listing_title_cache = [];
   private static array $service_title_cache = [];
   private static array $service_meta_cache = [];
-  private static array $booking_option_cache = [];
   private static array $listing_settings_cache = [];
   private static array $listing_author_cache = [];
 
@@ -141,50 +140,6 @@ class Customer_Bookings_API {
     delete_transient(sprintf('koopo_vendor_analytics_%d_%d', $vendor_id, $listing_id));
   }
 
-  private static function prime_booking_options(array $booking_ids): void {
-    global $wpdb;
-    $booking_ids = array_values(array_filter(array_map('absint', $booking_ids)));
-    if (!$booking_ids) return;
-
-    $fields = [
-      'cancelled_by',
-      'refund_amount',
-      'refund_status',
-    ];
-
-    $option_names = [];
-    foreach ($booking_ids as $id) {
-      foreach ($fields as $field) {
-        $option_names[] = "koopo_booking_{$id}_{$field}";
-      }
-    }
-    if (!$option_names) return;
-
-    $placeholders = implode(',', array_fill(0, count($option_names), '%s'));
-    $sql = $wpdb->prepare(
-      "SELECT option_name, option_value FROM {$wpdb->options} WHERE option_name IN ($placeholders)",
-      $option_names
-    );
-    $rows = $wpdb->get_results($sql, ARRAY_A) ?: [];
-    foreach ($rows as $row) {
-      if (!isset($row['option_name'])) continue;
-      if (!preg_match('/^koopo_booking_(\d+)_(.+)$/', $row['option_name'], $m)) continue;
-      $booking_id = (int) $m[1];
-      $key = $m[2];
-      if (!isset(self::$booking_option_cache[$booking_id])) {
-        self::$booking_option_cache[$booking_id] = [];
-      }
-      self::$booking_option_cache[$booking_id][$key] = $row['option_value'];
-    }
-  }
-
-  private static function get_booking_option(int $booking_id, string $key, string $default = ''): string {
-    if (isset(self::$booking_option_cache[$booking_id]) && array_key_exists($key, self::$booking_option_cache[$booking_id])) {
-      return (string) self::$booking_option_cache[$booking_id][$key];
-    }
-    return $default;
-  }
-
   /**
    * Permission check: user must be logged in
    */
@@ -277,11 +232,9 @@ class Customer_Bookings_API {
       ]);
     }
 
-    $booking_ids = [];
     $service_ids = [];
     $listing_ids = [];
     foreach ($rows as $r) {
-      $booking_ids[] = (int) $r['id'];
       if (!empty($r['service_id'])) $service_ids[] = (int) $r['service_id'];
       if (!empty($r['listing_id'])) $listing_ids[] = (int) $r['listing_id'];
     }
@@ -295,8 +248,6 @@ class Customer_Bookings_API {
     if ($service_ids) {
       update_postmeta_cache($service_ids);
     }
-    self::prime_booking_options($booking_ids);
-
     foreach ($rows as $r) {
       $booking = (object) $r;
       
@@ -382,7 +333,7 @@ class Customer_Bookings_API {
     if (!$result['ok']) {
       return new \WP_Error('cancel_failed', $result['reason'] ?? 'Cancellation failed', ['status' => 500]);
     }
-    update_option("koopo_booking_{$booking_id}_cancelled_by", 'customer');
+    Bookings::update_booking_extras($booking_id, ['cancelled_by' => 'customer']);
 
     // Process refund if there's an order
     $order_id = (int) ($booking->wc_order_id ?? 0);
@@ -421,12 +372,12 @@ class Customer_Bookings_API {
       }
     }
 
-    update_option("koopo_booking_{$booking_id}_refund_amount", (string) $refund_amount);
     $refund_status = $refund_amount > 0 ? ($refund_processed ? 'refunded' : 'pending') : 'none';
-    update_option("koopo_booking_{$booking_id}_refund_status", $refund_status);
-    if ($reason) {
-      update_option("koopo_booking_{$booking_id}_cancel_reason", sanitize_textarea_field($reason));
-    }
+    Bookings::update_booking_extras($booking_id, [
+      'refund_amount' => $refund_amount,
+      'refund_status' => $refund_status,
+      'cancel_reason' => $reason,
+    ]);
 
     if (!empty($booking->listing_id)) {
       self::invalidate_vendor_analytics_cache((int) $booking->listing_id);
@@ -435,14 +386,20 @@ class Customer_Bookings_API {
     // Trigger notification
     do_action('koopo_customer_cancelled_booking', $booking_id, $customer_id, $reason, $refund_amount);
 
+    $message = 'Appointment cancelled successfully.';
+    if ($refund_amount > 0 && $refund_processed) {
+      $message = sprintf('Appointment cancelled. Refund of $%.2f processed.', $refund_amount);
+    } elseif ($refund_amount > 0) {
+      $message = sprintf('Appointment cancelled. Refund of $%.2f is pending manual review.', $refund_amount);
+    }
+
     return rest_ensure_response([
       'ok' => true,
       'refund_amount' => $refund_amount,
+      'refund_status' => $refund_status,
       'refund_message' => $refund_message,
       'refund_processed' => $refund_processed,
-      'message' => $refund_amount > 0 
-        ? sprintf('Appointment cancelled. Refund of $%.2f will be processed.', $refund_amount)
-        : 'Appointment cancelled successfully.',
+      'message' => $message,
     ]);
   }
 
@@ -628,16 +585,15 @@ class Customer_Bookings_API {
     $duration_mins = ($end_ts - $start_ts) / 60;
     $duration_formatted = Date_Formatter::format_duration((int) $duration_mins);
 
-    $addon_summary = self::get_addons_summary((int) $booking->id);
+    $addon_summary = self::get_addons_summary($booking);
 
     $service_meta = self::get_service_meta((int) $booking->service_id);
     $service_price = $service_meta['price'];
     $service_duration = $service_meta['duration'];
 
-    $cancelled_by = self::get_booking_option((int) $booking->id, 'cancelled_by', '');
-    $refund_amount_meta = self::get_booking_option((int) $booking->id, 'refund_amount', '');
-    $refund_amount_meta = is_numeric($refund_amount_meta) ? (float) $refund_amount_meta : 0.0;
-    $refund_status = self::get_booking_option((int) $booking->id, 'refund_status', '');
+    $cancelled_by = (string) Bookings::extra_from_record($booking, 'cancelled_by', '');
+    $refund_amount_meta = (float) Bookings::extra_from_record($booking, 'refund_amount', 0.0);
+    $refund_status = (string) Bookings::extra_from_record($booking, 'refund_status', '');
 
     // Determine what actions customer can take
     $status = (string) $booking->status;
@@ -712,8 +668,8 @@ class Customer_Bookings_API {
     ];
   }
 
-  private static function get_addons_summary(int $booking_id): array {
-    $raw = get_option("koopo_booking_{$booking_id}_addon_ids", '');
+  private static function get_addons_summary($booking): array {
+    $raw = Bookings::extra_from_record($booking, 'addon_ids', '');
     $ids = [];
 
     if (is_array($raw)) {

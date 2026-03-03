@@ -159,6 +159,31 @@ class Order_Hooks {
     self::cancel_from_order($order, 'refunded');
   }
 
+  private static function booking_refund_amount_from_order(\WC_Order $order, int $booking_id): float {
+    $amount = 0.0;
+    foreach ($order->get_items() as $item) {
+      $item_booking_id = (int) $item->get_meta('_koopo_booking_id', true);
+      if ($item_booking_id !== $booking_id) {
+        continue;
+      }
+      $amount += (float) $item->get_total();
+      if (method_exists($item, 'get_total_tax')) {
+        $amount += (float) $item->get_total_tax();
+      }
+    }
+
+    if ($amount > 0) {
+      return round($amount, 2);
+    }
+
+    $booking = Bookings::get_booking($booking_id);
+    if ($booking && isset($booking->price) && is_numeric($booking->price)) {
+      return round((float) $booking->price, 2);
+    }
+
+    return 0.0;
+  }
+
   private static function cancel_from_order(\WC_Order $order, string $new_status) {
     $booking_ids = self::get_booking_ids_from_order($order);
 
@@ -175,13 +200,19 @@ class Order_Hooks {
       $processed[] = $booking_id;
       self::set_meta_id_list($order, $meta_key, $processed);
         $order->add_order_note(sprintf('Koopo booking #%d marked %s (%s).', $booking_id, $new_status, $result['reason']));
-        update_option("koopo_booking_{$booking_id}_cancelled_by", 'system');
         if ($new_status === 'refunded') {
-          update_option("koopo_booking_{$booking_id}_refund_amount", (string) $order->get_total_refunded());
-          update_option("koopo_booking_{$booking_id}_refund_status", 'refunded');
+          $booking_refund_amount = self::booking_refund_amount_from_order($order, $booking_id);
+          Bookings::update_booking_extras($booking_id, [
+            'cancelled_by' => 'system',
+            'refund_amount' => $booking_refund_amount,
+            'refund_status' => 'refunded',
+          ]);
         } else {
-          update_option("koopo_booking_{$booking_id}_refund_amount", '0');
-          update_option("koopo_booking_{$booking_id}_refund_status", 'none');
+          Bookings::update_booking_extras($booking_id, [
+            'cancelled_by' => 'system',
+            'refund_amount' => 0,
+            'refund_status' => 'none',
+          ]);
         }
       } else {
         $order->add_order_note(sprintf('Koopo booking #%d could not be marked %s: %s.', $booking_id, $new_status, $result['reason'] ?? 'unknown'));

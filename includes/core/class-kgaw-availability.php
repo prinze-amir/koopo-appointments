@@ -215,8 +215,9 @@ $busy = self::get_busy_ranges($listing_id, $date);
        FROM {$table}
        WHERE listing_id = %d
          AND status IN ({$placeholders})
-         AND start_datetime BETWEEN %s AND %s",
-      array_merge([$listing_id], $statuses, [$dayStart, $dayEnd])
+         AND start_datetime < %s
+         AND end_datetime > %s",
+      array_merge([$listing_id], $statuses, [$dayEnd, $dayStart])
     );
 
     $rows = $wpdb->get_results($sql);

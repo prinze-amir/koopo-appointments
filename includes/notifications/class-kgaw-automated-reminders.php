@@ -92,12 +92,12 @@ class Automated_Reminders {
       if (!$booking_id) {
         continue;
       }
-      $sent = get_option("koopo_booking_{$booking_id}_review_invite_sent", '');
+      $sent = (string) Bookings::extra_from_record($booking, 'review_invite_sent', '');
       if ($sent) {
         continue;
       }
       do_action('koopo_booking_review_invite', $booking_id, $booking);
-      update_option("koopo_booking_{$booking_id}_review_invite_sent", current_time('mysql'));
+      Bookings::update_booking_extras($booking_id, ['review_invite_sent' => current_time('mysql')]);
     }
   }
 

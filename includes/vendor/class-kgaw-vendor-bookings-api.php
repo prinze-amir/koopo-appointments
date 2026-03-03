@@ -10,7 +10,6 @@ defined('ABSPATH') || exit;
 class Vendor_Bookings_API {
   private static array $listing_title_cache = [];
   private static array $service_title_cache = [];
-  private static array $booking_option_cache = [];
   private static array $service_meta_cache = [];
 
   public static function init(): void {
@@ -65,6 +64,7 @@ class Vendor_Bookings_API {
         'action' => ['type' => 'string', 'required' => true],
         'note'   => ['type' => 'string', 'required' => false],
         'amount' => ['type' => 'number', 'required' => false], // NEW: for partial refunds
+        'refund_type' => ['type' => 'string', 'required' => false], // standard|fraud
       ],
     ]);
 
@@ -149,52 +149,17 @@ class Vendor_Bookings_API {
     return self::$service_meta_cache[$service_id];
   }
 
-  private static function prime_booking_options(array $booking_ids): void {
-    global $wpdb;
-    $booking_ids = array_values(array_filter(array_map('absint', $booking_ids)));
-    if (!$booking_ids) return;
-
-    $fields = [
-      'customer_name',
-      'customer_email',
-      'customer_phone',
-      'booking_for_other',
-      'cancelled_by',
-      'refund_amount',
-      'refund_status',
-    ];
-
-    $option_names = [];
-    foreach ($booking_ids as $id) {
-      foreach ($fields as $field) {
-        $option_names[] = "koopo_booking_{$id}_{$field}";
-      }
-    }
-    if (!$option_names) return;
-
-    $placeholders = implode(',', array_fill(0, count($option_names), '%s'));
-    $sql = $wpdb->prepare(
-      "SELECT option_name, option_value FROM {$wpdb->options} WHERE option_name IN ($placeholders)",
-      $option_names
-    );
-    $rows = $wpdb->get_results($sql, ARRAY_A) ?: [];
-    foreach ($rows as $row) {
-      if (!isset($row['option_name'])) continue;
-      if (!preg_match('/^koopo_booking_(\d+)_(.+)$/', $row['option_name'], $m)) continue;
-      $booking_id = (int) $m[1];
-      $key = $m[2];
-      if (!isset(self::$booking_option_cache[$booking_id])) {
-        self::$booking_option_cache[$booking_id] = [];
-      }
-      self::$booking_option_cache[$booking_id][$key] = $row['option_value'];
-    }
+  private static function normalize_refund_type($raw): string {
+    $type = strtolower(sanitize_key((string) $raw));
+    return $type === 'fraud' ? 'fraud' : 'standard';
   }
 
-  private static function get_booking_option(int $booking_id, string $key, string $default = ''): string {
-    if (isset(self::$booking_option_cache[$booking_id]) && array_key_exists($key, self::$booking_option_cache[$booking_id])) {
-      return (string) self::$booking_option_cache[$booking_id][$key];
+  private static function append_refund_type_token(string $reason, string $refund_type): string {
+    $clean = trim((string) preg_replace('/\[#koopo_refund_type:(?:standard|fraud)\]\s*/i', '', $reason));
+    if ($clean === '') {
+      return sprintf('[#koopo_refund_type:%s]', $refund_type);
     }
-    return $default;
+    return sprintf('[#koopo_refund_type:%s] %s', $refund_type, $clean);
   }
 
   public static function can_access(): bool {
@@ -251,16 +216,18 @@ class Vendor_Bookings_API {
         $month = (string) current_time('n');
         $year = (string) current_time('Y');
       }
-      // Month filter
-      if ($month && is_numeric($month)) {
-        $where .= ' AND MONTH(start_datetime) = %d';
-        $params[] = (int) $month;
-      }
-
-      // Year filter
-      if ($year && is_numeric($year)) {
-        $where .= ' AND YEAR(start_datetime) = %d';
-        $params[] = (int) $year;
+      if ($month && is_numeric($month) && $year && is_numeric($year)) {
+        $month_start = sprintf('%04d-%02d-01 00:00:00', (int) $year, (int) $month);
+        $month_end = date('Y-m-d H:i:s', strtotime($month_start . ' +1 month'));
+        $where .= ' AND start_datetime >= %s AND start_datetime < %s';
+        $params[] = $month_start;
+        $params[] = $month_end;
+      } elseif ($year && is_numeric($year)) {
+        $year_start = sprintf('%04d-01-01 00:00:00', (int) $year);
+        $year_end = sprintf('%04d-01-01 00:00:00', ((int) $year) + 1);
+        $where .= ' AND start_datetime >= %s AND start_datetime < %s';
+        $params[] = $year_start;
+        $params[] = $year_end;
       }
     }
 
@@ -271,40 +238,20 @@ class Vendor_Bookings_API {
       $params[] = $range_end;
     }
 
-    // Search filter (customer name, email, phone from booking meta)
-    $search_booking_ids = [];
     if ($search) {
       $search_term = '%' . $wpdb->esc_like($search) . '%';
-
-      // Search in options table for customer details
-      $search_sql = $wpdb->prepare(
-        "SELECT DISTINCT REPLACE(option_name, 'koopo_booking_', '') as booking_id
-         FROM {$wpdb->options}
-         WHERE (option_name LIKE 'koopo_booking_%%_customer_name'
-                OR option_name LIKE 'koopo_booking_%%_customer_email'
-                OR option_name LIKE 'koopo_booking_%%_customer_phone')
-         AND option_value LIKE %s",
-        $search_term
-      );
-
-      $search_results = $wpdb->get_col($search_sql);
-      if ($search_results) {
-        foreach ($search_results as $result) {
-          // Extract booking ID from option_name
-          $booking_id = (int) preg_replace('/[^0-9]/', '', $result);
-          if ($booking_id > 0) {
-            $search_booking_ids[] = $booking_id;
-          }
-        }
-      }
-
-      if (!empty($search_booking_ids)) {
-        $id_placeholders = implode(',', array_fill(0, count($search_booking_ids), '%d'));
-        $where .= " AND id IN ($id_placeholders)";
-        $params = array_merge($params, $search_booking_ids);
+      if (ctype_digit($search)) {
+        $where .= ' AND (id = %d OR customer_id = %d OR customer_name LIKE %s OR customer_email LIKE %s OR customer_phone LIKE %s)';
+        $params[] = (int) $search;
+        $params[] = (int) $search;
+        $params[] = $search_term;
+        $params[] = $search_term;
+        $params[] = $search_term;
       } else {
-        // If search term provided but no matches, return empty result
-        $where .= ' AND 1=0';
+        $where .= ' AND (customer_name LIKE %s OR customer_email LIKE %s OR customer_phone LIKE %s)';
+        $params[] = $search_term;
+        $params[] = $search_term;
+        $params[] = $search_term;
       }
     }
 
@@ -332,12 +279,10 @@ class Vendor_Bookings_API {
       ]);
     }
 
-    $booking_ids = [];
     $service_ids = [];
     $listing_ids = [];
     $customer_ids = [];
     foreach ($rows as $r) {
-      $booking_ids[] = (int) $r['id'];
       if (!empty($r['service_id'])) $service_ids[] = (int) $r['service_id'];
       if (!empty($r['listing_id'])) $listing_ids[] = (int) $r['listing_id'];
       if (!empty($r['customer_id'])) $customer_ids[] = (int) $r['customer_id'];
@@ -356,8 +301,6 @@ class Vendor_Bookings_API {
     if ($customer_ids && function_exists('cache_users')) {
       cache_users($customer_ids);
     }
-    self::prime_booking_options($booking_ids);
-
     foreach ($rows as $r) {
       $listing_title = $r['listing_id'] ? self::listing_title((int)$r['listing_id']) : '';
       $service_id = (int) $r['service_id'];
@@ -383,18 +326,17 @@ class Vendor_Bookings_API {
       }
       $booking_id = (int) $r['id'];
       if (!$customer_name) {
-        $customer_name = self::get_booking_option($booking_id, 'customer_name', '');
+        $customer_name = (string) Bookings::extra_from_record($r, 'customer_name', '');
       }
       if (!$customer_email) {
-        $customer_email = self::get_booking_option($booking_id, 'customer_email', '');
+        $customer_email = (string) Bookings::extra_from_record($r, 'customer_email', '');
       }
-      $customer_phone = self::get_booking_option($booking_id, 'customer_phone', '');
-      $booking_for_other = self::get_booking_option($booking_id, 'booking_for_other', '') === '1';
-      $cancelled_by = self::get_booking_option($booking_id, 'cancelled_by', '');
-      $refund_amount_meta = self::get_booking_option($booking_id, 'refund_amount', '');
-      $refund_amount_meta = is_numeric($refund_amount_meta) ? (float) $refund_amount_meta : 0.0;
-      $refund_status = (string) self::get_booking_option($booking_id, 'refund_status', '');
-      $addon_summary = self::get_addons_summary($booking_id);
+      $customer_phone = (string) Bookings::extra_from_record($r, 'customer_phone', '');
+      $booking_for_other = (int) Bookings::extra_from_record($r, 'booking_for_other', 0) === 1;
+      $cancelled_by = (string) Bookings::extra_from_record($r, 'cancelled_by', '');
+      $refund_amount_meta = (float) Bookings::extra_from_record($r, 'refund_amount', 0.0);
+      $refund_status = (string) Bookings::extra_from_record($r, 'refund_status', '');
+      $addon_summary = self::get_addons_summary($r);
 
       $service_price = $service_meta['price'];
       $service_duration = $service_meta['duration'];
@@ -501,6 +443,11 @@ class Vendor_Bookings_API {
       'booking_price' => (float) $booking->price,
       'policy' => $policy_summary,
       'woocommerce' => $wc_info,
+      'koopo_refund_policy' => [
+        'active' => class_exists('\Koopo\RefundPolicy\Plugin'),
+        'supports_fraud_type' => true,
+        'default_type' => 'standard',
+      ],
     ]);
   }
 
@@ -508,6 +455,7 @@ class Vendor_Bookings_API {
     $booking_id = (int) $request->get_param('id');
     $action = sanitize_key((string) $request->get_param('action'));
     $note = (string) $request->get_param('note');
+    $refund_type = self::normalize_refund_type($request->get_param('refund_type'));
 
     $booking = Bookings::get_booking($booking_id);
     if (!$booking) {
@@ -529,9 +477,11 @@ class Vendor_Bookings_API {
       if (!$result['ok']) {
         return new \WP_Error('koopo_cancel_failed', $result['reason'] ?? 'Cancel failed', ['status' => 409]);
       }
-      update_option("koopo_booking_{$booking_id}_cancelled_by", 'vendor');
-      update_option("koopo_booking_{$booking_id}_refund_amount", '0');
-      update_option("koopo_booking_{$booking_id}_refund_status", 'none');
+      Bookings::update_booking_extras($booking_id, [
+        'cancelled_by' => 'vendor',
+        'refund_amount' => 0,
+        'refund_status' => 'none',
+      ]);
 
       if ($order) {
         $order_note = 'Koopo: Vendor cancelled booking #'.$booking_id;
@@ -686,10 +636,11 @@ class Vendor_Bookings_API {
       }
 
       // Step 4: Process WooCommerce refund
+      $refund_note = self::append_refund_type_token($note, $refund_type);
       $refund_result = Refund_Processor::process_refund(
         $order->get_id(),
         $refund_amount,
-        $note,
+        $refund_note,
         $booking_id
       );
 
@@ -716,9 +667,11 @@ class Vendor_Bookings_API {
       // Step 6: Trigger notification hook
       do_action('koopo_vendor_refund_processed', $booking_id, $order->get_id(), $refund_amount, $refund_result);
 
-      update_option("koopo_booking_{$booking_id}_cancelled_by", 'vendor');
-      update_option("koopo_booking_{$booking_id}_refund_amount", (string) $refund_amount);
-      update_option("koopo_booking_{$booking_id}_refund_status", 'refunded');
+      Bookings::update_booking_extras($booking_id, [
+        'cancelled_by' => 'vendor',
+        'refund_amount' => $refund_amount,
+        'refund_status' => 'refunded',
+      ]);
 
       // Step 7: Return detailed success response
       self::invalidate_analytics_cache_for_booking($booking);
@@ -842,52 +795,34 @@ class Vendor_Bookings_API {
       $params[] = $status;
     }
 
-    // Month filter
-    if ($month && is_numeric($month)) {
-      $where .= ' AND MONTH(start_datetime) = %d';
-      $params[] = (int) $month;
+    if ($month && is_numeric($month) && $year && is_numeric($year)) {
+      $month_start = sprintf('%04d-%02d-01 00:00:00', (int) $year, (int) $month);
+      $month_end = date('Y-m-d H:i:s', strtotime($month_start . ' +1 month'));
+      $where .= ' AND start_datetime >= %s AND start_datetime < %s';
+      $params[] = $month_start;
+      $params[] = $month_end;
+    } elseif ($year && is_numeric($year)) {
+      $year_start = sprintf('%04d-01-01 00:00:00', (int) $year);
+      $year_end = sprintf('%04d-01-01 00:00:00', ((int) $year) + 1);
+      $where .= ' AND start_datetime >= %s AND start_datetime < %s';
+      $params[] = $year_start;
+      $params[] = $year_end;
     }
 
-    // Year filter
-    if ($year && is_numeric($year)) {
-      $where .= ' AND YEAR(start_datetime) = %d';
-      $params[] = (int) $year;
-    }
-
-    // Search filter (customer name, email, phone from booking meta)
-    $search_booking_ids = [];
     if ($search) {
       $search_term = '%' . $wpdb->esc_like($search) . '%';
-
-      // Search in options table for customer details
-      $search_sql = $wpdb->prepare(
-        "SELECT DISTINCT REPLACE(option_name, 'koopo_booking_', '') as booking_id
-         FROM {$wpdb->options}
-         WHERE (option_name LIKE 'koopo_booking_%%_customer_name'
-                OR option_name LIKE 'koopo_booking_%%_customer_email'
-                OR option_name LIKE 'koopo_booking_%%_customer_phone')
-         AND option_value LIKE %s",
-        $search_term
-      );
-
-      $search_results = $wpdb->get_col($search_sql);
-      if ($search_results) {
-        foreach ($search_results as $result) {
-          // Extract booking ID from option_name
-          $booking_id = (int) preg_replace('/[^0-9]/', '', $result);
-          if ($booking_id > 0) {
-            $search_booking_ids[] = $booking_id;
-          }
-        }
-      }
-
-      if (!empty($search_booking_ids)) {
-        $id_placeholders = implode(',', array_fill(0, count($search_booking_ids), '%d'));
-        $where .= " AND id IN ($id_placeholders)";
-        $params = array_merge($params, $search_booking_ids);
+      if (ctype_digit($search)) {
+        $where .= ' AND (id = %d OR customer_id = %d OR customer_name LIKE %s OR customer_email LIKE %s OR customer_phone LIKE %s)';
+        $params[] = (int) $search;
+        $params[] = (int) $search;
+        $params[] = $search_term;
+        $params[] = $search_term;
+        $params[] = $search_term;
       } else {
-        // If search term provided but no matches, return empty result
-        $where .= ' AND 1=0';
+        $where .= ' AND (customer_name LIKE %s OR customer_email LIKE %s OR customer_phone LIKE %s)';
+        $params[] = $search_term;
+        $params[] = $search_term;
+        $params[] = $search_term;
       }
     }
 
@@ -932,10 +867,9 @@ class Vendor_Bookings_API {
       $listing_title = $r['listing_id'] ? self::listing_title((int)$r['listing_id']) : '';
       $service_title = $r['service_id'] ? self::service_title((int)$r['service_id']) : '';
 
-      // Get customer details from booking meta
-      $customer_name = get_option("koopo_booking_{$r['id']}_customer_name", '');
-      $customer_email = get_option("koopo_booking_{$r['id']}_customer_email", '');
-      $customer_phone = get_option("koopo_booking_{$r['id']}_customer_phone", '');
+      $customer_name = (string) Bookings::extra_from_record($r, 'customer_name', '');
+      $customer_email = (string) Bookings::extra_from_record($r, 'customer_email', '');
+      $customer_phone = (string) Bookings::extra_from_record($r, 'customer_phone', '');
 
       $tz = !empty($r['timezone']) ? (string)$r['timezone'] : '';
 
@@ -1053,8 +987,8 @@ class Vendor_Bookings_API {
     return rest_ensure_response($payload);
   }
 
-  private static function get_addons_summary(int $booking_id): array {
-    $raw = get_option("koopo_booking_{$booking_id}_addon_ids", '');
+  private static function get_addons_summary($booking): array {
+    $raw = Bookings::extra_from_record($booking, 'addon_ids', '');
     $ids = [];
 
     if (is_array($raw)) {

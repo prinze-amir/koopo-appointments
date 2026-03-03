@@ -91,23 +91,23 @@ class Analytics_Dashboard {
     $table = DB::table();
 
     $period = (int) $request->get_param('period');
-    $date_from = date('Y-m-d', strtotime("-{$period} days"));
+    $date_from = date('Y-m-d 00:00:00', strtotime("-{$period} days", current_time('timestamp')));
 
     // Total bookings
     $total_bookings = $wpdb->get_var($wpdb->prepare(
-      "SELECT COUNT(*) FROM {$table} WHERE DATE(created_at) >= %s",
+      "SELECT COUNT(*) FROM {$table} WHERE created_at >= %s",
       $date_from
     ));
 
     // Confirmed bookings
     $confirmed_bookings = $wpdb->get_var($wpdb->prepare(
-      "SELECT COUNT(*) FROM {$table} WHERE status = 'confirmed' AND DATE(created_at) >= %s",
+      "SELECT COUNT(*) FROM {$table} WHERE status = 'confirmed' AND created_at >= %s",
       $date_from
     ));
 
     // Total revenue
     $total_revenue = $wpdb->get_var($wpdb->prepare(
-      "SELECT SUM(price) FROM {$table} WHERE status IN ('confirmed', 'completed') AND DATE(created_at) >= %s",
+      "SELECT SUM(price) FROM {$table} WHERE status IN ('confirmed', 'completed') AND created_at >= %s",
       $date_from
     ));
 
@@ -116,42 +116,42 @@ class Analytics_Dashboard {
 
     // Cancellation rate
     $cancelled = $wpdb->get_var($wpdb->prepare(
-      "SELECT COUNT(*) FROM {$table} WHERE status IN ('cancelled', 'refunded') AND DATE(created_at) >= %s",
+      "SELECT COUNT(*) FROM {$table} WHERE status IN ('cancelled', 'refunded') AND created_at >= %s",
       $date_from
     ));
     $cancellation_rate = $total_bookings > 0 ? ($cancelled / $total_bookings) * 100 : 0;
 
     // No-show rate (expired bookings)
     $no_shows = $wpdb->get_var($wpdb->prepare(
-      "SELECT COUNT(*) FROM {$table} WHERE status = 'expired' AND DATE(created_at) >= %s",
+      "SELECT COUNT(*) FROM {$table} WHERE status = 'expired' AND created_at >= %s",
       $date_from
     ));
     $no_show_rate = $total_bookings > 0 ? ($no_shows / $total_bookings) * 100 : 0;
 
     // Unique customers
     $unique_customers = $wpdb->get_var($wpdb->prepare(
-      "SELECT COUNT(DISTINCT customer_id) FROM {$table} WHERE DATE(created_at) >= %s",
+      "SELECT COUNT(DISTINCT customer_id) FROM {$table} WHERE created_at >= %s",
       $date_from
     ));
 
     // Active vendors
     $active_vendors = $wpdb->get_var($wpdb->prepare(
-      "SELECT COUNT(DISTINCT listing_author_id) FROM {$table} WHERE DATE(created_at) >= %s",
+      "SELECT COUNT(DISTINCT listing_author_id) FROM {$table} WHERE created_at >= %s",
       $date_from
     ));
 
     // Compare with previous period
-    $prev_date_from = date('Y-m-d', strtotime("-" . ($period * 2) . " days"));
-    $prev_date_to = date('Y-m-d', strtotime("-{$period} days"));
+    $prev_date_from = date('Y-m-d 00:00:00', strtotime("-" . ($period * 2) . " days", current_time('timestamp')));
+    $prev_date_to = date('Y-m-d 00:00:00', strtotime("-{$period} days", current_time('timestamp')));
 
     $prev_bookings = $wpdb->get_var($wpdb->prepare(
-      "SELECT COUNT(*) FROM {$table} WHERE DATE(created_at) BETWEEN %s AND %s",
+      "SELECT COUNT(*) FROM {$table} WHERE created_at >= %s AND created_at < %s",
       $prev_date_from,
       $prev_date_to
     ));
 
     $prev_revenue = $wpdb->get_var($wpdb->prepare(
-      "SELECT SUM(price) FROM {$table} WHERE status IN ('confirmed', 'completed') AND DATE(created_at) BETWEEN %s AND %s",
+      "SELECT SUM(price) FROM {$table} WHERE status IN ('confirmed', 'completed') AND created_at >= %s AND created_at < %s",
       $prev_date_from,
       $prev_date_to
     ));
@@ -187,7 +187,7 @@ class Analytics_Dashboard {
 
     $period = (int) $request->get_param('period');
     $groupby = sanitize_key($request->get_param('groupby'));
-    $date_from = date('Y-m-d', strtotime("-{$period} days"));
+    $date_from = date('Y-m-d 00:00:00', strtotime("-{$period} days", current_time('timestamp')));
 
     $date_format = $groupby === 'week' ? '%Y-%U' : '%Y-%m-%d';
 
@@ -199,7 +199,7 @@ class Analytics_Dashboard {
         SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) as cancelled,
         SUM(CASE WHEN status = 'refunded' THEN price ELSE 0 END) as refunded
        FROM {$table}
-       WHERE DATE(created_at) >= %s
+       WHERE created_at >= %s
        GROUP BY period
        ORDER BY period ASC",
       $date_format,
@@ -222,7 +222,7 @@ class Analytics_Dashboard {
 
     $period = (int) $request->get_param('period');
     $limit = min(50, (int) $request->get_param('limit'));
-    $date_from = date('Y-m-d', strtotime("-{$period} days"));
+    $date_from = date('Y-m-d 00:00:00', strtotime("-{$period} days", current_time('timestamp')));
 
     $data = $wpdb->get_results($wpdb->prepare(
       "SELECT 
@@ -231,7 +231,7 @@ class Analytics_Dashboard {
         SUM(CASE WHEN status IN ('confirmed', 'completed') THEN price ELSE 0 END) as revenue,
         AVG(price) as avg_price
        FROM {$table}
-       WHERE DATE(created_at) >= %s
+       WHERE created_at >= %s
        GROUP BY service_id
        ORDER BY bookings DESC
        LIMIT %d",
@@ -259,7 +259,7 @@ class Analytics_Dashboard {
 
     $period = (int) $request->get_param('period');
     $limit = min(50, (int) $request->get_param('limit'));
-    $date_from = date('Y-m-d', strtotime("-{$period} days"));
+    $date_from = date('Y-m-d 00:00:00', strtotime("-{$period} days", current_time('timestamp')));
 
     $data = $wpdb->get_results($wpdb->prepare(
       "SELECT 
@@ -268,7 +268,7 @@ class Analytics_Dashboard {
         SUM(CASE WHEN status IN ('confirmed', 'completed') THEN price ELSE 0 END) as revenue,
         COUNT(DISTINCT customer_id) as unique_customers
        FROM {$table}
-       WHERE DATE(created_at) >= %s
+       WHERE created_at >= %s
        GROUP BY listing_author_id
        ORDER BY revenue DESC
        LIMIT %d",
@@ -296,7 +296,7 @@ class Analytics_Dashboard {
     $table = DB::table();
 
     $period = (int) $request->get_param('period');
-    $date_from = date('Y-m-d', strtotime("-{$period} days"));
+    $date_from = date('Y-m-d 00:00:00', strtotime("-{$period} days", current_time('timestamp')));
 
     // Peak hours
     $peak_hours = $wpdb->get_results($wpdb->prepare(
@@ -304,7 +304,7 @@ class Analytics_Dashboard {
         HOUR(start_datetime) as hour,
         COUNT(*) as bookings
        FROM {$table}
-       WHERE DATE(created_at) >= %s
+       WHERE created_at >= %s
        GROUP BY hour
        ORDER BY bookings DESC
        LIMIT 5",
@@ -317,7 +317,7 @@ class Analytics_Dashboard {
         DAYOFWEEK(start_datetime) as day_num,
         COUNT(*) as bookings
        FROM {$table}
-       WHERE DATE(created_at) >= %s
+       WHERE created_at >= %s
        GROUP BY day_num
        ORDER BY bookings DESC",
       $date_from
@@ -332,7 +332,7 @@ class Analytics_Dashboard {
     $avg_lead_time = $wpdb->get_var($wpdb->prepare(
       "SELECT AVG(DATEDIFF(start_datetime, created_at)) as avg_days
        FROM {$table}
-       WHERE DATE(created_at) >= %s AND status IN ('confirmed', 'pending_payment')",
+       WHERE created_at >= %s AND status IN ('confirmed', 'pending_payment')",
       $date_from
     ));
 
