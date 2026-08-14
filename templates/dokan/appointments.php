@@ -7,7 +7,7 @@ defined('ABSPATH') || exit;
     ?>
   <div class="dokan-dashboard-content koopo-vendor-page">
 
-  <?php if ( ! \Koopo_Appointments\Dokan_Dashboard::vendor_has_listings( get_current_user_id() ) ) : ?>
+  <?php if ( ! \Koopo_Appointments\Dokan_Dashboard::vendor_has_booking_contexts( get_current_user_id() ) ) : ?>
     <?php \Koopo_Appointments\Dokan_Dashboard::render_no_listing_cta(); ?>
     </div>
     </div>
@@ -59,7 +59,7 @@ defined('ABSPATH') || exit;
 
   <div class="koopo-row koopo-row--gap">
     <div class="koopo-field">
-      <label for="koopo-appointments-picker">Listing</label>
+      <label for="koopo-appointments-picker">Booking profile</label>
       <select id="koopo-appointments-picker" class="koopo-select">
         <option value="">Loading…</option>
       </select>

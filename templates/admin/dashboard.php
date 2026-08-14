@@ -23,6 +23,8 @@ defined('ABSPATH') || exit;
     </div>
   </div>
 
+  <div class="koopo-quick-actions"><h2><?php esc_html_e('Provider Operations', 'koopo-appointments'); ?></h2><div id="koopo-operations-overview" class="koopo-stats-grid"></div><p class="description"><?php esc_html_e('Client records and external event details remain provider-private. Administrators see operational counts and sync health only.', 'koopo-appointments'); ?></p></div>
+
   <!-- Quick Actions -->
   <div class="koopo-quick-actions">
     <h2><?php esc_html_e('Quick Actions', 'koopo-appointments'); ?></h2>
@@ -32,6 +34,15 @@ defined('ABSPATH') || exit;
       </a>
       <a href="<?php echo esc_url(admin_url('admin.php?page=koopo-appointments-analytics')); ?>" class="button">
         <?php esc_html_e('View Analytics', 'koopo-appointments'); ?>
+      </a>
+      <a href="<?php echo esc_url(admin_url('edit.php?post_type=koopo_provider')); ?>" class="button">
+        <?php esc_html_e('Service Profiles', 'koopo-appointments'); ?>
+      </a>
+      <a href="<?php echo esc_url(admin_url('edit.php?post_type=koopo_service')); ?>" class="button">
+        <?php esc_html_e('Services', 'koopo-appointments'); ?>
+      </a>
+      <a href="<?php echo esc_url(admin_url('edit-tags.php?taxonomy=koopo_service_category&post_type=koopo_service')); ?>" class="button">
+        <?php esc_html_e('Service Categories', 'koopo-appointments'); ?>
       </a>
       <a href="<?php echo esc_url(admin_url('options-general.php?page=koopo-appointments-settings')); ?>" class="button">
         <?php esc_html_e('Settings', 'koopo-appointments'); ?>
@@ -112,6 +123,14 @@ jQuery(document).ready(function($) {
       </div>
     `;
     $('#koopo-stats-overview').html(html);
+    const ops = data.operations || {};
+    $('#koopo-operations-overview').html(`
+      <div class="koopo-stat-card"><div class="koopo-stat-content"><div class="koopo-stat-value">${ops.waitlist_active || 0}</div><div class="koopo-stat-label">Waiting customers</div></div></div>
+      <div class="koopo-stat-card"><div class="koopo-stat-content"><div class="koopo-stat-value">${ops.offers_live || 0}</div><div class="koopo-stat-label">Live opening offers</div></div></div>
+      <div class="koopo-stat-card"><div class="koopo-stat-content"><div class="koopo-stat-value">${ops.clients || 0}</div><div class="koopo-stat-label">Private client records</div></div></div>
+      <div class="koopo-stat-card"><div class="koopo-stat-content"><div class="koopo-stat-value">${ops.forms_pending || 0}</div><div class="koopo-stat-label">Forms outstanding</div></div></div>
+      <div class="koopo-stat-card"><div class="koopo-stat-content"><div class="koopo-stat-value">${ops.busy_sources || 0}</div><div class="koopo-stat-label">Availability calendars</div></div></div>
+      <div class="koopo-stat-card ${ops.busy_errors ? 'koopo-stat-card--warning' : ''}"><div class="koopo-stat-content"><div class="koopo-stat-value">${ops.busy_errors || 0}</div><div class="koopo-stat-label">Calendar sync errors</div></div></div>`);
   }
 
   // Load recent bookings

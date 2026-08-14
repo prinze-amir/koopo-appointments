@@ -20,6 +20,9 @@ class Dokan_Dashboard {
     $vars[] = 'koopo-appointments';
     $vars[] = 'koopo-services';
     $vars[] = 'koopo-appointment-settings';
+    $vars[] = 'koopo-professional-profile';
+    $vars[] = 'koopo-waitlist';
+    $vars[] = 'koopo-clients';
     return $vars;
   }
 
@@ -50,6 +53,21 @@ class Dokan_Dashboard {
           'url'   => dokan_get_navigation_url('koopo-appointment-settings'),
           'pos'   => 30,
         ],
+        'koopo-professional-profile' => [
+          'title' => __('Service Profile', 'appointments'),
+          'url' => dokan_get_navigation_url('koopo-professional-profile'),
+          'pos' => 40,
+        ],
+        'koopo-waitlist' => [
+          'title' => __('Waitlist', 'appointments'),
+          'url' => dokan_get_navigation_url('koopo-waitlist'),
+          'pos' => 35,
+        ],
+        'koopo-clients' => [
+          'title' => __('Clients & Forms', 'appointments'),
+          'url' => dokan_get_navigation_url('koopo-clients'),
+          'pos' => 32,
+        ],
       ],
     ];
 
@@ -73,6 +91,15 @@ public static function load_templates($query_vars) {
     if (isset($query_vars['koopo-appointment-settings'])) {
       self::load('settings.php'); return;
     }
+    if (isset($query_vars['koopo-professional-profile'])) {
+      self::load('provider-profile.php'); return;
+    }
+    if (isset($query_vars['koopo-waitlist'])) {
+      self::load('waitlist.php'); return;
+    }
+    if (isset($query_vars['koopo-clients'])) {
+      self::load('clients.php'); return;
+    }
   }
 
   private static function load(string $template_file): void {
@@ -89,7 +116,10 @@ public static function load_templates($query_vars) {
     $is_appointments = isset($wp_query->query_vars['koopo-appointments']);
     $is_services = isset($wp_query->query_vars['koopo-services']);
     $is_settings = isset($wp_query->query_vars['koopo-appointment-settings']);
-    $is_koopo = $is_appointments || $is_services || $is_settings;
+    $is_provider = isset($wp_query->query_vars['koopo-professional-profile']);
+    $is_waitlist = isset($wp_query->query_vars['koopo-waitlist']);
+    $is_clients = isset($wp_query->query_vars['koopo-clients']);
+    $is_koopo = $is_appointments || $is_services || $is_settings || $is_provider || $is_waitlist || $is_clients;
 
     if (!$is_koopo) return;
 
@@ -106,9 +136,20 @@ public static function load_templates($query_vars) {
       wp_enqueue_script('koopo-appt-vendor-calendar', KOOPO_APPT_URL . 'assets/vendor-calendar.js', ['jquery', 'koopo-appt-vendor-core'], KOOPO_APPT_VERSION, true);
       wp_enqueue_script('koopo-appt-vendor-appointments', KOOPO_APPT_URL . 'assets/vendor-appointments.js', ['jquery', 'koopo-appt-vendor-core', 'koopo-appt-vendor-calendar'], KOOPO_APPT_VERSION, true);
     }
+    if ($is_provider) {
+      wp_enqueue_script('koopo-appt-provider-profile', KOOPO_APPT_URL . 'assets/vendor-provider-profile.js', ['jquery', 'koopo-appt-vendor-core'], KOOPO_APPT_VERSION, true);
+    }
+    if ($is_waitlist) {
+      wp_enqueue_script('koopo-appt-vendor-waitlist', KOOPO_APPT_URL . 'assets/vendor-waitlist.js', ['jquery', 'koopo-appt-vendor-core'], KOOPO_APPT_VERSION, true);
+    }
+    if ($is_clients) {
+      wp_enqueue_script('koopo-appt-vendor-clients', KOOPO_APPT_URL . 'assets/vendor-clients.js', ['jquery', 'koopo-appt-vendor-core'], KOOPO_APPT_VERSION, true);
+    }
 
     wp_localize_script('koopo-appt-vendor-core', 'KOOPO_APPT_VENDOR', [
       'rest' => esc_url_raw(rest_url('koopo/v1')),
+      'mediaGatewayRest' => esc_url_raw(rest_url('koopo-media-gateway/v1')),
+      'serviceProfileImageMaxBytes' => (int) apply_filters('koopo_appt_service_profile_image_max_bytes', 6 * MB_IN_BYTES),
       'nonce' => wp_create_nonce('wp_rest'),
       'userId' => get_current_user_id(),
       'admin_url' => admin_url(),
@@ -118,6 +159,7 @@ public static function load_templates($query_vars) {
       'orders_nonce' => wp_create_nonce('dokan_view_order'),
       'currency_symbol' => function_exists('get_woocommerce_currency_symbol') ? get_woocommerce_currency_symbol() : '$',
       'listings' => Vendor_Listings_API::get_listings_for_user(get_current_user_id()),
+      'contexts' => Resources::contexts_for_user(get_current_user_id()),
     ]);
 
     // status badges reused (colors)
@@ -142,6 +184,18 @@ public static function load_templates($query_vars) {
       'no_found_rows' => true,
     ]);
     return !empty($query->posts);
+  }
+
+  public static function vendor_has_booking_contexts(int $vendor_id): bool {
+    if (self::vendor_has_listings($vendor_id)) return true;
+    $providers = get_posts([
+      'post_type' => Provider_Profiles::POST_TYPE,
+      'post_status' => 'publish',
+      'author' => $vendor_id,
+      'posts_per_page' => 1,
+      'fields' => 'ids',
+    ]);
+    return !empty($providers);
   }
 
   public static function get_create_listing_url(): string {
@@ -182,9 +236,19 @@ public static function load_templates($query_vars) {
   public static function render_no_listing_cta(): void {
     $url = self::get_create_listing_url();
     echo '<div class="koopo-cta-card">';
-    echo '<h3>' . esc_html__('Create your business listing to use Appointments', 'koopo-appointments') . '</h3>';
-    echo '<p>' . esc_html__('You need at least one business listing before you can manage services or appointments.', 'koopo-appointments') . '</p>';
-    echo '<a class="koopo-btn koopo-btn--gold" href="' . esc_url($url) . '">' . esc_html__('Create Business Listing', 'koopo-appointments') . '</a>';
+    echo '<h3>' . esc_html__('How do you provide services?', 'koopo-appointments') . '</h3>';
+    echo '<p>' . esc_html__('Create a service profile without a location, or use a business listing if you own one.', 'koopo-appointments') . '</p>';
+    echo '<div class="koopo-provider-quickstart">';
+    echo '<label class="koopo-provider-image-field"><span class="koopo-provider-image-preview" data-koopo-provider-create-preview><span aria-hidden="true">+</span></span><span><strong>' . esc_html__('Profile image', 'koopo-appointments') . '</strong><small>' . esc_html__('Optional. If left blank, your member profile photo is used.', 'koopo-appointments') . '</small><input id="koopo-provider-image" type="file" accept="image/jpeg,image/png,image/webp,image/avif" /></span></label>';
+    echo '<label>' . esc_html__('Service profile name', 'koopo-appointments') . '<input class="koopo-input" id="koopo-provider-name" type="text" /></label>';
+    echo '<label>' . esc_html__('Short headline', 'koopo-appointments') . '<input class="koopo-input" id="koopo-provider-headline" type="text" placeholder="Barber, therapist, consultant…" /></label>';
+    echo '<label><input type="checkbox" class="koopo-provider-mode" value="at_location" checked /> ' . esc_html__('At a business location', 'koopo-appointments') . '</label>';
+    echo '<label><input type="checkbox" class="koopo-provider-mode" value="mobile" /> ' . esc_html__('I travel to customers', 'koopo-appointments') . '</label>';
+    echo '<label><input type="checkbox" class="koopo-provider-mode" value="virtual" /> ' . esc_html__('Virtual services', 'koopo-appointments') . '</label>';
+    echo '<button type="button" class="koopo-btn koopo-btn--gold" id="koopo-create-provider">' . esc_html__('Create Service Profile', 'koopo-appointments') . '</button>';
+    echo '<span class="koopo-provider-create-status" aria-live="polite"></span>';
+    echo '</div>';
+    echo '<p><a class="koopo-btn koopo-btn--secondary" href="' . esc_url($url) . '">' . esc_html__('Create Business Listing Instead', 'koopo-appointments') . '</a></p>';
     echo '</div>';
   }
 }

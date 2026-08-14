@@ -9,6 +9,7 @@ class Services_API {
   const META_PRICE        = '_koopo_service_price';
   const META_DURATION     = '_koopo_service_duration_minutes';
   const META_LISTING_ID   = '_koopo_listing_id';
+  const META_PROVIDER_ID  = '_koopo_provider_id';
   const META_DESC         = '_koopo_service_description';
   const META_COLOR        = '_koopo_service_color';
   const META_STATUS       = '_koopo_service_status'; // active|inactive
@@ -79,7 +80,9 @@ class Services_API {
     $title      = sanitize_text_field((string)$req->get_param('title'));
     $price      = (float)$req->get_param('price');
     $duration   = absint($req->get_param('duration_minutes'));
-    $listing_id = absint($req->get_param('listing_id')); // service tied to a gd_place
+    $listing_id = absint($req->get_param('listing_id'));
+    $provider_id = absint($req->get_param('provider_id'));
+    $resource_id = absint($req->get_param('resource_id'));
 
     // Optional fields used by the vendor dashboard UI
     $desc        = sanitize_text_field((string)$req->get_param('description'));
@@ -90,19 +93,30 @@ class Services_API {
     $buf_after   = absint($req->get_param('buffer_after'));
     $instant     = !empty($req->get_param('instant')) ? '1' : '0';
     $is_addon    = !empty($req->get_param('is_addon')) ? '1' : '0';
-    $category_ids = $req->get_param('category_ids'); // array of term IDs
 
     if (!$title || !$duration) {
       return new \WP_REST_Response(['error' => 'title and duration_minutes are required'], 400);
     }
 
-    // Optional: validate listing ownership so vendors can’t attach services to other listings
+    if (($listing_id && $provider_id) || (!$listing_id && !$provider_id)) {
+      return new \WP_REST_Response(['error' => 'Choose either a business listing or service profile.'], 400);
+    }
+
+    // Validate the selected subject and derive the resource server-side.
     if ($listing_id) {
       $listing = get_post($listing_id);
-      if (!$listing || (int)$listing->post_author !== $user_id) {
+      if (!$listing || $listing->post_type !== 'gd_place' || (int)$listing->post_author !== $user_id) {
         return new \WP_REST_Response(['error' => 'Invalid listing ownership'], 403);
       }
+      $resource_id = Resources::ensure_for_listing($listing_id);
+    } else {
+      $provider = get_post($provider_id);
+      if (!$provider || $provider->post_type !== Provider_Profiles::POST_TYPE || (int) $provider->post_author !== $user_id) {
+        return new \WP_REST_Response(['error' => 'Invalid service profile ownership'], 403);
+      }
+      $resource_id = Resources::ensure_for_provider($provider_id);
     }
+    if (!$resource_id) return new \WP_REST_Response(['error' => 'Unable to create booking calendar.'], 500);
 
     $service_id = wp_insert_post([
       'post_type' => Services_CPT::POST_TYPE,
@@ -119,6 +133,8 @@ class Services_API {
     update_post_meta($service_id, self::META_PRICE, $price);
     update_post_meta($service_id, self::META_DURATION, $duration);
     if ($listing_id) update_post_meta($service_id, self::META_LISTING_ID, $listing_id);
+    if ($provider_id) update_post_meta($service_id, self::META_PROVIDER_ID, $provider_id);
+    update_post_meta($service_id, Resources::META_RESOURCE_ID, $resource_id);
     if ($desc) update_post_meta($service_id, self::META_DESC, $desc);
     if ($color) update_post_meta($service_id, self::META_COLOR, $color);
     if ($status) update_post_meta($service_id, self::META_STATUS, ($status === 'inactive' ? 'inactive' : 'active'));
@@ -127,12 +143,6 @@ class Services_API {
     update_post_meta($service_id, self::META_BUF_AFTER, $buf_after);
     update_post_meta($service_id, self::META_INSTANT, $instant);
     update_post_meta($service_id, self::META_ADDON, $is_addon);
-
-    // Assign categories
-    if (is_array($category_ids)) {
-      $category_ids = array_map('absint', $category_ids);
-      wp_set_object_terms($service_id, $category_ids, Service_Categories::TAXONOMY);
-    }
 
     // Backwards-compat (older keys used in earlier iterations)
     update_post_meta($service_id, '_koopo_price', $price);
@@ -166,7 +176,6 @@ class Services_API {
     $buf_after   = $req->get_param('buffer_after');
     $instant     = $req->get_param('instant');
     $is_addon    = $req->get_param('is_addon');
-    $category_ids = $req->get_param('category_ids');
 
     if ($title) {
       wp_update_post(['ID' => $service_id, 'post_title' => $title]);
@@ -190,12 +199,6 @@ class Services_API {
     if ($buf_after !== null) update_post_meta($service_id, self::META_BUF_AFTER, absint($buf_after));
     if ($instant !== null) update_post_meta($service_id, self::META_INSTANT, (!empty($instant) ? '1' : '0'));
     if ($is_addon !== null) update_post_meta($service_id, self::META_ADDON, (!empty($is_addon) ? '1' : '0'));
-
-    // Update categories
-    if ($category_ids !== null && is_array($category_ids)) {
-      $category_ids = array_map('absint', $category_ids);
-      wp_set_object_terms($service_id, $category_ids, Service_Categories::TAXONOMY);
-    }
 
     // Sync WC product
     $product_id = WC_Service_Product::create_or_update_for_service($service_id);

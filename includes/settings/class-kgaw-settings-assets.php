@@ -38,12 +38,29 @@ class Settings_Assets {
   }
 
   private static function enqueue_common(int $listing_id_or_zero) {
-    $ver = '0.1.0';
+    $ver = defined('KOOPO_APPT_VERSION') ? KOOPO_APPT_VERSION : '0.1.0';
+    $timezone_default = function_exists('wp_timezone_string') ? wp_timezone_string() : '';
+    if (!$timezone_default) {
+      $timezone_default = 'UTC';
+    }
+    $timezone_options = timezone_identifiers_list();
+    if (!in_array($timezone_default, $timezone_options, true)) {
+      array_unshift($timezone_options, $timezone_default);
+    }
+    if (!in_array('UTC', $timezone_options, true)) {
+      array_unshift($timezone_options, 'UTC');
+    }
 
     wp_enqueue_style(
       'koopo-appt-settings-ui',
       KOOPO_APPT_URL . 'assets/appointments-settings.css',
       [],
+      $ver
+    );
+    wp_enqueue_style(
+      'koopo-appt-calendar-sync',
+      KOOPO_APPT_URL . 'assets/calendar-sync.css',
+      ['koopo-appt-settings-ui'],
       $ver
     );
 
@@ -54,12 +71,20 @@ class Settings_Assets {
       $ver,
       true
     );
+    wp_enqueue_script(
+      'koopo-appt-calendar-sync',
+      KOOPO_APPT_URL . 'assets/calendar-sync.js',
+      ['jquery', 'koopo-appt-settings-ui'],
+      $ver,
+      true
+    );
 
     wp_localize_script('koopo-appt-settings-ui', 'KOOPO_APPT_SETTINGS', [
       'restUrl' => esc_url_raw(rest_url('koopo/v1')),
       'nonce'   => wp_create_nonce('wp_rest'),
       'listingId' => $listing_id_or_zero,
-      'tzDefault' => 'America/Detroit',
+      'tzDefault' => $timezone_default,
+      'timezoneOptions' => array_values(array_unique($timezone_options)),
     ]);
   }
 }

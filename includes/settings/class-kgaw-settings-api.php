@@ -18,6 +18,12 @@ class Settings_API {
       'permission_callback' => [__CLASS__, 'can_view_settings'],
     ]);
 
+    register_rest_route('koopo/v1', '/resources/(?P<resource_id>\d+)/settings', [
+      'methods' => ['GET', 'POST'],
+      'callback' => [__CLASS__, 'resource_settings'],
+      'permission_callback' => '__return_true',
+    ]);
+
     // Update listing booking settings (vendor only)
     register_rest_route('koopo/v1', '/appointments/settings/(?P<listing_id>\d+)', [
       'methods' => 'POST',
@@ -55,13 +61,44 @@ class Settings_API {
       return new \WP_REST_Response(['error' => 'Forbidden'], 403);
     }
 
-    $payload = $req->get_json_params();
+    return self::save_settings($listing_id, (array) $req->get_json_params());
+  }
+
+  public static function resource_settings(\WP_REST_Request $req) {
+    $resource_id = absint($req['resource_id']);
+    $resource = Resources::get($resource_id);
+    if (!$resource || (string) $resource->status !== 'active') {
+      return new \WP_REST_Response(['error' => 'Booking calendar not found.'], 404);
+    }
+    $subject_id = (int) $resource->subject_id;
+    if ($req->get_method() === 'GET') {
+      $include_sensitive = Resources::can_manage($resource_id) || current_user_can('manage_options');
+      $settings = self::read_settings($subject_id, $include_sensitive);
+      $settings['resource_id'] = $resource_id;
+      $settings['subject_type'] = (string) $resource->subject_type;
+      $settings['subject_id'] = $subject_id;
+      return new \WP_REST_Response($settings, 200);
+    }
+    if (!is_user_logged_in() || !Resources::can_manage($resource_id)) {
+      return new \WP_REST_Response(['error' => 'Forbidden'], 403);
+    }
+    return self::save_settings($subject_id, (array) $req->get_json_params(), $resource_id);
+  }
+
+  private static function save_settings(int $listing_id, array $payload, int $resource_id = 0) {
     if (!is_array($payload)) $payload = [];
+
+    $tz = isset($payload['timezone']) ? sanitize_text_field($payload['timezone']) : '';
+    if ($tz) {
+      try {
+        new \DateTimeZone($tz);
+      } catch (\Exception $exception) {
+        return new \WP_REST_Response(['error' => 'Please select a valid timezone.'], 400);
+      }
+    }
 
     $enabled = !empty($payload['enabled']) ? '1' : '0';
     update_post_meta($listing_id, '_koopo_appt_enabled', $enabled);
-
-    $tz = isset($payload['timezone']) ? sanitize_text_field($payload['timezone']) : '';
     if ($tz) update_post_meta($listing_id, '_koopo_appt_timezone', $tz);
 
     // Hours & breaks stored as JSON
@@ -143,13 +180,18 @@ class Settings_API {
       update_post_meta($listing_id, '_koopo_appt_days_off', wp_json_encode($days));
     }
 
-    return new \WP_REST_Response(self::read_settings($listing_id), 200);
+    $settings = self::read_settings($listing_id);
+    if ($resource_id) $settings['resource_id'] = $resource_id;
+    return new \WP_REST_Response($settings, 200);
   }
 
   public static function read_settings(int $listing_id, bool $include_sensitive = true): array {
     $enabled = get_post_meta($listing_id, '_koopo_appt_enabled', true);
     $tz      = get_post_meta($listing_id, '_koopo_appt_timezone', true);
-    if (!$tz) $tz = 'America/Detroit'; // default; you can change
+    if (!$tz) {
+      $tz = function_exists('wp_timezone_string') ? wp_timezone_string() : '';
+    }
+    if (!$tz) $tz = 'UTC';
 
     $hours_json  = get_post_meta($listing_id, '_koopo_appt_hours', true);
     $breaks_json = get_post_meta($listing_id, '_koopo_appt_breaks', true);

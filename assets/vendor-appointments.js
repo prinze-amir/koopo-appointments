@@ -2,7 +2,7 @@
   if (typeof KOOPO_APPT_VENDOR === 'undefined') return;
   const utils = window.KOOPO_VENDOR_UTILS || {};
   const api = utils.api;
-  const loadVendorListings = utils.loadVendorListings;
+  const loadBookingContexts = utils.loadBookingContexts;
   const escapeHtml = utils.escapeHtml;
   const formatCurrency = utils.formatCurrency;
   const formatMoney = utils.formatMoney;
@@ -14,7 +14,7 @@
   const getCalendarTitleText = utils.getCalendarTitleText;
   const getCalendarCustomerLabel = utils.getCalendarCustomerLabel;
   const renderCalendarEventContent = utils.renderCalendarEventContent;
-  if (!api || !loadVendorListings || !escapeHtml || !formatCurrency || !formatMoney || !parseDateTime || !toYmd || !toYmdHms || !formatTime || !renderAvatar || !getCalendarTitleText || !getCalendarCustomerLabel || !renderCalendarEventContent) return;
+  if (!api || !loadBookingContexts || !escapeHtml || !formatCurrency || !formatMoney || !parseDateTime || !toYmd || !toYmdHms || !formatTime || !renderAvatar || !getCalendarTitleText || !getCalendarCustomerLabel || !renderCalendarEventContent) return;
 
 // ---------- Appointments (Bookings) page ----------
   const $apptPicker = $('#koopo-appointments-picker');
@@ -40,7 +40,7 @@
   const $apptDetailsActions = $('#koopo-appt-details-actions');
   const $viewListing = $('#koopo-view-listing-appointments');
 
-  const apptState = { listingId: null, status: 'all', search: '', month: '', year: '', page: 1, perPage: 20, totalPages: 1, view: 'table', sortKey: 'when', sortDir: 'asc' };
+  const apptState = { listingId: 0, providerId: 0, resourceId: 0, subjectType: '', status: 'all', search: '', month: '', year: '', page: 1, perPage: 20, totalPages: 1, view: 'table', sortKey: 'when', sortDir: 'asc' };
   const calendarState = { view: 'month', cursor: new Date(), items: [], mobileDay: null };
   let apptServices = [];
   let apptServiceMap = {};
@@ -190,14 +190,14 @@
 
   async function loadAnalytics(){
     if (!$apptAnalytics.length) return;
-    const listingId = apptState.listingId;
-    if (!listingId) {
+    const resourceId = apptState.resourceId;
+    if (!resourceId) {
       renderAnalytics(null);
       return;
     }
     $apptAnalytics.addClass('is-loading');
     try {
-      const data = await api(`/vendor/bookings/analytics?listing_id=${listingId}`, { method:'GET' });
+      const data = await api(`/vendor/bookings/analytics?resource_id=${resourceId}`, { method:'GET' });
       renderAnalytics(data);
     } catch (e) {
       $apptAnalytics.addClass('is-empty');
@@ -541,8 +541,8 @@
 
   async function loadCalendar(){
     if (!$apptCalendar.length) return;
-    if (!apptState.listingId) {
-      $calendarBody.html('<div class="koopo-muted">Pick a listing to load appointments.</div>');
+    if (!apptState.resourceId) {
+      $calendarBody.html('<div class="koopo-muted">Pick a booking profile to load appointments.</div>');
       return;
     }
 
@@ -587,7 +587,7 @@
     $calendarBody.html('<div class="koopo-loading-inline"><div class="koopo-spinner"></div><div>Loading calendar...</div></div>');
     try {
       const params = {
-        listing_id: apptState.listingId,
+        resource_id: apptState.resourceId,
         status: apptState.status || 'all',
         per_page: '500',
         range_start: rangeStart,
@@ -617,15 +617,15 @@
 
   async function loadAppointments(){
     if (!$apptTable.length) return;
-    if (!apptState.listingId) {
-      $apptTable.html('<div class="koopo-muted">Pick a listing to load appointments.</div>');
+    if (!apptState.resourceId) {
+      $apptTable.html('<div class="koopo-muted">Pick a booking profile to load appointments.</div>');
       $apptPager.html('');
       return;
     }
     $apptTable.html('<div class="koopo-loading-inline"><div class="koopo-spinner"></div><div>Loading appointments...</div></div>');
     try {
       const params = {
-        listing_id: apptState.listingId,
+        resource_id: apptState.resourceId,
         status: apptState.status || 'all',
         page: String(apptState.page),
         per_page: String(apptState.perPage),
@@ -756,14 +756,18 @@
   }
 
   if ($apptPicker.length) {
-    async function loadApptServices(listingId){
-      if (!listingId) return;
+    async function loadApptServices(){
+      if (!apptState.resourceId) return;
       try {
-        const services = await api(`/services/by-listing/${listingId}`, { method:'GET' });
-        apptServices = services || [];
-        apptAddons = (services || []).filter(s => s.is_addon);
+        const path = apptState.subjectType === 'provider'
+          ? `/services/by-provider/${apptState.providerId}`
+          : `/services/by-listing/${apptState.listingId}`;
+        const services = await api(path, { method:'GET' });
+        const activeServices = (services || []).filter(s => (s.status || 'active') !== 'inactive');
+        apptServices = activeServices.filter(s => !s.is_addon);
+        apptAddons = activeServices.filter(s => s.is_addon);
         apptServiceMap = {};
-        (services || []).forEach(s => { apptServiceMap[s.id] = s; });
+        activeServices.forEach(s => { apptServiceMap[s.id] = s; });
         const $select = $('#koopo-appt-service');
         if ($select.length) {
           $select.html('<option value="">Select a service...</option>');
@@ -777,10 +781,10 @@
       }
     }
 
-    async function loadApptTimezone(listingId){
-      if (!listingId) return;
+    async function loadApptTimezone(){
+      if (!apptState.resourceId) return;
       try {
-        const settings = await api(`/appointments/settings/${listingId}`, { method:'GET' });
+        const settings = await api(`/resources/${apptState.resourceId}/settings`, { method:'GET' });
         apptTimezone = settings.timezone || '';
       } catch (e) {
         apptTimezone = '';
@@ -788,17 +792,21 @@
     }
 
     $apptPicker.on('change', function(){
-      apptState.listingId = $(this).val() || '';
+      const $option = $(this).find('option:selected');
+      apptState.listingId = parseInt($option.data('listing-id'), 10) || 0;
+      apptState.providerId = parseInt($option.data('provider-id'), 10) || 0;
+      apptState.resourceId = parseInt($option.data('resource-id'), 10) || 0;
+      apptState.subjectType = String($option.data('subject-type') || '');
       if (utils.updateListingLink) utils.updateListingLink($apptPicker, $viewListing);
       apptState.page = 1;
       loadAppointments();
       if (apptState.view === 'calendar') loadCalendar();
       loadAnalytics();
-      loadApptServices(apptState.listingId);
-      loadApptTimezone(apptState.listingId);
+      loadApptServices();
+      loadApptTimezone();
     });
-    loadVendorListings($apptPicker).then(listings => {
-      if (Array.isArray(listings) && listings.length) {
+    loadBookingContexts($apptPicker).then(contexts => {
+      if (Array.isArray(contexts) && contexts.length) {
         $apptPicker.prop('selectedIndex', 1).trigger('change');
       }
       if (utils.updateListingLink) utils.updateListingLink($apptPicker, $viewListing);
@@ -889,8 +897,8 @@
     }
 
     $apptCreate.on('click', async function(){
-      if (!apptState.listingId) {
-        alert('Please select a listing first.');
+      if (!apptState.resourceId) {
+        alert('Please select a booking profile first.');
         return;
       }
       $apptCreateModal.show();
@@ -899,8 +907,8 @@
       apptCreateState.selectedSlot = null;
       $('#koopo-appt-addon-selected').empty();
       $('#koopo-appt-slot-list').html('<div class="koopo-muted">Select a service and date to view available times.</div>');
-      await loadApptServices(apptState.listingId);
-      await loadApptTimezone(apptState.listingId);
+      await loadApptServices();
+      await loadApptTimezone();
       setCreateModalLoading(false);
     });
 
@@ -1066,7 +1074,7 @@
       const date = $('#koopo-appt-date').val();
       const status = $('#koopo-appt-status').val() || 'confirmed';
 
-      if (!listingId || !serviceId || !date || !apptCreateState.selectedSlot) {
+      if (!apptState.resourceId || !serviceId || !date || !apptCreateState.selectedSlot) {
         alert('Please select a service, date, and available time.');
         return;
       }
@@ -1077,6 +1085,8 @@
       const type = $('input[name="koopo-appt-customer-type"]:checked').val();
       const payload = {
         listing_id: listingId,
+        provider_id: apptState.providerId,
+        resource_id: apptState.resourceId,
         service_id: serviceId,
         start_datetime: startDateTime,
         end_datetime: endDateTime,
@@ -1201,8 +1211,8 @@
 
     // CSV Export
     $apptExport.on('click', async function(){
-      if (!apptState.listingId) {
-        alert('Please select a listing first.');
+      if (!apptState.resourceId) {
+        alert('Please select a booking profile first.');
         return;
       }
 
@@ -1211,7 +1221,7 @@
 
       try {
         const params = {
-          listing_id: apptState.listingId,
+          resource_id: apptState.resourceId,
           status: apptState.status || 'all',
           export: 'csv',
         };
@@ -1227,7 +1237,7 @@
         // Create download link
         const a = document.createElement('a');
         a.href = url;
-        a.download = `appointments-${apptState.listingId}-${Date.now()}.csv`;
+        a.download = `appointments-${apptState.resourceId}-${Date.now()}.csv`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);

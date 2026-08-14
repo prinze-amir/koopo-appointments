@@ -189,12 +189,17 @@ class Automated_Reminders {
     }
 
     if (!$customer_email) {
+      $customer_email = (string) Bookings::extra_from_record($booking, 'customer_email', '');
+    }
+
+    if (!$customer_email) {
       return false;
     }
 
     // Format booking details
     $service_title = get_the_title((int) $booking->service_id);
-    $listing_title = get_the_title((int) $booking->listing_id);
+    $subject_id = (int) $booking->listing_id ?: (int) ($booking->provider_id ?? 0);
+    $listing_title = get_the_title($subject_id);
     $tz = $booking->timezone ?? '';
     
     $start_formatted = Date_Formatter::format($booking->start_datetime, $tz, 'full');

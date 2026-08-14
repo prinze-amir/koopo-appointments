@@ -30,19 +30,20 @@ class Notifications {
     return (string) apply_filters('koopo_appt_admin_email', get_option('admin_email'));
   }
 
-  private static function listing_owner_email(int $listing_id): string {
-    $owner_id = (int) get_post_field('post_author', $listing_id);
+  private static function listing_owner_email(int $listing_id, int $payee_user_id = 0): string {
+    $owner_id = $payee_user_id ?: (int) get_post_field('post_author', $listing_id);
     $u = $owner_id ? get_user_by('id', $owner_id) : null;
     return ($u && !empty($u->user_email)) ? $u->user_email : self::admin_email();
   }
 
-  private static function customer_email(int $customer_id, ?int $order_id = null): string {
+  private static function customer_email(int $customer_id, ?int $order_id = null, $booking = null): string {
     if ($order_id) {
       $order = wc_get_order($order_id);
       if ($order && $order->get_billing_email()) return $order->get_billing_email();
     }
     $u = $customer_id ? get_user_by('id', $customer_id) : null;
-    return ($u && !empty($u->user_email)) ? $u->user_email : '';
+    if ($u && !empty($u->user_email)) return $u->user_email;
+    return (string) Bookings::extra_from_record($booking, 'customer_email', '');
   }
 
   private static function booking_context(int $booking_id): array {
@@ -50,6 +51,8 @@ class Notifications {
     if (!$b) return [];
 
     $listing_id = (int) $b->listing_id;
+    $provider_id = (int) ($b->provider_id ?? 0);
+    $subject_id = $listing_id ?: $provider_id;
     $service_id = (int) $b->service_id;
     $tz = !empty($b->timezone) ? (string) $b->timezone : '';
 
@@ -61,7 +64,10 @@ class Notifications {
     return [
       'booking' => $b,
       'listing_id' => $listing_id,
-      'listing_title' => $listing_id ? get_the_title($listing_id) : '',
+      'provider_id' => $provider_id,
+      'subject_id' => $subject_id,
+      'listing_title' => $subject_id ? get_the_title($subject_id) : '',
+      'payee_user_id' => (int) ($b->payee_user_id ?: $b->listing_author_id),
       'service_title' => $service_id ? get_the_title($service_id) : '',
       'start' => (string) $b->start_datetime,
       'end' => (string) $b->end_datetime,
@@ -79,15 +85,16 @@ class Notifications {
     if (!$ctx) return;
 
     $admin = self::admin_email();
-    $seller = self::listing_owner_email($ctx['listing_id']);
-    $customer = self::customer_email((int)$ctx['booking']->customer_id, $ctx['order_id'] ?: null);
+    $seller = self::listing_owner_email($ctx['listing_id'], $ctx['payee_user_id']);
+    $customer = self::customer_email((int)$ctx['booking']->customer_id, $ctx['order_id'] ?: null, $ctx['booking']);
 
     $subject = sprintf('Koopo Booking conflict – #%d', $booking_id);
+    $external = $conflict_id < 0;
 
     $body_admin = self::render_email([
       'title' => 'Booking Conflict Detected',
       'lines' => [
-        "Booking #{$booking_id} could not be confirmed because it conflicts with booking #{$conflict_id}.",
+        $external ? "Booking #{$booking_id} could not be confirmed because the provider's connected calendar is unavailable at that time." : "Booking #{$booking_id} could not be confirmed because it conflicts with booking #{$conflict_id}.",
         "Listing: {$ctx['listing_title']} (ID {$ctx['listing_id']})",
         "Service: {$ctx['service_title']} (ID " . (int)$ctx['booking']->service_id . ")",
         "Time: {$ctx['start']} → {$ctx['end']}",
@@ -98,7 +105,7 @@ class Notifications {
     $body_seller = self::render_email([
       'title' => 'Booking Conflict on Your Listing',
       'lines' => [
-        "A customer’s payment completed, but the selected slot became unavailable.",
+        $external ? "A customer’s payment completed, but a read-only busy block from your connected calendar now covers the selected time." : "A customer’s payment completed, but the selected slot became unavailable.",
         "Listing: {$ctx['listing_title']}",
         "Service: {$ctx['service_title']}",
         "Time: {$ctx['start']} → {$ctx['end']}",
@@ -131,10 +138,13 @@ class Notifications {
     if (!$ctx) return;
 
     $admin = self::admin_email();
-    $seller = self::listing_owner_email($ctx['listing_id']);
-    $customer = self::customer_email((int)$ctx['booking']->customer_id, $ctx['order_id'] ?: null);
+    $seller = self::listing_owner_email($ctx['listing_id'], $ctx['payee_user_id']);
+    $customer = self::customer_email((int)$ctx['booking']->customer_id, $ctx['order_id'] ?: null, $ctx['booking']);
     $customer_name  = get_userdata((int)$ctx['booking']->customer_id)?->first_name;
-    $listing_url = $ctx['listing_id'] ? get_permalink($ctx['listing_id']) : home_url('/');
+    if (!$customer_name) {
+      $customer_name = (string) Bookings::extra_from_record($ctx['booking'], 'customer_name', 'there');
+    }
+    $listing_url = $ctx['subject_id'] ? get_permalink($ctx['subject_id']) : home_url('/');
     $calendar_url = $ctx['calendar_links']['google'] ?? $ctx['calendar_links']['outlook'] ?? $ctx['calendar_links']['ical'] ?? '';
     $manage_url = class_exists('\Koopo_Appointments\MyAccount')
       ? MyAccount::manage_appointment_url($booking_id)
@@ -183,8 +193,22 @@ class Notifications {
       ],
     ]);
 
+    $body_admin = self::render_email_html([
+      'title' => 'New confirmed appointment',
+      'intro' => 'An appointment has been confirmed.',
+      'lines' => [
+        "📍 <strong>Business:</strong> {$ctx['listing_title']}",
+        "🛎 <strong>Service:</strong> {$ctx['service_title']}",
+        "🗓 <strong>Date:</strong> {$ctx['start_formatted']} ({$ctx['timezone_abbr']})",
+        "⏱ <strong>Duration:</strong> {$ctx['duration_formatted']}",
+        "📌 <strong>Booking ID:</strong> #{$booking_id}",
+        $ctx['order_id'] ? "🧾 <strong>Order ID:</strong> #{$ctx['order_id']}" : '',
+      ],
+    ]);
+
     if ($customer) self::send_mail($customer, $subject, $body_customer);
     self::send_mail($seller, $subject, $body_seller);
+    self::send_mail($admin, $subject, $body_admin);
   }
 
   public static function email_cancelled(int $booking_id, $booking_obj) {
@@ -195,12 +219,15 @@ class Notifications {
     $ctx = self::booking_context($booking_id);
     if (!$ctx) return;
 
-    $customer = self::customer_email((int)$ctx['booking']->customer_id, $ctx['order_id'] ?: null);
+    $customer = self::customer_email((int)$ctx['booking']->customer_id, $ctx['order_id'] ?: null, $ctx['booking']);
     $customer_name  = get_userdata((int)$ctx['booking']->customer_id)?->first_name;
-    $seller = self::listing_owner_email($ctx['listing_id']);
+    if (!$customer_name) {
+      $customer_name = (string) Bookings::extra_from_record($ctx['booking'], 'customer_name', 'there');
+    }
+    $seller = self::listing_owner_email($ctx['listing_id'], $ctx['payee_user_id']);
     $cancelled_by = (string) Bookings::extra_from_record($ctx['booking'], 'cancelled_by', '');
     $cancel_reason = (string) Bookings::extra_from_record($ctx['booking'], 'cancel_reason', '');
-    $listing_url = $ctx['listing_id'] ? get_permalink($ctx['listing_id']) : home_url('/');
+    $listing_url = $ctx['subject_id'] ? get_permalink($ctx['subject_id']) : home_url('/');
     $business = $ctx['listing_title'] ?: 'the business';
     $seller_user = get_user_by('email', $seller);
     $seller_name = ($seller_user && !empty($seller_user->display_name)) ? $seller_user->display_name : 'there';
@@ -279,8 +306,8 @@ class Notifications {
     $ctx = self::booking_context($booking_id);
     if (!$ctx) return;
 
-    $customer = self::customer_email((int)$ctx['booking']->customer_id, $ctx['order_id'] ?: null);
-    $seller = self::listing_owner_email($ctx['listing_id']);
+    $customer = self::customer_email((int)$ctx['booking']->customer_id, $ctx['order_id'] ?: null, $ctx['booking']);
+    $seller = self::listing_owner_email($ctx['listing_id'], $ctx['payee_user_id']);
     $refund_amount = (float) Bookings::extra_from_record($ctx['booking'], 'refund_amount', 0.0);
 
     if ($refund_amount <= 0 && !empty($ctx['booking']->price)) {
@@ -321,8 +348,11 @@ class Notifications {
     $ctx = self::booking_context($booking_id);
     if (!$ctx) return;
 
-    $customer = self::customer_email((int)$ctx['booking']->customer_id, $ctx['order_id'] ?: null);
+    $customer = self::customer_email((int)$ctx['booking']->customer_id, $ctx['order_id'] ?: null, $ctx['booking']);
     $customer_name  = get_userdata((int)$ctx['booking']->customer_id)?->display_name;
+    if (!$customer_name) {
+      $customer_name = (string) Bookings::extra_from_record($ctx['booking'], 'customer_name', 'there');
+    }
     $tz = $ctx['timezone'];
     $listing_url = $ctx['listing_id'] ? get_permalink($ctx['listing_id']) : home_url('/');
     $calendar_url = $ctx['calendar_links']['google'] ?? $ctx['calendar_links']['outlook'] ?? $ctx['calendar_links']['ical'] ?? '';
@@ -366,7 +396,7 @@ class Notifications {
     $ctx = self::booking_context($booking_id);
     if (!$ctx) return;
 
-    $customer = self::customer_email((int)$ctx['booking']->customer_id, $ctx['order_id'] ?: null);
+    $customer = self::customer_email((int)$ctx['booking']->customer_id, $ctx['order_id'] ?: null, $ctx['booking']);
     if (!$customer) return;
 
     $minutes = (int) apply_filters('koopo_appt_pending_expire_minutes', 10);
@@ -391,7 +421,7 @@ class Notifications {
     $ctx = self::booking_context($booking_id);
     if (!$ctx) return;
 
-    $customer = self::customer_email((int)$ctx['booking']->customer_id, $ctx['order_id'] ?: null);
+    $customer = self::customer_email((int)$ctx['booking']->customer_id, $ctx['order_id'] ?: null, $ctx['booking']);
     if (!$customer) return;
 
     $minutes_total = (int) apply_filters('koopo_appt_pending_expire_minutes', 10);
@@ -480,7 +510,7 @@ class Notifications {
     $ctx = self::booking_context($booking_id);
     if (!$ctx) return;
 
-    $customer = self::customer_email((int)$ctx['booking']->customer_id, $ctx['order_id'] ?: null);
+    $customer = self::customer_email((int)$ctx['booking']->customer_id, $ctx['order_id'] ?: null, $ctx['booking']);
     if (!$customer) return;
 
     $listing_url = $ctx['listing_id'] ? get_permalink($ctx['listing_id']) : '';
@@ -523,7 +553,7 @@ class Notifications {
   public static function format_buddyboss_notifications($content, $user_id, $format = 'string', $action = '', $component = '', $notification_id = 0, $item_id = 0, $secondary_item_id = 0, $total_items = 0) {
     if ($component !== 'koopo_appointments') return $content;
 
-    $booking = $item_id ? Bookings::get_booking((int) $item_id) : null;
+    $booking = ($item_id && $action !== 'waitlist_offer') ? Bookings::get_booking((int) $item_id) : null;
     $listing_id = (int) $secondary_item_id;
     if (!$listing_id && $booking) {
       $listing_id = (int) $booking->listing_id;
@@ -532,7 +562,10 @@ class Notifications {
     $link = '';
     $text = '';
 
-    if ($action === 'pending_payment') {
+    if ($action === 'waitlist_offer') {
+      $link = class_exists(Waitlist::class) ? Waitlist::offer_url((int) $item_id) : home_url('/');
+      $text = 'An appointment opening is available. Confirm it before the offer expires.';
+    } elseif ($action === 'pending_payment') {
       $minutes_total = (int) apply_filters('koopo_appt_pending_expire_minutes', 10);
       if ($minutes_total < 1) {
         $minutes_total = 10;
@@ -584,9 +617,7 @@ class Notifications {
   }
 
   private static function email_logo_url(): string {
-    $default = 'https://koopoonline.com/wp-content/uploads/2024/09/short-block-white-black.png';
-    $opt = get_option(Admin_Settings::OPTION_EMAIL_LOGO, $default);
-    return esc_url((string) $opt);
+    return Admin_Settings::get_active_email_logo_url();
   }
 
   private static function booking_customer_fields(int $booking_id, int $customer_id, ?int $order_id = null): array {

@@ -2,7 +2,7 @@
 <div class="dokan-dashboard-wrap">
   <?php do_action('dokan_dashboard_content_before'); ?>
   <div class="dokan-dashboard-content koopo-vendor-page">
-    <?php if ( ! \Koopo_Appointments\Dokan_Dashboard::vendor_has_listings( get_current_user_id() ) ) : ?>
+    <?php if ( ! \Koopo_Appointments\Dokan_Dashboard::vendor_has_booking_contexts( get_current_user_id() ) ) : ?>
       <?php \Koopo_Appointments\Dokan_Dashboard::render_no_listing_cta(); ?>
       </div>
       <?php do_action('dokan_dashboard_content_after'); ?>
@@ -13,7 +13,7 @@
       <h2><?php esc_html_e('Appointment Settings', 'appointments'); ?></h2>
       <div class="koopo-vendor-header__right">
         <select class="koopo-appt-settings__listing koopo-input">
-          <option value=""><?php esc_html_e('Select listing…', 'appointments'); ?></option>
+          <option value=""><?php esc_html_e('Select booking profile…', 'appointments'); ?></option>
         </select>
         <a id="koopo-view-listing-settings" class="koopo-btn koopo-btn--secondary koopo-view-listing is-disabled" href="#" target="_blank" rel="noopener noreferrer">
           <?php esc_html_e('View Listing', 'appointments'); ?>

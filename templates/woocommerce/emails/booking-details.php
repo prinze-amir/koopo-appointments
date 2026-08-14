@@ -19,7 +19,11 @@ $status = ucfirst(str_replace('_', ' ', $booking->status));
 
 // Service and listing
 $service_title = get_the_title((int) $booking->service_id);
-$listing_title = get_the_title((int) $booking->listing_id);
+$fulfillment_mode = (string) ($booking->fulfillment_mode ?? 'at_location');
+$fulfillment_labels = ['at_location' => __('At a location', 'koopo-appointments'), 'mobile' => __('Provider comes to me', 'koopo-appointments'), 'virtual' => __('Online appointment', 'koopo-appointments')];
+$service_address = implode(', ', array_filter([(string)($booking->service_address_1??''),(string)($booking->service_address_2??''),(string)($booking->service_city??''),(string)($booking->service_region??''),(string)($booking->service_postal_code??''),(string)($booking->service_country??'')]));
+$subject_id = (int) $booking->listing_id ?: (int) ($booking->provider_id ?? 0);
+$listing_title = get_the_title($subject_id);
 
 // Add-ons summary
 $addon_ids = get_option("koopo_booking_{$booking->id}_addon_ids", '');
@@ -110,6 +114,15 @@ $customer_notes = get_option("koopo_booking_{$booking->id}_customer_notes", '');
         </th>
         <td style="text-align: left; padding: 12px;">
           <?php echo esc_html($duration); ?>
+        </td>
+      </tr>
+      <tr>
+        <th scope="row" style="text-align: left; padding: 12px; border-right: 1px solid #ddd; background: #f0f0f0; font-weight: 600;"><?php esc_html_e('Appointment type', 'koopo-appointments'); ?></th>
+        <td style="text-align: left; padding: 12px;">
+          <strong><?php echo esc_html($fulfillment_labels[$fulfillment_mode] ?? $fulfillment_labels['at_location']); ?></strong>
+          <?php if ($fulfillment_mode === 'mobile' && $service_address) : ?><br><?php echo esc_html($service_address); ?><?php endif; ?>
+          <?php if ($fulfillment_mode === 'virtual' && $booking->status === 'confirmed' && !empty($booking->virtual_join_url)) : ?><br><a href="<?php echo esc_url($booking->virtual_join_url); ?>"><?php esc_html_e('Join online appointment', 'koopo-appointments'); ?></a><?php endif; ?>
+          <?php if ($fulfillment_mode === 'virtual' && $booking->status === 'confirmed' && !empty($booking->virtual_instructions)) : ?><br><?php echo nl2br(esc_html($booking->virtual_instructions)); ?><?php endif; ?>
         </td>
       </tr>
 

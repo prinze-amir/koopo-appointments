@@ -275,7 +275,8 @@ class Date_Formatter {
     $timezone = !empty($booking->timezone) ? (string) $booking->timezone : 'UTC';
     
     $service_title = isset($booking->service_id) ? get_the_title((int) $booking->service_id) : 'Appointment';
-    $listing_title = isset($booking->listing_id) ? get_the_title((int) $booking->listing_id) : '';
+    $subject_id = !empty($booking->listing_id) ? (int) $booking->listing_id : (int) ($booking->provider_id ?? 0);
+    $listing_title = $subject_id ? get_the_title($subject_id) : '';
     
     $title = $service_title;
     if ($listing_title) {
@@ -284,6 +285,18 @@ class Date_Formatter {
     
     $description = 'Booked via Koopo Appointments';
     $location = $listing_title;
+    $fulfillment_mode = (string) Bookings::extra_from_record($booking, 'fulfillment_mode', 'at_location');
+    if ($fulfillment_mode === 'mobile') {
+      $location = implode(', ', array_filter([
+        (string) Bookings::extra_from_record($booking, 'service_address_1', ''),
+        (string) Bookings::extra_from_record($booking, 'service_address_2', ''),
+        (string) Bookings::extra_from_record($booking, 'service_city', ''),
+        (string) Bookings::extra_from_record($booking, 'service_region', ''),
+        (string) Bookings::extra_from_record($booking, 'service_postal_code', ''),
+      ]));
+    } elseif ($fulfillment_mode === 'virtual') {
+      $location = (string) Bookings::extra_from_record($booking, 'virtual_join_url', '') ?: __('Online appointment', 'koopo-appointments');
+    }
 
     // Google Calendar
     $google = self::get_google_calendar_link($start, $end, $title, $description, $location, $timezone);

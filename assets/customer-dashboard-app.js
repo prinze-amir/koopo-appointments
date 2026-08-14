@@ -9,6 +9,7 @@
   const api = utils.api;
   const fmtMoney = utils.fmtMoney;
   if (!api || !fmtMoney) return;
+  const escapeHtml = value => $('<div>').text(String(value || '')).html();
 
   let currentFilter = 'upcoming';
   let currentPage = 1;
@@ -154,6 +155,15 @@
     $card.find('.koopo-datetime').text(booking.start_datetime_formatted);
     $card.find('.koopo-duration').text(booking.duration_formatted);
     $card.find('.koopo-price').text(fmtMoney(booking.price));
+    const deliveryLabels = { at_location: 'At a location', mobile: 'Provider comes to me', virtual: 'Online appointment' };
+    const fulfillmentDetail = booking.fulfillment_mode === 'mobile' && booking.service_address
+      ? `${deliveryLabels.mobile} · ${booking.service_address}`
+      : (deliveryLabels[booking.fulfillment_mode] || deliveryLabels.at_location);
+    $card.find('.koopo-fulfillment').text(fulfillmentDetail);
+    if (booking.virtual_join_url) {
+      $card.find('.koopo-join-row').show();
+      $card.find('.koopo-join-link').attr('href', booking.virtual_join_url);
+    }
 
     const pendingNotice = formatHoldNotice(booking);
     if (pendingNotice) {
@@ -223,6 +233,9 @@
         .show()
         .data('booking', booking);
     }
+    if (booking.status === 'confirmed') {
+      $card.find('.koopo-btn-forms').show().attr('data-booking-id', booking.id);
+    }
 
     // Calendar dropdown (for future confirmed bookings)
     if (booking.status === 'confirmed' && currentFilter === 'upcoming') {
@@ -268,6 +281,20 @@
 
     $empty.find('.koopo-empty-state__message').text(message);
     $list.html($empty);
+  }
+
+  function formField(field){
+    const id=`koopo-form-${field.id}`;
+    const label=escapeHtml(field.label),name=escapeHtml(field.id);
+    if(field.type==='checkbox')return `<label class="koopo-customer-form-field koopo-customer-form-field--check"><input type="checkbox" name="${name}" id="${id}"> <span>${label}</span></label>`;
+    if(field.type==='textarea')return `<label class="koopo-customer-form-field" for="${id}"><span>${label}</span><textarea id="${id}" name="${name}" ${field.required?'required':''}></textarea></label>`;
+    if(field.type==='select')return `<label class="koopo-customer-form-field" for="${id}"><span>${label}</span><select id="${id}" name="${name}" ${field.required?'required':''}>${(field.options||[]).map(x=>`<option>${escapeHtml(x)}</option>`).join('')}</select></label>`;
+    return `<label class="koopo-customer-form-field" for="${id}"><span>${label}</span><input id="${id}" type="${field.type==='date'?'date':'text'}" name="${name}" ${field.required?'required':''}></label>`;
+  }
+
+  async function showForms(bookingId){
+    const $modal=$('#koopo-forms-modal'),$mount=$modal.find('[data-customer-forms]');$mount.html('<p>Loading your private forms…</p>');$modal.fadeIn(150);
+    try{const forms=await api(`/customer/bookings/${bookingId}/forms`);if(!forms.length){$mount.html('<div class="koopo-forms-complete"><strong>You’re all set.</strong><p>No forms are required for this appointment.</p></div>');return;}$mount.html(forms.map(form=>form.submission_status==='completed'?`<article class="koopo-customer-form is-complete"><strong>✓ ${escapeHtml(form.title)}</strong><small>Completed</small></article>`:`<form class="koopo-customer-form" data-form-id="${form.id}" data-booking-id="${bookingId}"><header><strong>${escapeHtml(form.title)}</strong><p>${escapeHtml(form.description||'')}</p></header>${form.fields.map(formField).join('')}${form.requires_signature?'<label class="koopo-customer-signature"><span>Electronic signature</span><input name="signature_name" placeholder="Type your full legal name" required><small>By typing your name, you consent to use this as your electronic signature.</small></label>':''}<button class="koopo-btn koopo-btn--primary" type="submit">Submit securely</button><span role="status"></span></form>`).join(''));}catch(error){$mount.html(`<p>${escapeHtml(error.message)}</p>`);}
   }
 
   /**
@@ -574,6 +601,17 @@
     $(document).on('click', '.koopo-btn-reschedule', function() {
       const booking = $(this).data('booking');
       showRescheduleModal(booking);
+    });
+
+    $(document).on('click', '.koopo-btn-forms', function() {
+      showForms(parseInt($(this).attr('data-booking-id'), 10));
+    });
+
+    $(document).on('submit', '.koopo-customer-form', async function(event) {
+      event.preventDefault(); const form=this,$form=$(form),answers={};
+      $form.find('[name]').not('[name="signature_name"]').each(function(){answers[this.name]=this.type==='checkbox'?this.checked:$(this).val();});
+      const $button=$form.find('button[type="submit"]').prop('disabled',true),$status=$form.find('[role="status"]').text('Submitting securely…');
+      try{await api(`/customer/bookings/${Number($form.data('booking-id'))}/forms/${Number($form.data('form-id'))}`,{method:'POST',body:JSON.stringify({answers,signature_name:$form.find('[name="signature_name"]').val()||''})});$form.addClass('is-complete').html('<strong>✓ Form completed</strong><small>Your private response was saved.</small>');}catch(error){$button.prop('disabled',false);$status.text(error.message);}
     });
 
     // Pay now button

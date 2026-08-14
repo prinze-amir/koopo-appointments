@@ -8,6 +8,20 @@
   border-radius: 8px;
 }
 
+.koopo-forms-modal__card { max-width: 680px; max-height: 84vh; overflow-y: auto; }
+.koopo-forms-eyebrow { color: #477b69; font-size: 11px; font-weight: 800; letter-spacing: .09em; text-transform: uppercase; }
+.koopo-customer-form { display: grid; gap: 13px; margin-top: 16px; padding: 18px; border: 1px solid #dce5e1; border-radius: 14px; background: #fbfdfc; }
+.koopo-customer-form header strong { font-size: 18px; }
+.koopo-customer-form header p { margin: 4px 0 0; color: #66736e; }
+.koopo-customer-form-field, .koopo-customer-signature { display: grid; gap: 5px; color: #4f6059; font-size: 13px; font-weight: 700; }
+.koopo-customer-form-field input, .koopo-customer-form-field textarea, .koopo-customer-form-field select, .koopo-customer-signature input { width: 100%; padding: 10px; border: 1px solid #ced9d4; border-radius: 9px; background: #fff; }
+.koopo-customer-form-field textarea { min-height: 90px; }
+.koopo-customer-form-field--check { display: flex; }
+.koopo-customer-form-field--check input { width: auto; }
+.koopo-customer-signature { padding-top: 13px; border-top: 1px solid #e2e7e5; }
+.koopo-customer-signature small { color: #7b8581; font-weight: 400; }
+.koopo-customer-form.is-complete, .koopo-forms-complete { border-color: #a8cfbd; background: #eff8f3; }
+
 .koopo-buddyboss-appointments-wrapper .koopo-customer-appointments {
   max-width: 100%;
   padding: 0;

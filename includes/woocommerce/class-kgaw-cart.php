@@ -6,6 +6,8 @@ defined('ABSPATH') || exit;
 class Cart {
 
   public static function init() {
+    add_filter('woocommerce_add_to_cart_validation', [__CLASS__, 'validate_add_to_cart'], 10, 6);
+
     // Add booking meta into cart item data (so it follows into the order)
     add_filter('woocommerce_add_cart_item_data', [__CLASS__, 'add_cart_item_data'], 10, 3);
 
@@ -17,6 +19,48 @@ class Cart {
 
     // Enforce booking price at runtime (prevents tampering and keeps totals aligned with booking)
     add_action('woocommerce_before_calculate_totals', [__CLASS__, 'sync_booking_price_to_cart'], 10, 1);
+  }
+
+  public static function validate_add_to_cart($passed, $product_id, $quantity, $variation_id = 0, $variations = [], $cart_item_data = []) {
+    if (!$passed || !Product_Guard::is_koopo_service_product((int) $product_id)) {
+      return $passed;
+    }
+
+    $booking_id = 0;
+    if (!empty($cart_item_data['koopo_booking_id'])) {
+      $booking_id = absint($cart_item_data['koopo_booking_id']);
+    } elseif (!empty($_REQUEST['koopo_booking_id'])) {
+      $booking_id = absint($_REQUEST['koopo_booking_id']);
+    }
+
+    if (!$booking_id) {
+      wc_add_notice(__('This service must be booked through the appointment flow.', 'koopo-appointments'), 'error');
+      return false;
+    }
+
+    $booking = Bookings::get_booking($booking_id);
+    if (!$booking) {
+      wc_add_notice(__('Booking not found.', 'koopo-appointments'), 'error');
+      return false;
+    }
+
+    if ((int) $booking->customer_id !== get_current_user_id()) {
+      wc_add_notice(__('You cannot pay for another customer\'s booking.', 'koopo-appointments'), 'error');
+      return false;
+    }
+
+    if ((string) $booking->status !== 'pending_payment') {
+      wc_add_notice(__('This booking is not awaiting payment.', 'koopo-appointments'), 'error');
+      return false;
+    }
+
+    $service_id = (int) get_post_meta((int) $product_id, '_koopo_service_id', true);
+    if ($service_id && $service_id !== (int) $booking->service_id) {
+      wc_add_notice(__('This product does not match the selected booking.', 'koopo-appointments'), 'error');
+      return false;
+    }
+
+    return true;
   }
 
   /**
@@ -96,11 +140,16 @@ class Cart {
 
     $booking_id = (int)$values['koopo_booking_id'];
     $item->add_meta_data('_koopo_booking_id', $booking_id, true);
+    $booking = Bookings::get_booking($booking_id);
 
     // Link booking -> order as early as possible (order is being created at checkout).
     // This is safe/idempotent and helps later reconciliation.
     if ($order && is_object($order) && method_exists($order, 'get_id')) {
-      Bookings::set_order_id($booking_id, (int) $order->get_id());
+      $current_order_id = (int) $order->get_id();
+      $existing_order_id = ($booking && !empty($booking->wc_order_id)) ? (int) $booking->wc_order_id : 0;
+      if (!$existing_order_id || $existing_order_id === $current_order_id) {
+        Bookings::set_order_id($booking_id, $current_order_id);
+      }
     }
 
       // Also store a quick order-level index for debugging/reporting.
@@ -113,7 +162,6 @@ class Cart {
         }
       }
 
-    $booking = Bookings::get_booking($booking_id);
     if ($booking) {
       if ($order && is_object($order) && method_exists($order, 'get_meta')) {
         $existing_vendor = (int) $order->get_meta('_dokan_vendor_id', true);
@@ -124,6 +172,9 @@ class Cart {
       }
 
       $item->add_meta_data('_koopo_listing_id', (int) $booking->listing_id, true);
+      $item->add_meta_data('_koopo_provider_id', (int) ($booking->provider_id ?? 0), true);
+      $item->add_meta_data('_koopo_resource_id', (int) ($booking->resource_id ?? 0), true);
+      $item->add_meta_data('_koopo_payee_user_id', (int) ($booking->payee_user_id ?: $booking->listing_author_id), true);
       $item->add_meta_data('_koopo_listing_author_id', (int) $booking->listing_author_id, true);
       $item->add_meta_data('_koopo_service_id', (string) $booking->service_id, true);
       $item->add_meta_data('_koopo_start_datetime', (string) $booking->start_datetime, true);

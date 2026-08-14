@@ -36,12 +36,17 @@ class WC_Service_Product {
       $listing_id = get_post_meta($service_id, '_koopo_listing_id', true);
     }
     $listing_id = (int) $listing_id;
+    $provider_id = (int) get_post_meta($service_id, Services_API::META_PROVIDER_ID, true);
+    $resource = Resources::for_service($service_id);
+    $resource_id = $resource ? (int) $resource->id : 0;
 
     $existing_product_id = (int) get_post_meta($service_id, '_koopo_wc_product_id', true);
 
     // If product exists and belongs to this service, update it
     if ($existing_product_id && get_post_meta($existing_product_id, '_koopo_service_id', true) == $service_id) {
       self::update_product($existing_product_id, $vendor_id, $title, $price, $duration, $listing_id);
+      update_post_meta($existing_product_id, Services_API::META_PROVIDER_ID, $provider_id);
+      update_post_meta($existing_product_id, Resources::META_RESOURCE_ID, $resource_id);
       return $existing_product_id;
     }
 
@@ -64,6 +69,8 @@ class WC_Service_Product {
     // Linkage
     update_post_meta($product_id, '_koopo_service_id', $service_id);
     if ($listing_id) update_post_meta($product_id, '_koopo_listing_id', $listing_id);
+    if ($provider_id) update_post_meta($product_id, Services_API::META_PROVIDER_ID, $provider_id);
+    if ($resource_id) update_post_meta($product_id, Resources::META_RESOURCE_ID, $resource_id);
     update_post_meta($product_id, '_koopo_service_duration_minutes', $duration);
 
     // Service-meta mirrors on product (handy for debugging/reporting)

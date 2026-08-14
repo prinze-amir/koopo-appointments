@@ -85,6 +85,13 @@ function breaksOutsideHours(breaksMin, hoursMin){
 
 
   function mount($mount, listingId){
+    const timezoneOptions = Array.isArray(KOOPO_APPT_SETTINGS.timezoneOptions)
+      ? KOOPO_APPT_SETTINGS.timezoneOptions
+      : ['UTC'];
+    const timezoneOptionMarkup = timezoneOptions
+      .map(timezone => `<option value="${timezone}">${timezone.replace(/_/g, ' ')}</option>`)
+      .join('');
+
     $mount.html(`
       <div class="kas">
         <div class="kas__notice kas__notice--hidden"></div>
@@ -118,8 +125,9 @@ function breaksOutsideHours(breaksMin, hoursMin){
 
         <label class="kas__row">
           <span>Timezone</span>
-          <input type="text" class="kas__tz" placeholder="America/Detroit" />
+          <select class="kas__tz">${timezoneOptionMarkup}</select>
         </label>
+        <div class="kas__hint">Appointment dates and times use this business timezone.</div>
 
        <div class="kas__section">
         <h4>Business Hours</h4>
@@ -161,16 +169,19 @@ function breaksOutsideHours(breaksMin, hoursMin){
 
         <div class="kas__grid">
           <label>
-            Slot interval (minutes, optional)
+            Start time spacing (minutes)
             <input type="number" class="kas__interval" min="0" step="1" placeholder="0 = use duration" />
+            <span class="kas__field-hint">Minutes between available start times. For example, 15 shows 9:00, 9:15, and 9:30.</span>
           </label>
           <label>
             Buffer before (minutes)
             <input type="number" class="kas__buf_before" min="0" step="1" value="0" />
+            <span class="kas__field-hint">Prep time reserved before each appointment.</span>
           </label>
           <label>
             Buffer after (minutes)
             <input type="number" class="kas__buf_after" min="0" step="1" value="0" />
+            <span class="kas__field-hint">Wrap-up time reserved after each appointment.</span>
           </label>
         </div>
 
@@ -238,6 +249,7 @@ function breaksOutsideHours(breaksMin, hoursMin){
       </div>
     `);
 
+    $mount.trigger('koopo:appointments-settings-mounted', [listingId]);
     load($mount, listingId);
   }
 
@@ -588,7 +600,8 @@ function validateAll($mount){
   async function load($mount, listingId){
     try {
       setLoading($mount, true);
-      const data = await api(`/appointments/settings/${listingId}`, { method:'GET' });
+      const path = $mount.data('mode') === 'dokan' ? `/resources/${listingId}/settings` : `/appointments/settings/${listingId}`;
+      const data = await api(path, { method:'GET' });
 
       setToggleState($mount.find('.kas__enabled_toggle'), !!data.enabled);
       $mount.find('.kas__tz').val(data.timezone || KOOPO_APPT_SETTINGS.tzDefault);
@@ -643,7 +656,7 @@ function validateAll($mount){
     try {
         setLoading($mount, true);
         const enabled = isToggleOn($mount.find('.kas__enabled_toggle'));
-        const timezone = $mount.find('.kas__tz').val().trim() || KOOPO_APPT_SETTINGS.tzDefault;
+        const timezone = String($mount.find('.kas__tz').val() || '').trim() || KOOPO_APPT_SETTINGS.tzDefault;
 
         const days = ['mon','tue','wed','thu','fri','sat','sun'];
 
@@ -685,7 +698,8 @@ function validateAll($mount){
 
       const days_off = getVacationItems($mount);
 
-      await api(`/appointments/settings/${listingId}`, {
+      const path = $mount.data('mode') === 'dokan' ? `/resources/${listingId}/settings` : `/appointments/settings/${listingId}`;
+      await api(path, {
         method:'POST',
         body: JSON.stringify({
           enabled,
@@ -792,11 +806,11 @@ function validateAll($mount){
     renderVacationList($mount, list);
   });
 
-  // Load vendor listings into dropdown on Dokan dashboard
+  // Load place and independent-professional booking contexts.
   async function loadVendorListings($select) {
     try {
-      $select.empty().append(`<option value="">Select listing…</option>`);
-      const res = await fetch(`${KOOPO_APPT_SETTINGS.restUrl}/vendor/listings`, {
+      $select.empty().append(`<option value="">Select booking profile…</option>`);
+      const res = await fetch(`${KOOPO_APPT_SETTINGS.restUrl}/vendor/booking-contexts`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
@@ -804,14 +818,15 @@ function validateAll($mount){
         }
       });
       const listings = await res.json();
-      if (!res.ok) throw new Error('Failed to load listings');
+      if (!res.ok) throw new Error('Failed to load booking profiles');
 
       listings.forEach(l => {
         const title = String(l.title || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-        $select.append(`<option value="${l.id}">${title}</option>`);
+        const type = l.subject_type === 'provider' ? 'Professional' : 'Business';
+        $select.append(`<option value="${l.resource_id}" data-url="${l.permalink || ''}">${title} — ${type}</option>`);
       });
     } catch(e) {
-      console.error('Failed to load vendor listings:', e);
+      console.error('Failed to load booking profiles:', e);
     }
   }
 
@@ -931,7 +946,7 @@ function validateAll($mount){
   async function loadServicesForListing(listingId, $wrap){
     if (!listingId) return;
     try {
-      const services = await api(`/services/by-listing/${listingId}`, { method:'GET' });
+      const services = await api(`/services/by-listing/${listingId}?include_inactive=1`, { method:'GET' });
       $wrap.data('koopoServices', services || []);
       renderServicesList($wrap, services || []);
     } catch (e) {

@@ -27,7 +27,8 @@ $calendar_links = Date_Formatter::get_calendar_links($booking);
 
 // Service and listing
 $service_title = get_the_title((int) $booking->service_id);
-$listing_title = get_the_title((int) $booking->listing_id);
+$subject_id = (int) $booking->listing_id ?: (int) ($booking->provider_id ?? 0);
+$listing_title = get_the_title($subject_id);
 
 $addon_ids = get_option("koopo_booking_{$booking->id}_addon_ids", '');
 $addon_ids = is_string($addon_ids) ? json_decode($addon_ids, true) : $addon_ids;

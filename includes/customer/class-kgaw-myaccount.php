@@ -49,7 +49,7 @@ class MyAccount {
     echo '<table class="shop_table shop_table_responsive koopo-appts-table">';
     echo '<thead><tr>';
     echo '<th>Date & Time</th>';
-    echo '<th>Business</th>';
+    echo '<th>Professional or Business</th>';
     echo '<th>Service</th>';
     echo '<th>Duration</th>';
     echo '<th>Status</th>';
@@ -57,7 +57,8 @@ class MyAccount {
     echo '</tr></thead><tbody>';
 
     foreach ($rows as $b) {
-      $listing_title = get_the_title((int)$b->listing_id);
+      $subject_id = (int) ($b->listing_id ?? 0) ?: (int) ($b->provider_id ?? 0);
+      $listing_title = get_the_title($subject_id);
       $service_title = get_the_title((int)$b->service_id);
 
       // Format datetime with timezone
@@ -95,7 +96,7 @@ class MyAccount {
 
       echo '<tr>';
       echo '<td data-title="Date & Time">' . esc_html($datetime_display) . '</td>';
-      echo '<td data-title="Business">' . esc_html($listing_title) . '</td>';
+      echo '<td data-title="Professional or Business">' . esc_html($listing_title) . '</td>';
       echo '<td data-title="Service">' . esc_html($service_title) . '</td>';
       echo '<td data-title="Duration">' . esc_html($duration_display) . '</td>';
       echo '<td data-title="Status">' . $status_badge . '</td>';

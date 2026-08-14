@@ -133,11 +133,15 @@ class Customer_Bookings_API {
     return self::$listing_author_cache[$listing_id];
   }
 
-  private static function invalidate_vendor_analytics_cache(int $listing_id): void {
-    $vendor_id = self::get_listing_author_id($listing_id);
+  private static function invalidate_vendor_analytics_cache($booking): void {
+    $listing_id = (int) ($booking->listing_id ?? 0);
+    $resource_id = (int) ($booking->resource_id ?? 0);
+    $vendor_id = (int) ($booking->payee_user_id ?? $booking->listing_author_id ?? 0);
+    if (!$vendor_id && $listing_id) $vendor_id = self::get_listing_author_id($listing_id);
     if (!$vendor_id) return;
     delete_transient(sprintf('koopo_vendor_analytics_%d_%d', $vendor_id, 0));
-    delete_transient(sprintf('koopo_vendor_analytics_%d_%d', $vendor_id, $listing_id));
+    if ($listing_id) delete_transient(sprintf('koopo_vendor_analytics_%d_%d', $vendor_id, $listing_id));
+    if ($resource_id) delete_transient(sprintf('koopo_vendor_analytics_%d_%d', $vendor_id, -$resource_id));
   }
 
   /**
@@ -379,9 +383,7 @@ class Customer_Bookings_API {
       'cancel_reason' => $reason,
     ]);
 
-    if (!empty($booking->listing_id)) {
-      self::invalidate_vendor_analytics_cache((int) $booking->listing_id);
-    }
+    self::invalidate_vendor_analytics_cache($booking);
 
     // Trigger notification
     do_action('koopo_customer_cancelled_booking', $booking_id, $customer_id, $reason, $refund_amount);
@@ -450,9 +452,7 @@ class Customer_Bookings_API {
     $updated = Bookings::get_booking($booking_id);
     do_action('koopo_booking_rescheduled', $booking_id, $new_start, $new_end, $updated);
 
-    if (!empty($updated->listing_id)) {
-      self::invalidate_vendor_analytics_cache((int) $updated->listing_id);
-    }
+    self::invalidate_vendor_analytics_cache($updated);
 
     return rest_ensure_response([
       'ok' => true,
@@ -572,8 +572,10 @@ class Customer_Bookings_API {
   private static function format_booking_for_customer(object $booking): array {
     
     $service_title = self::service_title((int) $booking->service_id);
-    $listing_title = self::listing_title((int) $booking->listing_id);
-    $listing_url = $booking->listing_id ? get_permalink((int) $booking->listing_id) : '';
+    $provider_id = (int) ($booking->provider_id ?? 0);
+    $subject_id = (int) $booking->listing_id ?: $provider_id;
+    $listing_title = self::listing_title($subject_id);
+    $listing_url = $subject_id ? get_permalink($subject_id) : '';
     
     $tz = !empty($booking->timezone) ? (string) $booking->timezone : '';
     
@@ -594,20 +596,29 @@ class Customer_Bookings_API {
     $cancelled_by = (string) Bookings::extra_from_record($booking, 'cancelled_by', '');
     $refund_amount_meta = (float) Bookings::extra_from_record($booking, 'refund_amount', 0.0);
     $refund_status = (string) Bookings::extra_from_record($booking, 'refund_status', '');
+    $fulfillment_mode = (string) Bookings::extra_from_record($booking, 'fulfillment_mode', 'at_location');
+    $service_address = array_values(array_filter([
+      (string) Bookings::extra_from_record($booking, 'service_address_1', ''),
+      (string) Bookings::extra_from_record($booking, 'service_address_2', ''),
+      (string) Bookings::extra_from_record($booking, 'service_city', ''),
+      (string) Bookings::extra_from_record($booking, 'service_region', ''),
+      (string) Bookings::extra_from_record($booking, 'service_postal_code', ''),
+      (string) Bookings::extra_from_record($booking, 'service_country', ''),
+    ]));
 
     // Determine what actions customer can take
     $status = (string) $booking->status;
     $is_future = strtotime($booking->start_datetime) > time();
-    $can_cancel = $is_future && in_array($status, ['pending_payment', 'confirmed'], true);
+    $can_cancel = Bookings::customer_can_cancel($booking);
     $can_reschedule = $is_future && $status === 'confirmed' && self::is_reschedule_allowed($booking);
     $cutoff_value = 0;
     $cutoff_unit = 'hours';
-    if (!empty($booking->listing_id)) {
-      $settings = self::get_listing_settings_cached((int) $booking->listing_id);
+    if ($subject_id) {
+      $settings = self::get_listing_settings_cached($subject_id);
       $cutoff_value = isset($settings['reschedule_cutoff_value']) ? (int) $settings['reschedule_cutoff_value'] : 0;
       $cutoff_unit = isset($settings['reschedule_cutoff_unit']) ? (string) $settings['reschedule_cutoff_unit'] : 'hours';
     }
-    $cutoff_minutes = self::get_reschedule_cutoff_minutes((int) $booking->listing_id);
+    $cutoff_minutes = self::get_reschedule_cutoff_minutes($subject_id);
 
     // Get calendar links
     $calendar_links = Date_Formatter::get_calendar_links($booking);
@@ -633,6 +644,8 @@ class Customer_Bookings_API {
       'service_id' => (int) $booking->service_id,
       'service_title' => $service_title ?: '',
       'listing_id' => (int) $booking->listing_id,
+      'provider_id' => $provider_id,
+      'resource_id' => (int) ($booking->resource_id ?? 0),
       'listing_title' => $listing_title ?: '',
       'listing_url' => $listing_url ?: '',
       'start_datetime' => $booking->start_datetime,
@@ -661,6 +674,11 @@ class Customer_Bookings_API {
       'cancelled_by' => $cancelled_by ?: '',
       'refund_amount' => $refund_amount_meta,
       'refund_status' => $refund_status ?: '',
+      'fulfillment_mode' => $fulfillment_mode,
+      'service_address' => $fulfillment_mode === 'mobile' ? implode(', ', $service_address) : '',
+      'virtual_provider' => $fulfillment_mode === 'virtual' ? (string) Bookings::extra_from_record($booking, 'virtual_provider', '') : '',
+      'virtual_join_url' => $fulfillment_mode === 'virtual' && $status === 'confirmed' ? esc_url_raw((string) Bookings::extra_from_record($booking, 'virtual_join_url', '')) : '',
+      'virtual_instructions' => $fulfillment_mode === 'virtual' && $status === 'confirmed' ? (string) Bookings::extra_from_record($booking, 'virtual_instructions', '') : '',
       'reschedule_cutoff_value' => $cutoff_value,
       'reschedule_cutoff_unit' => $cutoff_unit,
       'reschedule_cutoff_minutes' => $cutoff_minutes,
@@ -741,14 +759,14 @@ class Customer_Bookings_API {
   }
 
   private static function is_reschedule_allowed(object $booking): bool {
-    $listing_id = isset($booking->listing_id) ? (int) $booking->listing_id : 0;
-    if ($listing_id) {
-      $settings = self::get_listing_settings_cached($listing_id);
+    $subject_id = isset($booking->listing_id) && $booking->listing_id ? (int) $booking->listing_id : (int) ($booking->provider_id ?? 0);
+    if ($subject_id) {
+      $settings = self::get_listing_settings_cached($subject_id);
       if (isset($settings['reschedule_enabled']) && !$settings['reschedule_enabled']) {
         return false;
       }
     }
-    $cutoff_minutes = self::get_reschedule_cutoff_minutes($listing_id);
+    $cutoff_minutes = self::get_reschedule_cutoff_minutes($subject_id);
     if ($cutoff_minutes <= 0) return true;
     $start_ts = strtotime($booking->start_datetime);
     if (!$start_ts) return false;

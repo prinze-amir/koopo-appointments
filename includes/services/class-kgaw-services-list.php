@@ -15,6 +15,19 @@ class Services_List {
       'callback' => [__CLASS__, 'get_services_for_listing'],
       'permission_callback' => '__return_true', // public listing page; services are “public” in this context
     ]);
+    register_rest_route('koopo/v1', '/services/by-provider/(?P<id>\d+)', [
+      'methods' => 'GET',
+      'callback' => [__CLASS__, 'get_services_for_provider'],
+      'permission_callback' => '__return_true',
+    ]);
+  }
+
+  private static function can_manage_listing(int $listing_id): bool {
+    if (!$listing_id || !is_user_logged_in()) {
+      return false;
+    }
+
+    return Access::can_manage_listing_feature($listing_id, 'appointments');
   }
 
   public static function get_services_for_listing(\WP_REST_Request $req) {
@@ -25,7 +38,24 @@ class Services_List {
     if (!$listing) return new \WP_REST_Response([], 200);
 
     $vendor_id = (int) $listing->post_author;
+    $include_inactive = !empty($req->get_param('include_inactive')) && self::can_manage_listing($listing_id);
 
+    return new \WP_REST_Response(self::query_services($vendor_id, Services_API::META_LISTING_ID, $listing_id, $include_inactive), 200);
+  }
+
+  public static function get_services_for_provider(\WP_REST_Request $req) {
+    $provider_id = absint($req['id']);
+    $provider = get_post($provider_id);
+    if (!$provider || $provider->post_type !== Provider_Profiles::POST_TYPE || $provider->post_status !== 'publish') {
+      return new \WP_REST_Response([], 200);
+    }
+    $can_manage = is_user_logged_in() && (Access::is_admin_bypass() || (int) $provider->post_author === get_current_user_id());
+    $include_inactive = !empty($req->get_param('include_inactive')) && $can_manage;
+    return new \WP_REST_Response(self::query_services((int) $provider->post_author, Services_API::META_PROVIDER_ID, $provider_id, $include_inactive), 200);
+  }
+
+  private static function query_services(int $vendor_id, string $meta_key, int $subject_id, bool $include_inactive): array {
+    $subject_category_ids = Services_API::META_PROVIDER_ID === $meta_key ? array_map(static fn($category) => (int) $category['id'], Provider_Profiles::categories($subject_id)) : [];
     $q = new \WP_Query([
       'post_type' => Services_CPT::POST_TYPE,
       'post_status' => 'publish',
@@ -35,12 +65,20 @@ class Services_List {
       'order' => 'ASC',
       'meta_query' => [
         [
-          'key' => '_koopo_listing_id',
-          'value' => $listing_id,
+          'key' => $meta_key,
+          'value' => $subject_id,
           'compare' => '=',   // services tied to this listing
         ],
       ],
     ]);
+
+    $product_ids = array_values(array_filter(array_map(
+      static fn($service) => (int) get_post_meta($service->ID, '_koopo_wc_product_id', true),
+      $q->posts
+    )));
+    if ($product_ids) {
+      update_meta_cache('post', $product_ids);
+    }
 
     $out = [];
     foreach ($q->posts as $p) {
@@ -50,14 +88,15 @@ class Services_List {
         continue;
       }
 
+      $status = (string) (get_post_meta($p->ID, Services_API::META_STATUS, true) ?: 'active');
+      if (!$include_inactive && $status === 'inactive') {
+        continue;
+      }
+
       $price = get_post_meta($p->ID, Services_API::META_PRICE, true);
       if ($price === '' || $price === null) $price = get_post_meta($p->ID, '_koopo_price', true);
       $duration = get_post_meta($p->ID, Services_API::META_DURATION, true);
       if ($duration === '' || $duration === null) $duration = get_post_meta($p->ID, '_koopo_duration_minutes', true);
-
-      // Get category IDs
-      $terms = wp_get_object_terms($p->ID, Service_Categories::TAXONOMY, ['fields' => 'ids']);
-      $category_ids = is_array($terms) ? array_map('intval', $terms) : [];
 
       $out[] = [
         'id' => (int)$p->ID,
@@ -67,16 +106,19 @@ class Services_List {
         // extra vendor-dashboard fields (harmless for public consumers)
         'description' => (string) get_post_meta($p->ID, Services_API::META_DESC, true),
         'color' => (string) get_post_meta($p->ID, Services_API::META_COLOR, true),
-        'status' => (string) (get_post_meta($p->ID, Services_API::META_STATUS, true) ?: 'active'),
+        'status' => $status,
         'price_label' => (string) get_post_meta($p->ID, Services_API::META_PRICE_LABEL, true),
         'buffer_before' => (int) get_post_meta($p->ID, Services_API::META_BUF_BEFORE, true),
         'buffer_after' => (int) get_post_meta($p->ID, Services_API::META_BUF_AFTER, true),
         'instant' => (get_post_meta($p->ID, Services_API::META_INSTANT, true) === '1'),
         'is_addon' => (get_post_meta($p->ID, Services_API::META_ADDON, true) === '1'),
-        'category_ids' => $category_ids,
+        'category_ids' => $subject_category_ids,
+        'wc_product_id' => $product_id,
+        'tax_status' => (string) (get_post_meta($product_id, '_tax_status', true) ?: 'none'),
+        'virtual' => get_post_meta($product_id, '_virtual', true) === 'yes',
       ];
     }
 
-    return new \WP_REST_Response($out, 200);
+    return $out;
   }
 }

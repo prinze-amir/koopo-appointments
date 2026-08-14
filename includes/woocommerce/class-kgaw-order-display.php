@@ -71,10 +71,12 @@ class Order_Display {
     $booking->duration_minutes = (int) $duration_minutes;
 
     $listing_id = (int) $booking->listing_id;
-    $listing = $listing_id ? get_post($listing_id) : null;
-    $business_name = $listing ? get_the_title($listing_id) : '';
-    $business_url = $listing ? get_permalink($listing_id) : '';
-    $business_logo = $listing ? get_the_post_thumbnail_url($listing_id, 'medium') : '';
+    $provider_id = (int) ($booking->provider_id ?? 0);
+    $subject_id = $listing_id ?: $provider_id;
+    $listing = $subject_id ? get_post($subject_id) : null;
+    $business_name = $listing ? get_the_title($subject_id) : '';
+    $business_url = $listing ? get_permalink($subject_id) : '';
+    $business_logo = $listing ? get_the_post_thumbnail_url($subject_id, 'medium') : '';
     $business_email = self::get_listing_meta_value($listing_id, [
       'business_email', 'gd_email', 'geodir_email', 'geodir_contact_email', 'contact_email', 'email'
     ]);
@@ -84,6 +86,13 @@ class Order_Display {
     $business_address = self::get_listing_meta_value($listing_id, [
       'address', 'gd_address', 'geodir_address', 'address_line1', 'street'
     ]);
+    if ($provider_id) {
+      $owner_id = (int) get_post_field('post_author', $provider_id);
+      $owner = $owner_id ? get_userdata($owner_id) : null;
+      $business_email = $owner ? (string) $owner->user_email : '';
+      $business_phone = (string) get_post_meta($provider_id, Provider_Profiles::META_PHONE, true);
+      $business_address = '';
+    }
     if (!$business_address) {
       $city = self::get_listing_meta_value($listing_id, ['city', 'gd_city', 'geodir_city']);
       $region = self::get_listing_meta_value($listing_id, ['region', 'gd_region', 'geodir_region', 'state']);
@@ -218,7 +227,8 @@ class Order_Display {
     $status = ucfirst(str_replace('_', ' ', $booking->status));
     
     $service_title = get_the_title((int) $booking->service_id);
-    $listing_title = get_the_title((int) $booking->listing_id);
+    $subject_id = (int) ($booking->listing_id ?? 0) ?: (int) ($booking->provider_id ?? 0);
+    $listing_title = get_the_title($subject_id);
     $customer_name = get_userdata((int) $booking->customer_id)->display_name ?? '';
 
     ?>

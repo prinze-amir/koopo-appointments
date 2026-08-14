@@ -3,6 +3,40 @@ body.koopo-appt--modal-open {
   overflow: hidden;
 }
 
+.koopo-appt__delivery{margin:22px 0;padding:0;border:0}.koopo-appt__delivery legend{margin-bottom:11px;color:#263832;font-size:14px;font-weight:800}.koopo-appt__delivery-options{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:9px}.koopo-appt__delivery-option{display:flex;min-height:74px;padding:13px;border:1px solid #d7e0dc;border-radius:12px;background:#fff;cursor:pointer}.koopo-appt__delivery-option:has(input:checked){border-color:#2f6755;background:#edf7f2;box-shadow:0 0 0 1px #2f6755}.koopo-appt__delivery-option.is-disabled{opacity:.48;cursor:not-allowed}.koopo-appt__delivery-option input{margin:3px 10px 0 0}.koopo-appt__delivery-option span{display:grid;gap:3px}.koopo-appt__delivery-option strong{color:#263832;font-size:13px}.koopo-appt__delivery-option small{color:#6e7b76;font-size:11px;line-height:1.35}.koopo-appt__mobile-address,.koopo-appt__virtual-note{margin-top:12px;padding:15px;border-left:3px solid #2f6755;background:#f4f8f6}.koopo-appt__delivery-note{margin:0 0 12px;color:#5e7069;font-size:12px}.koopo-appt__coverage-check{margin-top:12px;padding:9px 13px;border:0;border-radius:8px;background:#2f6755;color:#fff;font-weight:750;cursor:pointer}.koopo-appt__coverage-status{margin-left:9px;color:#385e51;font-size:12px}.koopo-appt__virtual-note{display:grid;gap:4px}.koopo-appt__virtual-note[hidden],.koopo-appt__mobile-address[hidden]{display:none}.koopo-appt__virtual-note span{color:#64736d;font-size:12px}
+
+.koopo-appt__waitlist {
+  margin-top: 18px;
+  padding: 22px;
+  border: 1px solid #dce7e2;
+  border-radius: 16px;
+  background: linear-gradient(145deg, #f6fbf8, #fff);
+  color: #19352d;
+}
+.koopo-appt__waitlist-kicker,
+.koopo-appt__offer-banner span { color: #477c69; font-size: 11px; font-weight: 800; letter-spacing: .09em; text-transform: uppercase; }
+.koopo-appt__waitlist h4 { margin: 5px 0; font-size: 18px; }
+.koopo-appt__waitlist p { margin: 0 0 15px; color: #61706b; }
+.koopo-appt__waitlist-grid { display: grid; grid-template-columns: repeat(4, minmax(110px, 1fr)); gap: 10px; }
+.koopo-appt__waitlist-grid label { display: grid; gap: 5px; color: #5d6b66; font-size: 12px; font-weight: 700; }
+.koopo-appt__waitlist-grid input { width: 100%; border: 1px solid #cfdad6; border-radius: 9px; background: #fff; padding: 9px; }
+.koopo-appt__waitlist-channels, .koopo-appt__waitlist-days { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 15px 0; font-size: 13px; }
+.koopo-appt__waitlist-channels > span, .koopo-appt__waitlist-days > span { width: 100%; font-weight: 700; }
+.koopo-appt__waitlist-join,
+.koopo-appt__offer-banner button { border: 0; border-radius: 999px; background: #173f34; color: #fff; cursor: pointer; font-weight: 800; padding: 11px 18px; }
+.koopo-appt__waitlist-join:disabled,
+.koopo-appt__offer-banner button:disabled { cursor: wait; opacity: .6; }
+.koopo-appt__waitlist-status { margin-left: 10px; color: #8c3d33; font-size: 13px; }
+.koopo-appt__waitlist.is-complete { border-color: #9fcbb9; background: #eef8f3; }
+.koopo-appt__offer-banner { display: flex; gap: 20px; align-items: center; justify-content: space-between; margin: 0 0 18px; padding: 18px 20px; border: 1px solid #dfc887; border-radius: 15px; background: #fffbef; box-shadow: 0 10px 30px rgba(51, 42, 18, .08); }
+.koopo-appt__offer-banner div { display: grid; gap: 3px; }
+.koopo-appt__offer-banner strong { color: #342d1d; }
+.koopo-appt__offer-banner small { color: #74694d; }
+@media (max-width: 720px) {
+  .koopo-appt__waitlist-grid { grid-template-columns: 1fr 1fr; }
+  .koopo-appt__offer-banner { align-items: stretch; flex-direction: column; }
+}
+
 .koopo-appt .koopo-appt__open {
   cursor: pointer;
   border-radius:12px;

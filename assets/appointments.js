@@ -95,6 +95,33 @@
     return prefix + parts.join(' ');
   }
 
+  function waitlistPrompt($root, date){
+    const start = date || fmtDate(new Date());
+    const end = fmtDate(addDays(new Date(`${start}T12:00:00`), 30));
+    const day = ['sun','mon','tue','wed','thu','fri','sat'][new Date(`${start}T12:00:00`).getDay()];
+    return `
+      <section class="koopo-appt__waitlist" aria-label="Waitlist">
+        <span class="koopo-appt__waitlist-kicker">Opening alerts</span>
+        <h4>Want this service on another opening?</h4>
+        <p>Join the waitlist and we’ll send a private, expiring offer when a matching time opens.</p>
+        <div class="koopo-appt__waitlist-grid">
+          <label>From<input type="date" class="koopo-appt__wait-from" value="${start}"></label>
+          <label>Through<input type="date" class="koopo-appt__wait-to" value="${end}"></label>
+          <label>After<input type="time" class="koopo-appt__wait-earliest" value="08:00"></label>
+          <label>Before<input type="time" class="koopo-appt__wait-latest" value="18:00"></label>
+        </div>
+        <div class="koopo-appt__waitlist-days"><span>Preferred days</span>${['sun','mon','tue','wed','thu','fri','sat'].map(value=>`<label><input type="checkbox" value="${value}" ${value===day?'checked':''}> ${value.charAt(0).toUpperCase()+value.slice(1)}</label>`).join('')}</div>
+        <div class="koopo-appt__waitlist-channels">
+          <span>Notify me by</span>
+          <label><input type="checkbox" value="email" checked> Email</label>
+          <label><input type="checkbox" value="push" checked> Push</label>
+          <label><input type="checkbox" value="sms"> SMS</label>
+        </div>
+        <button type="button" class="koopo-appt__waitlist-join">Join waitlist</button>
+        <span class="koopo-appt__waitlist-status" role="status"></span>
+      </section>`;
+  }
+
   // State management
   function getState($root){
     if (!$root.data('koopoState')) {
@@ -108,7 +135,9 @@
         currentStep: 1,
         userInfo: null,
         servicesMap: {},
-        addonIds: []
+        addonIds: [],
+        fulfillmentMode: '',
+        coverageVerified: false
       });
     }
     return $root.data('koopoState');
@@ -237,13 +266,60 @@
     $calendar.html(html);
   }
 
-  // Load listing settings
+  function bookingContext($root){
+    return {
+      listingId: parseInt($root.data('listing-id') || KOOPO_APPT.listingId || 0, 10) || 0,
+      providerId: parseInt($root.data('provider-id') || KOOPO_APPT.providerId || 0, 10) || 0,
+      resourceId: parseInt($root.data('resource-id') || KOOPO_APPT.resourceId || 0, 10) || 0
+    };
+  }
+
+  function serviceModes($root){
+    let modes=$root.attr('data-service-modes')||'[]';
+    try{modes=JSON.parse(modes);}catch(error){modes=[];}
+    return Array.isArray(modes)&&modes.length?modes:['at_location'];
+  }
+
+  function deliveryLabel(mode){
+    return mode==='mobile'?'Provider comes to me':(mode==='virtual'?'Online meeting':'At a location');
+  }
+
+  function renderDeliveryOptions($root){
+    const state=getState($root); const modes=serviceModes($root); const areaLabel=String($root.attr('data-service-area-label')||'');
+    const options=modes.map(mode=>{
+      const unavailable=mode==='mobile'&&!areaLabel;
+      const detail=mode==='mobile'?(areaLabel||'Service area setup is incomplete'):mode==='virtual'?'Meeting access is shared privately after confirmation':'Visit the provider or selected business';
+      return `<label class="koopo-appt__delivery-option ${unavailable?'is-disabled':''}"><input type="radio" name="koopo-delivery-${$root.data('resource-id')}" value="${mode}" ${unavailable?'disabled':''}><span><strong>${deliveryLabel(mode)}</strong><small>${escapeHtml(detail)}</small></span></label>`;
+    }).join('');
+    $root.find('.koopo-appt__delivery-options').html(options);
+    let selected=state.fulfillmentMode;
+    if(!modes.includes(selected)||(selected==='mobile'&&!areaLabel)) selected=modes.find(mode=>mode!=='mobile'||!!areaLabel)||'';
+    state.fulfillmentMode=selected;
+    $root.find(`.koopo-appt__delivery-option input[value="${selected}"]`).prop('checked',true);
+    updateDeliveryFields($root);
+  }
+
+  function updateDeliveryFields($root){
+    const state=getState($root); const mobile=state.fulfillmentMode==='mobile'; const virtual=state.fulfillmentMode==='virtual';
+    $root.find('.koopo-appt__mobile-address').prop('hidden',!mobile);
+    $root.find('.koopo-appt__virtual-note').prop('hidden',!virtual);
+    $root.find('.koopo-appt__delivery-note').text(String($root.attr('data-service-area-label')||''));
+    $root.find('.koopo-appt__summary-delivery').text(deliveryLabel(state.fulfillmentMode));
+    updateSummary($root);
+  }
+
+  function serviceAddress($root){
+    return {address_1:$root.find('.koopo-appt__service-address-1').val(),address_2:$root.find('.koopo-appt__service-address-2').val(),city:$root.find('.koopo-appt__service-city').val(),region:$root.find('.koopo-appt__service-region').val(),postal_code:$root.find('.koopo-appt__service-postal').val(),country:$root.find('.koopo-appt__service-country').val()};
+  }
+
+  // Load booking-calendar settings.
   async function loadListingSettings($root){
-    const listingId = $root.data('listing-id') || KOOPO_APPT.listingId;
+    const context = bookingContext($root);
     if ($root.data('listingSettingsLoaded')) return;
 
     try {
-      const s = await api(`/appointments/settings/${listingId}`, { method: 'GET' });
+      const path = context.resourceId ? `/resources/${context.resourceId}/settings` : `/appointments/settings/${context.listingId}`;
+      const s = await api(path, { method: 'GET' });
       $root.data('listingSettings', s);
       $root.data('listingSettingsLoaded', true);
       const state = getState($root);
@@ -311,12 +387,12 @@
 
     try {
       const duration = getTotalDuration($root);
-      const qs = new URLSearchParams({ date: date, duration_minutes: String(duration || 0) });
+      const qs = new URLSearchParams({ date: date, duration_minutes: String(duration || 0), fulfillment_mode: state.fulfillmentMode || 'at_location' });
       const data = await api(`/availability/by-service/${serviceId}?${qs.toString()}`, { method:'GET' });
       const slots = (data && data.slots) ? data.slots : [];
 
       if (!slots.length) {
-        $slots.html('<div class="koopo-appt__slots-empty">No times available (fully booked).</div>');
+        $slots.html('<div class="koopo-appt__slots-empty">No times available for this day.</div>' + waitlistPrompt($root, date));
         return;
       }
 
@@ -351,22 +427,25 @@
 
   // Load services
   async function loadServices($root){
-    const listingId = $root.data('listing-id') || KOOPO_APPT.listingId;
-    const services = await api(`/services/by-listing/${listingId}`, { method: 'GET' });
+    const context = bookingContext($root);
+    const path = context.providerId ? `/services/by-provider/${context.providerId}` : `/services/by-listing/${context.listingId}`;
+    const services = await api(path, { method: 'GET' });
     const state = getState($root);
     state.servicesMap = {};
     (services || []).forEach(s => { state.servicesMap[s.id] = s; });
+    const bookableServices = (services || []).filter(s => !s.is_addon && (s.status || 'active') !== 'inactive');
+    const addons = (services || []).filter(s => s.is_addon && (s.status || 'active') !== 'inactive');
 
     const $grid = $root.find('.koopo-appt__services-grid');
     $grid.empty();
 
-    if (!services.length) {
+    if (!bookableServices.length) {
       $grid.html('<p style="text-align: center; padding: 40px 20px; color: #666;">No services available at this time.</p>');
       return [];
     }
 
     // Render service cards
-    services.forEach(s => {
+    bookableServices.forEach(s => {
       const price = s.price !== undefined ? `${KOOPO_APPT.currency}${Number(s.price).toFixed(2)}` : 'N/A';
       const duration = s.duration_minutes ? `${s.duration_minutes} min` : 'N/A';
       const description = s.description || '';
@@ -394,12 +473,11 @@
       $grid.append(card);
     });
 
-    const addons = services.filter(s => s.is_addon);
     state.addonsAvailable = addons.length > 0;
     renderAddons($root, addons);
     renderSelectedAddons($root);
     updateAddonsVisibility($root);
-    return services;
+    return bookableServices;
   }
 
   function updateAddonsVisibility($root) {
@@ -516,9 +594,10 @@
 
     // Enable/disable next button for step 2
     const hasService = !!serviceId;
+    const deliveryReady = !!state.fulfillmentMode && (state.fulfillmentMode !== 'mobile' || state.coverageVerified);
     const hasDate = !!state.selectedDate;
     const hasSlot = !!$root.find('.koopo-appt__slot-start').val();
-    $root.find('.koopo-appt__next-step--service').prop('disabled', !hasService);
+    $root.find('.koopo-appt__next-step--service').prop('disabled', !(hasService && deliveryReady));
     $root.find('.koopo-appt__next-step--schedule').prop('disabled', !(hasService && hasDate && hasSlot));
 
     // Enable/disable submit button for step 3
@@ -583,7 +662,7 @@
         return;
       }
 
-      const listingId = $root.data('listing-id') || KOOPO_APPT.listingId;
+      const context = bookingContext($root);
       const serviceId = parseInt($root.find('.koopo-appt__service').val(), 10);
       const state = getState($root);
       const date = state.selectedDate;
@@ -613,21 +692,26 @@
       }
 
       // Create booking
+      const listingSettings = state.listingSettings || $root.data('listingSettings') || {};
       const booking = await api('/bookings', {
         method: 'POST',
         body: JSON.stringify({
-          listing_id: listingId,
+          listing_id: context.listingId || 0,
+          provider_id: context.providerId || 0,
+          resource_id: context.resourceId || 0,
           service_id: serviceId,
           start_datetime: start,
           end_datetime: end,
-          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || '',
+          timezone: listingSettings.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || '',
           price: price,
           addon_ids: addonIds,
           customer_name: customerName,
           customer_email: customerEmail,
           customer_phone: customerPhone,
           customer_notes: customerNotes,
-          booking_for_other: bookingForOther
+          booking_for_other: bookingForOther,
+          fulfillment_mode: state.fulfillmentMode || 'at_location',
+          service_address: state.fulfillmentMode === 'mobile' ? serviceAddress($root) : {}
         })
       });
 
@@ -682,6 +766,7 @@
     try {
       await loadListingSettings($root);
       await loadServices($root);
+      renderDeliveryOptions($root);
       renderSelectedAddons($root);
 
       // Remove spinner and show form content
@@ -693,6 +778,15 @@
       $panel1.children().show();
       showNotice($root, e.message || 'Failed to load booking UI.', 'error');
     }
+  });
+
+  $(document).on('change','.koopo-appt__delivery-option input',function(){
+    const $root=$(this).closest('.koopo-appt'); const state=getState($root); state.fulfillmentMode=String($(this).val()||''); state.coverageVerified=state.fulfillmentMode!=='mobile'; updateDeliveryFields($root); loadSlots($root).catch(()=>{});
+  });
+  $(document).on('input','.koopo-appt__mobile-address input',function(){const $root=$(this).closest('.koopo-appt');getState($root).coverageVerified=false;$root.find('.koopo-appt__coverage-status').text('');updateSummary($root);});
+  $(document).on('click','.koopo-appt__coverage-check',async function(){
+    const $root=$(this).closest('.koopo-appt'); const state=getState($root); const context=bookingContext($root); const $status=$root.find('.koopo-appt__coverage-status').text('Checking coverage…'); $(this).prop('disabled',true);
+    try{const result=await api(`/providers/${context.providerId}/service-area/check`,{method:'POST',body:JSON.stringify(serviceAddress($root))});state.coverageVerified=!!result.eligible;$status.text(result.eligible?'This address is in the service area.':'This address is outside the provider’s service area.');updateSummary($root);}catch(error){state.coverageVerified=false;$status.text(error.message||'Unable to check this address.');updateSummary($root);}finally{$(this).prop('disabled',false);}
   });
 
   // Service card selection
@@ -841,6 +935,66 @@
   $(document).on('click', '.koopo-appt__submit', function(){
     const $root = $(this).closest('.koopo-appt');
     createBookingAndCheckout($root);
+  });
+
+  $(document).on('click', '.koopo-appt__waitlist-join', async function(){
+    const $button = $(this);
+    const $root = $button.closest('.koopo-appt');
+    const $box = $button.closest('.koopo-appt__waitlist');
+    const serviceId = parseInt($root.find('.koopo-appt__service').val(), 10) || 0;
+    const channels = $box.find('.koopo-appt__waitlist-channels input:checked').map(function(){ return this.value; }).get();
+    const preferredDays = $box.find('.koopo-appt__waitlist-days input:checked').map(function(){ return this.value; }).get();
+    $button.prop('disabled', true);
+    $box.find('.koopo-appt__waitlist-status').text('Saving…');
+    try {
+      await api('/waitlist', {
+        method: 'POST',
+        body: JSON.stringify({
+          service_id: serviceId,
+          date_from: $box.find('.koopo-appt__wait-from').val(),
+          date_to: $box.find('.koopo-appt__wait-to').val(),
+          preferred_days: preferredDays,
+          earliest_time: $box.find('.koopo-appt__wait-earliest').val(),
+          latest_time: $box.find('.koopo-appt__wait-latest').val(),
+          channels: channels,
+          fulfillment_mode: getState($root).fulfillmentMode || 'at_location',
+          service_address: getState($root).fulfillmentMode === 'mobile' ? serviceAddress($root) : {}
+        })
+      });
+      $box.addClass('is-complete').html('<strong>You’re on the waitlist.</strong><p>We’ll contact you only when a matching opening becomes available.</p>');
+    } catch (error) {
+      $button.prop('disabled', false);
+      $box.find('.koopo-appt__waitlist-status').text(error.message || 'Could not join the waitlist.');
+    }
+  });
+
+  async function acceptWaitlistOffer($banner, token){
+    const $button = $banner.find('button');
+    $button.prop('disabled', true).text('Confirming…');
+    try {
+      const booking = await api(`/waitlist/offers/${encodeURIComponent(token)}/accept`, { method: 'POST' });
+      if (booking.order_received_url) {
+        window.location.href = booking.order_received_url;
+        return;
+      }
+      const checkout = await api(`/bookings/${booking.booking_id}/checkout-cart`, { method: 'POST' });
+      window.location.href = checkout.checkout_url;
+    } catch (error) {
+      $button.prop('disabled', false).text('Confirm opening');
+      $banner.find('[role="status"]').text(error.message || 'This opening is no longer available.');
+    }
+  }
+
+  $(function(){
+    const token = new URLSearchParams(window.location.search).get('koopo_waitlist_offer');
+    if (!token) return;
+    $('.koopo-appt').each(function(){
+      const $root = $(this);
+      if ($root.find('.koopo-appt__offer-banner').length) return;
+      const $banner = $('<aside class="koopo-appt__offer-banner"><div><span>Waitlist opening</span><strong>An appointment time is being held briefly for you.</strong><small role="status">Confirm now to reserve it. If payment is required, you’ll continue to checkout.</small></div><button type="button">Confirm opening</button></aside>');
+      $banner.on('click', 'button', function(){ acceptWaitlistOffer($banner, token); });
+      $root.prepend($banner);
+    });
   });
 
 })(jQuery);

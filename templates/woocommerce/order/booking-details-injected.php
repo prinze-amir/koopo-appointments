@@ -16,6 +16,9 @@ $end = Date_Formatter::format($booking->end_datetime, $booking->timezone ?? '', 
 $duration = Date_Formatter::format_duration((int) $booking->duration_minutes ?? 0);
 $status = ucfirst(str_replace('_', ' ', $booking->status));
 $service_title = get_the_title((int) $booking->service_id);
+$fulfillment_mode = (string) ($booking->fulfillment_mode ?? 'at_location');
+$fulfillment_labels = ['at_location' => __('At a location', 'koopo-appointments'), 'mobile' => __('Provider comes to me', 'koopo-appointments'), 'virtual' => __('Online appointment', 'koopo-appointments')];
+$service_address = implode(', ', array_filter([(string)($booking->service_address_1??''),(string)($booking->service_address_2??''),(string)($booking->service_city??''),(string)($booking->service_region??''),(string)($booking->service_postal_code??''),(string)($booking->service_country??'')]));
 
 $addon_ids = get_option("koopo_booking_{$booking->id}_addon_ids", '');
 $addon_ids = is_string($addon_ids) ? json_decode($addon_ids, true) : $addon_ids;
@@ -28,7 +31,7 @@ foreach ($addon_ids as $addon_id) {
 }
 $addons_text = $addon_titles ? implode(', ', $addon_titles) : '—';
 
-$business_initial = $business_name ? strtoupper(substr($business_name, 0, 1)) : 'B';
+$business_initial = $business_name ? strtoupper(substr($business_name, 0, 1)) : 'K';
 $business_link = $business_url ?: '';
 $business_logo_html = $business_logo
   ? '<img src="' . esc_url($business_logo) . '" alt="' . esc_attr($business_name) . '">'
@@ -40,9 +43,9 @@ $business_logo_html = $business_logo
     <div class="koopo-business">
       <div class="koopo-business__logo"><?php echo wp_kses_post($business_logo_html); ?></div>
       <div class="koopo-business__meta">
-        <div class="koopo-business__name"><?php echo esc_html($business_name ?: 'Business'); ?></div>
+        <div class="koopo-business__name"><?php echo esc_html($business_name ?: 'Professional or Business'); ?></div>
         <?php if ($business_link): ?>
-          <a class="koopo-business__link" href="<?php echo esc_url($business_link); ?>">View business</a>
+          <a class="koopo-business__link" href="<?php echo esc_url($business_link); ?>">View details</a>
         <?php endif; ?>
       </div>
     </div>
@@ -73,6 +76,13 @@ $business_logo_html = $business_logo
         <strong><?php echo esc_html($duration); ?></strong>
       </div>
       <div class="koopo-booking-details__row">
+        <span><?php esc_html_e('Appointment type', 'koopo-appointments'); ?></span>
+        <strong><?php echo esc_html($fulfillment_labels[$fulfillment_mode] ?? $fulfillment_labels['at_location']); ?></strong>
+        <?php if ($fulfillment_mode === 'mobile' && $service_address) : ?><small><?php echo esc_html($service_address); ?></small><?php endif; ?>
+        <?php if ($fulfillment_mode === 'virtual' && $booking->status === 'confirmed' && !empty($booking->virtual_join_url)) : ?><a href="<?php echo esc_url($booking->virtual_join_url); ?>" target="_blank" rel="noopener noreferrer"><?php esc_html_e('Join online appointment', 'koopo-appointments'); ?></a><?php endif; ?>
+        <?php if ($fulfillment_mode === 'virtual' && $booking->status === 'confirmed' && !empty($booking->virtual_instructions)) : ?><small><?php echo nl2br(esc_html($booking->virtual_instructions)); ?></small><?php endif; ?>
+      </div>
+      <div class="koopo-booking-details__row">
         <span>Add-ons</span>
         <strong><?php echo esc_html($addons_text); ?></strong>
       </div>
@@ -83,7 +93,7 @@ $business_logo_html = $business_logo
     </div>
 
     <div class="koopo-business-contact">
-      <h3>Business Contact</h3>
+      <h3>Provider Contact</h3>
       <?php if ($business_address): ?>
         <div class="koopo-business-contact__row">
           <span>Address</span>

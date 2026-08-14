@@ -4,7 +4,7 @@
             do_action( 'dokan_dashboard_content_before' );
     ?>
   <div class="dokan-dashboard-content koopo-vendor-page">
-    <?php if ( ! \Koopo_Appointments\Dokan_Dashboard::vendor_has_listings( get_current_user_id() ) ) : ?>
+    <?php if ( ! \Koopo_Appointments\Dokan_Dashboard::vendor_has_booking_contexts( get_current_user_id() ) ) : ?>
       <?php \Koopo_Appointments\Dokan_Dashboard::render_no_listing_cta(); ?>
       </div>
     </div>
@@ -14,7 +14,7 @@
       <h2><?php esc_html_e('Services', 'appointments'); ?></h2>
       <div class="koopo-vendor-header__right">
         <select id="koopo-listing-picker" class="koopo-input">
-          <option value=""><?php esc_html_e('Select listing…', 'appointments'); ?></option>
+          <option value=""><?php esc_html_e('Select booking profile…', 'appointments'); ?></option>
         </select>
         <a id="koopo-view-listing-services" class="koopo-btn koopo-btn--secondary koopo-view-listing is-disabled" href="#" target="_blank" rel="noopener noreferrer">
           <?php esc_html_e('View Listing', 'appointments'); ?>
@@ -66,14 +66,6 @@
             <input type="checkbox" id="koopo-service-addon" />
             <span><?php esc_html_e('Enable as Add-on', 'appointments'); ?></span>
             <small><?php esc_html_e('Add-on services can be attached to a booking during manual scheduling.', 'appointments'); ?></small>
-          </label>
-
-          <label class="koopo-label koopo-label--full">
-            <?php esc_html_e('Category', 'appointments'); ?>
-            <select class="koopo-input" id="koopo-service-categories">
-              <option value=""><?php esc_html_e('Loading categories...', 'appointments'); ?></option>
-            </select>
-            <small class="koopo-help"><?php esc_html_e('Select a category for tax tagging purposes.', 'appointments'); ?></small>
           </label>
 
           <div class="koopo-section-title"><?php esc_html_e('Service Duration & Price', 'appointments'); ?></div>

@@ -59,7 +59,7 @@ class Refund_Policy {
     $hours_until = ($start->getTimestamp() - $now->getTimestamp()) / 3600;
 
     // Get refund policy rules (filterable per listing)
-    $listing_id = (int) $booking->listing_id;
+    $listing_id = (int) $booking->listing_id ?: (int) ($booking->provider_id ?? 0);
     $policy_rules = self::get_policy_rules($listing_id);
 
     // Apply policy rules

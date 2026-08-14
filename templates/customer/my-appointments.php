@@ -144,6 +144,14 @@ defined('ABSPATH') || exit;
           <span class="koopo-info-icon">⏱️</span>
           <span class="koopo-info-text koopo-duration"></span>
         </div>
+        <div class="koopo-info-row koopo-fulfillment-row">
+          <span class="koopo-info-icon">◎</span>
+          <span class="koopo-info-text koopo-fulfillment"></span>
+        </div>
+        <div class="koopo-info-row koopo-join-row" style="display:none;">
+          <span class="koopo-info-icon">↗</span>
+          <span class="koopo-info-text"><a class="koopo-join-link" target="_blank" rel="noopener noreferrer"><?php esc_html_e('Join online appointment', 'koopo-appointments'); ?></a></span>
+        </div>
         <div class="koopo-info-row">
           <span class="koopo-info-icon">💰</span>
           <span class="koopo-info-text koopo-price"></span>
@@ -204,9 +212,16 @@ defined('ABSPATH') || exit;
       <a href="#" class="koopo-btn koopo-btn--small koopo-btn-order" target="_blank" style="display:none;">
         <?php esc_html_e('View Order', 'koopo-appointments'); ?>
       </a>
+      <button type="button" class="koopo-btn koopo-btn--small koopo-btn-forms" style="display:none;">
+        <?php esc_html_e('Required Forms', 'koopo-appointments'); ?>
+      </button>
     </div>
   </div>
 </template>
+
+<div class="koopo-modal" id="koopo-forms-modal" style="display:none;">
+  <div class="koopo-modal__card koopo-forms-modal__card"><button class="koopo-modal__close" type="button">&times;</button><span class="koopo-forms-eyebrow"><?php esc_html_e('Private appointment forms', 'koopo-appointments'); ?></span><h3><?php esc_html_e('Intake & Consent', 'koopo-appointments'); ?></h3><div data-customer-forms></div></div>
+</div>
 
 <!-- Empty state template -->
 <template id="koopo-empty-state-template">

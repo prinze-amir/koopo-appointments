@@ -2,11 +2,11 @@
   if (typeof KOOPO_APPT_VENDOR === 'undefined') return;
   const utils = window.KOOPO_VENDOR_UTILS || {};
   const api = utils.api;
-  const loadVendorListings = utils.loadVendorListings;
+  const loadBookingContexts = utils.loadBookingContexts;
   const escapeHtml = utils.escapeHtml;
   const formatCurrency = utils.formatCurrency;
   const updateListingLink = utils.updateListingLink;
-  if (!api || !loadVendorListings || !escapeHtml || !formatCurrency) return;
+  if (!api || !loadBookingContexts || !escapeHtml || !formatCurrency) return;
 
 // ---------- Services page ----------
   const $servicesPicker = $('#koopo-listing-picker');
@@ -15,7 +15,7 @@
   const $modal          = $('#koopo-service-modal');
 
   const state = {
-    listingId: null,
+    context: null,
     editingServiceId: null,
     services: [],
   };
@@ -29,8 +29,8 @@
   }
   function renderServices(){
     if (!$servicesGrid.length) return;
-    if (!state.listingId) {
-      $servicesGrid.html('<div class="koopo-card koopo-muted">Pick a listing to load services.</div>');
+    if (!state.context) {
+      $servicesGrid.html('<div class="koopo-card koopo-muted">Pick a booking profile to load services.</div>');
       return;
     }
     if (!state.services.length) {
@@ -59,8 +59,11 @@
   }
 
   async function refreshServices(){
-    if (!state.listingId) return;
-    state.services = await api(`/services/by-listing/${state.listingId}`, { method:'GET' });
+    if (!state.context) return;
+    const path = state.context.subjectType === 'provider'
+      ? `/services/by-provider/${state.context.subjectId}`
+      : `/services/by-listing/${state.context.subjectId}`;
+    state.services = await api(`${path}?include_inactive=1`, { method:'GET' });
     renderServices();
   }
 
@@ -82,34 +85,7 @@
     $('#koopo-service-addon').prop('checked', !!(service && service.is_addon));
     $('#koopo-service-delete').toggle(!!service);
 
-    // Load categories with spinner
-    const $catSelect = $('#koopo-service-categories');
-    $catSelect.prop('disabled', true).html('<option value="">Loading categories...</option>');
-
-    try {
-      const data = await api('/service-categories', { method: 'GET' });
-      const categories = data.categories || [];
-
-      $catSelect.empty();
-      $catSelect.append('<option value="">Select a category...</option>');
-
-      categories.forEach(cat => {
-        $catSelect.append(`<option value="${cat.id}">${escapeHtml(cat.name)}</option>`);
-      });
-
-      $catSelect.prop('disabled', false);
-
-      // Set selected category when editing (single selection)
-      if (service && service.category_ids && service.category_ids.length > 0) {
-        $catSelect.val(service.category_ids[0]);
-      }
-    } catch (e) {
-      console.error('Failed to load categories:', e);
-      $catSelect.html('<option value="">Failed to load categories</option>');
-      $catSelect.prop('disabled', false);
-    } finally {
-      setServiceModalLoading(false);
-    }
+    setServiceModalLoading(false);
   }
   function closeModal(){
     setServiceModalLoading(false);
@@ -117,11 +93,7 @@
   }
 
   async function saveService(){
-    if (!state.listingId) throw new Error('Select a listing first.');
-
-    // Get selected category ID (single selection)
-    const categoryId = $('#koopo-service-categories').val();
-    const categoryIds = categoryId ? [parseInt(categoryId, 10)] : [];
+    if (!state.context) throw new Error('Select a booking profile first.');
 
     const payload = {
       title: $('#koopo-service-name').val(),
@@ -135,8 +107,9 @@
       buffer_after: parseInt($('#koopo-service-buffer-after').val(),10) || 0,
       instant: $('#koopo-service-instant').is(':checked') ? 1 : 0,
       is_addon: $('#koopo-service-addon').is(':checked') ? 1 : 0,
-      listing_id: state.listingId,
-      category_ids: categoryIds
+      listing_id: state.context.listingId || 0,
+      provider_id: state.context.providerId || 0,
+      resource_id: state.context.resourceId || 0
     };
 
     if (!payload.title || !payload.duration_minutes) throw new Error('Service name and duration are required.');
@@ -166,18 +139,26 @@
 
   if ($servicesPicker.length) {
     $servicesPicker.on('change', async function(){
-      state.listingId = parseInt($(this).val(),10) || null;
+      const $option = $(this).find('option:selected');
+      const subjectId = parseInt($(this).val(),10) || 0;
+      state.context = subjectId ? {
+        subjectId,
+        subjectType: String($option.data('subject-type') || 'listing'),
+        listingId: parseInt($option.data('listing-id'), 10) || 0,
+        providerId: parseInt($option.data('provider-id'), 10) || 0,
+        resourceId: parseInt($option.data('resource-id'), 10) || 0
+      } : null;
       if (updateListingLink) updateListingLink($servicesPicker, $viewListing);
       await refreshServices();
     });
-    loadVendorListings($servicesPicker).then(listings => {
-      if (Array.isArray(listings) && listings.length) {
+    loadBookingContexts($servicesPicker).then(contexts => {
+      if (Array.isArray(contexts) && contexts.length) {
         $servicesPicker.prop('selectedIndex', 1).trigger('change');
       }
       if (updateListingLink) updateListingLink($servicesPicker, $viewListing);
     }).catch(()=>{});
     $('#koopo-add-service').on('click', async function(){
-      if (!state.listingId) { alert('Select a listing first.'); return; }
+      if (!state.context) { alert('Select a booking profile first.'); return; }
       await openModal(null);
     });
     $servicesGrid.on('click', '[data-service-id]', async function(){

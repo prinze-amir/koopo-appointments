@@ -9,6 +9,20 @@ class Bookings {
     'customer_email' => '',
     'customer_phone' => '',
     'customer_notes' => '',
+    'fulfillment_mode' => 'at_location',
+    'service_address_1' => '',
+    'service_address_2' => '',
+    'service_city' => '',
+    'service_region' => '',
+    'service_postal_code' => '',
+    'service_country' => '',
+    'service_latitude' => null,
+    'service_longitude' => null,
+    'service_area_id' => 0,
+    'travel_buffer_minutes' => 0,
+    'virtual_provider' => '',
+    'virtual_join_url' => '',
+    'virtual_instructions' => '',
     'booking_for_other' => 0,
     'addon_ids' => '',
     'cancelled_by' => '',
@@ -44,16 +58,385 @@ class Bookings {
     return $statuses ?: ['pending_payment','confirmed'];
   }
 
-private static function acquire_lock(int $listing_id, int $timeout_seconds = 2): bool {
+  private static function supported_listing_post_types(): array {
+    $types = apply_filters('koopo_appt_listing_post_types', ['gd_place']);
+    if (!is_array($types) || empty($types)) {
+      return ['gd_place'];
+    }
+
+    return array_values(array_unique(array_map('strval', $types)));
+  }
+
+  private static function resolve_listing_timezone(array $settings): \DateTimeZone {
+    $tz_name = !empty($settings['timezone']) ? (string) $settings['timezone'] : '';
+    if ($tz_name === '') {
+      $tz_name = function_exists('wp_timezone_string') ? wp_timezone_string() : (string) get_option('timezone_string');
+    }
+    if ($tz_name === '') {
+      $tz_name = 'UTC';
+    }
+
+    try {
+      return new \DateTimeZone($tz_name);
+    } catch (\Exception $e) {
+      return new \DateTimeZone('UTC');
+    }
+  }
+
+  private static function vacation_ranges_for_date(array $days_off, string $date): array {
+    $ranges = [];
+    $all_day = false;
+
+    foreach ($days_off as $item) {
+      if (is_string($item)) {
+        if ($item === $date) {
+          $all_day = true;
+          break;
+        }
+        continue;
+      }
+
+      if (!is_array($item)) {
+        continue;
+      }
+
+      $item_date = isset($item['date']) ? (string) $item['date'] : '';
+      if ($item_date !== $date) {
+        continue;
+      }
+
+      $start = isset($item['start']) ? (string) $item['start'] : '';
+      $end = isset($item['end']) ? (string) $item['end'] : '';
+
+      if ($start === '' && $end === '') {
+        $all_day = true;
+        break;
+      }
+
+      if ($start !== '' && $end !== '') {
+        $ranges[] = [$start, $end];
+      }
+    }
+
+    return ['all_day' => $all_day, 'ranges' => $ranges];
+  }
+
+  private static function get_service_duration_minutes(int $service_id): int {
+    $duration = get_post_meta($service_id, Services_API::META_DURATION, true);
+    if ($duration === '' || $duration === null) {
+      $duration = get_post_meta($service_id, '_koopo_duration_minutes', true);
+    }
+
+    return max(0, (int) $duration);
+  }
+
+  private static function get_service_status(int $service_id): string {
+    $status = (string) get_post_meta($service_id, Services_API::META_STATUS, true);
+    return $status !== '' ? $status : 'active';
+  }
+
+  private static function is_service_active(int $service_id): bool {
+    return self::get_service_status($service_id) !== 'inactive';
+  }
+
+  private static function assert_primary_service_is_bookable(int $listing_id, int $provider_id, int $resource_id, int $service_id): array {
+    $service = get_post($service_id);
+    if (!$service || $service->post_type !== Services_CPT::POST_TYPE || $service->post_status !== 'publish') {
+      throw new \Exception('Service not found.');
+    }
+
+    $service_listing_id = (int) get_post_meta($service_id, Services_API::META_LISTING_ID, true);
+    $service_provider_id = (int) get_post_meta($service_id, Services_API::META_PROVIDER_ID, true);
+    $resource = Resources::for_service($service_id);
+    if (!$resource) throw new \Exception('Service booking calendar not found.');
+
+    if ($listing_id && ($service_listing_id !== $listing_id || (string) $resource->subject_type !== 'listing')) {
+      throw new \Exception('This service does not belong to the selected listing.');
+    }
+    if ($provider_id && ($service_provider_id !== $provider_id || (string) $resource->subject_type !== 'provider')) {
+      throw new \Exception('This service does not belong to the selected professional.');
+    }
+    if ($resource_id && (int) $resource->id !== $resource_id) {
+      throw new \Exception('This service does not belong to the selected booking calendar.');
+    }
+    if (!$listing_id && !$provider_id && !$resource_id) {
+      throw new \Exception('A booking subject is required.');
+    }
+    if ((int) $service->post_author !== (int) $resource->payee_user_id) {
+      throw new \Exception('Service payment ownership mismatch.');
+    }
+
+    if (get_post_meta($service_id, Services_API::META_ADDON, true) === '1') {
+      throw new \Exception('Add-ons cannot be booked as standalone services.');
+    }
+
+    if (!self::is_service_active($service_id)) {
+      throw new \Exception('This service is currently unavailable.');
+    }
+
+    return [
+      'listing_id' => $service_listing_id,
+      'provider_id' => $service_provider_id,
+      'resource_id' => (int) $resource->id,
+      'location_id' => $service_listing_id,
+      'payee_user_id' => (int) $resource->payee_user_id,
+      'settings_post_id' => (int) $resource->subject_id,
+    ];
+  }
+
+  private static function assert_addons_are_bookable(int $resource_id, array $submitted_addon_ids): array {
+    $submitted_addon_ids = array_values(array_unique(array_filter(array_map('absint', $submitted_addon_ids))));
+    if (empty($submitted_addon_ids)) {
+      return [];
+    }
+
+    $normalized = self::normalize_addon_ids($resource_id, $submitted_addon_ids);
+    if (count($normalized) !== count($submitted_addon_ids)) {
+      throw new \Exception('One or more selected add-ons are unavailable for this booking calendar.');
+    }
+
+    return $normalized;
+  }
+
+  private static function fulfillment_context(array $context, array $data): array {
+    $provider_id = (int) ($context['provider_id'] ?? 0);
+    if (!$provider_id) return ['fulfillment_mode'=>'at_location','service_area_id'=>0,'travel_buffer_minutes'=>0];
+    $modes = (array) get_post_meta($provider_id, Provider_Profiles::META_SERVICE_MODES, true);
+    $mode = sanitize_key((string) ($data['fulfillment_mode'] ?? ''));
+    if ($mode === '') $mode = in_array('at_location', $modes, true) ? 'at_location' : (in_array('mobile', $modes, true) ? 'mobile' : 'virtual');
+    if (!in_array($mode, ['at_location','mobile','virtual'], true) || !in_array($mode, $modes, true)) throw new \Exception('This delivery option is not available for the selected professional.');
+    $out = ['fulfillment_mode'=>$mode,'service_area_id'=>0,'travel_buffer_minutes'=>0];
+    if ($mode === 'mobile') {
+      $address = Service_Areas::sanitize_address((array) ($data['service_address'] ?? $data));
+      $coverage = Service_Areas::check_destination($provider_id, $address);
+      if (is_wp_error($coverage)) throw new \Exception($coverage->get_error_message());
+      if (empty($coverage['eligible'])) throw new \Exception('This address is outside the provider’s mobile service area.');
+      $out = array_merge($out, [
+        'service_area_id'=>(int)$coverage['service_area_id'],
+        'travel_buffer_minutes'=>(int)$coverage['travel_buffer_minutes'],
+        'service_address_1'=>$address['address_1'],
+        'service_address_2'=>$address['address_2'],
+        'service_city'=>$address['city'],
+        'service_region'=>$address['region'],
+        'service_postal_code'=>$address['postal_code'],
+        'service_country'=>$address['country'],
+        'service_latitude'=>(float)$coverage['coordinates']['latitude'],
+        'service_longitude'=>(float)$coverage['coordinates']['longitude'],
+      ]);
+    } elseif ($mode === 'virtual') {
+      $virtual = Provider_Profiles::virtual_delivery($provider_id, true);
+      $join_url = in_array((string)$virtual['method'], ['custom_link','zoom','google_meet'], true) ? esc_url_raw((string)($virtual['join_url'] ?? '')) : '';
+      $out = array_merge($out, [
+        'virtual_provider'=>sanitize_key((string)($virtual['method'] ?? 'provider_sends')),
+        'virtual_join_url'=>$join_url,
+        'virtual_instructions'=>sanitize_textarea_field((string)($virtual['instructions'] ?? '')),
+      ]);
+    }
+    return $out;
+  }
+
+  private static function minutes_from_time_string(string $hhmm): int {
+    [$hours, $minutes] = array_map('intval', explode(':', $hhmm));
+    return ($hours * 60) + $minutes;
+  }
+
+  private static function ranges_overlap_minutes(int $start_a, int $end_a, int $start_b, int $end_b): bool {
+    return $start_a < $end_b && $end_a > $start_b;
+  }
+
+  private static function slot_matches_hours(array $hours, int $slot_interval, int $start_minutes, int $end_minutes): bool {
+    foreach ($hours as $range) {
+      if (!is_array($range) || count($range) < 2) {
+        continue;
+      }
+
+      $from = preg_replace('/[^0-9:]/', '', (string) $range[0]);
+      $to = preg_replace('/[^0-9:]/', '', (string) $range[1]);
+      if (!preg_match('/^\d{2}:\d{2}$/', $from) || !preg_match('/^\d{2}:\d{2}$/', $to)) {
+        continue;
+      }
+
+      $from_minutes = self::minutes_from_time_string($from);
+      $to_minutes = self::minutes_from_time_string($to);
+
+      if ($start_minutes < $from_minutes || $end_minutes > $to_minutes) {
+        continue;
+      }
+
+      if ($slot_interval > 0 && (($start_minutes - $from_minutes) % $slot_interval) !== 0) {
+        continue;
+      }
+
+      return true;
+    }
+
+    return false;
+  }
+
+  private static function assert_slot_matches_schedule(
+    int $resource_id,
+    string $start,
+    string $end,
+    int $expected_duration_minutes,
+    bool $require_enabled = true
+  ): array {
+    $settings_post_id = Resources::settings_post_id($resource_id);
+    if (!$settings_post_id) throw new \Exception('Booking calendar not found.');
+    $settings = Settings_API::read_settings($settings_post_id);
+    if ($require_enabled && empty($settings['enabled'])) {
+      throw new \Exception('Appointments are unavailable for this listing.');
+    }
+
+    $timezone = self::resolve_listing_timezone($settings);
+
+    try {
+      $start_dt = new \DateTimeImmutable($start, $timezone);
+      $end_dt = new \DateTimeImmutable($end, $timezone);
+    } catch (\Exception $e) {
+      throw new \Exception('Invalid booking date/time.');
+    }
+
+    if ($end_dt <= $start_dt) {
+      throw new \Exception('End time must be after start time.');
+    }
+
+    if ($start_dt->format('Y-m-d') !== $end_dt->format('Y-m-d')) {
+      throw new \Exception('Appointments must begin and end on the same day.');
+    }
+
+    $now = new \DateTimeImmutable('now', $timezone);
+    if ($start_dt <= $now) {
+      throw new \Exception('Appointments must be booked in the future.');
+    }
+
+    $actual_duration = (int) round(($end_dt->getTimestamp() - $start_dt->getTimestamp()) / 60);
+    if ($expected_duration_minutes > 0 && $actual_duration !== $expected_duration_minutes) {
+      throw new \Exception('Selected time does not match the service duration.');
+    }
+
+    $date = $start_dt->format('Y-m-d');
+    $day_map = ['1' => 'mon', '2' => 'tue', '3' => 'wed', '4' => 'thu', '5' => 'fri', '6' => 'sat', '7' => 'sun'];
+    $day_key = $day_map[$start_dt->format('N')] ?? 'mon';
+    $hours = isset($settings['hours'][$day_key]) && is_array($settings['hours'][$day_key]) ? $settings['hours'][$day_key] : [];
+    $breaks = isset($settings['breaks'][$day_key]) && is_array($settings['breaks'][$day_key]) ? $settings['breaks'][$day_key] : [];
+
+    $vacation_ranges = self::vacation_ranges_for_date($settings['days_off'] ?? [], $date);
+    if (!empty($vacation_ranges['all_day'])) {
+      throw new \Exception('The selected date is unavailable.');
+    }
+    if (!empty($vacation_ranges['ranges'])) {
+      $breaks = array_merge($breaks, $vacation_ranges['ranges']);
+    }
+
+    $slot_interval = (int) ($settings['slot_interval'] ?? 0);
+    if ($slot_interval <= 0) {
+      $slot_interval = $expected_duration_minutes;
+    }
+    if ($expected_duration_minutes > 0 && $slot_interval > $expected_duration_minutes) {
+      $slot_interval = $expected_duration_minutes;
+    }
+
+    $start_minutes = ((int) $start_dt->format('H') * 60) + (int) $start_dt->format('i');
+    $end_minutes = ((int) $end_dt->format('H') * 60) + (int) $end_dt->format('i');
+
+    if (!self::slot_matches_hours($hours, $slot_interval, $start_minutes, $end_minutes)) {
+      throw new \Exception('The selected time is outside business hours.');
+    }
+
+    foreach ($breaks as $range) {
+      if (!is_array($range) || count($range) < 2) {
+        continue;
+      }
+
+      $break_start = preg_replace('/[^0-9:]/', '', (string) $range[0]);
+      $break_end = preg_replace('/[^0-9:]/', '', (string) $range[1]);
+      if (!preg_match('/^\d{2}:\d{2}$/', $break_start) || !preg_match('/^\d{2}:\d{2}$/', $break_end)) {
+        continue;
+      }
+
+      if (self::ranges_overlap_minutes(
+        $start_minutes,
+        $end_minutes,
+        self::minutes_from_time_string($break_start),
+        self::minutes_from_time_string($break_end)
+      )) {
+        throw new \Exception('The selected time falls within an unavailable period.');
+      }
+    }
+
+    return $settings;
+  }
+
+  private static function find_conflict_id(
+    int $resource_id,
+    string $start,
+    string $end,
+    array $settings = [],
+    int $exclude_booking_id = 0
+  ): int {
+    global $wpdb;
+
+    $table = DB::table();
+    $statuses = self::get_blocking_statuses($resource_id);
+    $placeholders = implode(',', array_fill(0, count($statuses), '%s'));
+    $settings = !empty($settings) ? $settings : Settings_API::read_settings(Resources::settings_post_id($resource_id));
+    $timezone = self::resolve_listing_timezone($settings);
+
+    try {
+      $start_dt = new \DateTimeImmutable($start, $timezone);
+      $end_dt = new \DateTimeImmutable($end, $timezone);
+    } catch (\Exception $e) {
+      return 0;
+    }
+
+    $buffer_before = max(0, (int) ($settings['buffer_before'] ?? 0));
+    $buffer_after = max(0, (int) ($settings['buffer_after'] ?? 0));
+    $query_start = $start_dt->modify(sprintf('-%d minutes', $buffer_after))->format('Y-m-d H:i:s');
+    $query_end = $end_dt->modify(sprintf('+%d minutes', $buffer_before))->format('Y-m-d H:i:s');
+
+    if (class_exists(Calendar_Busy::class) && Calendar_Busy::has_conflict($resource_id, $query_start, $query_end, $timezone->getName())) {
+      return -1;
+    }
+
+    $where_exclude = $exclude_booking_id > 0 ? ' AND id <> %d' : '';
+    $params = array_merge([$resource_id], $statuses);
+    if ($exclude_booking_id > 0) {
+      $params[] = $exclude_booking_id;
+    }
+    $params[] = $query_end;
+    $params[] = $query_start;
+
+    $sql = $wpdb->prepare(
+      "SELECT id
+       FROM {$table}
+       WHERE resource_id = %d
+         AND status IN ({$placeholders}){$where_exclude}
+         AND start_datetime < %s
+         AND end_datetime > %s
+       LIMIT 1",
+      $params
+    );
+
+    return (int) $wpdb->get_var($sql);
+  }
+
+  private static function maybe_notify_confirmed_booking(int $booking_id): void {
+    $booking = self::get_booking($booking_id);
+    if ($booking && (string) $booking->status === 'confirmed') {
+      do_action('koopo_booking_confirmed_safe', $booking_id, $booking);
+    }
+  }
+
+private static function acquire_lock(int $resource_id, int $timeout_seconds = 2): bool {
   global $wpdb;
-  $key = 'koopo_appt_listing_' . $listing_id;
+  $key = 'koopo_appt_resource_' . $resource_id;
   $got = $wpdb->get_var($wpdb->prepare("SELECT GET_LOCK(%s, %d)", $key, $timeout_seconds));
   return (string)$got === '1';
 }
 
-private static function release_lock(int $listing_id): void {
+private static function release_lock(int $resource_id): void {
   global $wpdb;
-  $key = 'koopo_appt_listing_' . $listing_id;
+  $key = 'koopo_appt_resource_' . $resource_id;
   $wpdb->query($wpdb->prepare("SELECT RELEASE_LOCK(%s)", $key));
 }
 
@@ -69,13 +452,15 @@ private static function release_lock(int $listing_id): void {
     }
 
     $listing_id = absint($data['listing_id'] ?? 0);
+    $provider_id = absint($data['provider_id'] ?? 0);
+    $resource_id = absint($data['resource_id'] ?? 0);
     $service_id = absint($data['service_id'] ?? 0);
     $start      = sanitize_text_field((string)($data['start_datetime'] ?? ''));
     $end        = sanitize_text_field((string)($data['end_datetime'] ?? ''));
 
-    if (!$listing_id || !$service_id || !$start || !$end) {
+    if ((!$listing_id && !$provider_id && !$resource_id) || !$service_id || !$start || !$end) {
       return new \WP_REST_Response([
-        'error' => 'listing_id, service_id, start_datetime, end_datetime are required'
+        'error' => 'A listing, professional, or resource plus service_id, start_datetime, and end_datetime is required.'
       ], 400);
     }
 
@@ -100,12 +485,15 @@ private static function release_lock(int $listing_id): void {
 
     // Fill through to the internal row creator.
     $addon_ids = isset($data['addon_ids']) && is_array($data['addon_ids']) ? array_map('absint', $data['addon_ids']) : [];
-    $addon_ids = self::normalize_addon_ids($listing_id, $addon_ids);
+    $service_resource = Resources::for_service($service_id);
+    $addon_ids = self::normalize_addon_ids($service_resource ? (int) $service_resource->id : $resource_id, $addon_ids);
     $price_total = self::calculate_price_total($service_id, $addon_ids);
     $status = $price_total <= 0 ? 'confirmed' : 'pending_payment';
 
     $payload = [
       'listing_id'      => $listing_id,
+      'provider_id'     => $provider_id,
+      'resource_id'     => $resource_id,
       'service_id'      => $service_id,
       'customer_id'     => $customer_id,
       'start_datetime'  => $start,
@@ -121,6 +509,8 @@ private static function release_lock(int $listing_id): void {
       'customer_phone'  => isset($data['customer_phone']) ? sanitize_text_field($data['customer_phone']) : '',
       'customer_notes'  => isset($data['customer_notes']) ? sanitize_textarea_field($data['customer_notes']) : '',
       'booking_for_other' => isset($data['booking_for_other']) ? (bool)$data['booking_for_other'] : false,
+      'fulfillment_mode' => sanitize_key((string) ($data['fulfillment_mode'] ?? '')),
+      'service_address' => isset($data['service_address']) && is_array($data['service_address']) ? $data['service_address'] : [],
     ];
 
     try {
@@ -152,16 +542,18 @@ private static function release_lock(int $listing_id): void {
     global $wpdb;
     $table = DB::table();
 
-    $listing_id  = (int) $data['listing_id'];
+    $listing_id  = (int) ($data['listing_id'] ?? 0);
+    $provider_id = (int) ($data['provider_id'] ?? 0);
+    $resource_id = (int) ($data['resource_id'] ?? 0);
     $service_id  = (int) $data['service_id'];
     $customer_id = (int) $data['customer_id'];
 
-    // Vendor = listing author (GeoDirectory listing owner)
-    $listing = get_post($listing_id);
-    if (!$listing) {
-      throw new \Exception('Listing not found.');
-    }
-    $listing_author_id = (int) $listing->post_author;
+    $context = self::assert_primary_service_is_bookable($listing_id, $provider_id, $resource_id, $service_id);
+    $listing_id = (int) $context['listing_id'];
+    $provider_id = (int) $context['provider_id'];
+    $resource_id = (int) $context['resource_id'];
+    $listing_author_id = (int) $context['payee_user_id'];
+    $fulfillment = self::fulfillment_context($context, $data);
 
     $start = sanitize_text_field($data['start_datetime']); // 'YYYY-MM-DD HH:MM:SS'
     $end   = sanitize_text_field($data['end_datetime']);
@@ -171,7 +563,7 @@ private static function release_lock(int $listing_id): void {
     $currency = sanitize_text_field((string)($data['currency'] ?? (function_exists('get_woocommerce_currency') ? (string) get_woocommerce_currency() : 'USD')));
 
     // If price not provided, derive from service meta.
-    $price = $data['price'];
+    $price = $data['price'] ?? null;
     if ($price === null) {
       $meta_price = get_post_meta($service_id, Services_API::META_PRICE, true);
       if ($meta_price === '' || $meta_price === null) {
@@ -180,39 +572,33 @@ private static function release_lock(int $listing_id): void {
       $price = is_numeric($meta_price) ? (float) $meta_price : 0.0;
     }
 
-    $addon_ids = isset($data['addon_ids']) && is_array($data['addon_ids']) ? array_map('absint', $data['addon_ids']) : [];
-    $addon_ids = self::normalize_addon_ids($listing_id, $addon_ids);
+    $submitted_addon_ids = isset($data['addon_ids']) && is_array($data['addon_ids']) ? array_map('absint', $data['addon_ids']) : [];
+    $addon_ids = self::assert_addons_are_bookable($resource_id, $submitted_addon_ids);
     if (!empty($addon_ids)) {
       foreach ($addon_ids as $addon_id) {
         $price += self::get_service_price($addon_id);
       }
     }
 
-    // Only these statuses should block time
-    $blocking_statuses = self::get_blocking_statuses($listing_id);
+    $expected_duration = self::get_service_duration_minutes($service_id);
+    foreach ($addon_ids as $addon_id) {
+      $expected_duration += self::get_service_duration_minutes($addon_id);
+    }
+    $settings = self::assert_slot_matches_schedule($resource_id, $start, $end, $expected_duration, true);
+    if (!empty($fulfillment['travel_buffer_minutes'])) {
+      $settings['buffer_before'] = max((int) ($settings['buffer_before'] ?? 0), (int) $fulfillment['travel_buffer_minutes']);
+      $settings['buffer_after'] = max((int) ($settings['buffer_after'] ?? 0), (int) $fulfillment['travel_buffer_minutes']);
+    }
 
+    // Only these statuses should block time
     // Acquire per-listing lock (short, efficient)
-    if (!self::acquire_lock($listing_id, 2)) {
+    if (!self::acquire_lock($resource_id, 2)) {
       // If someone else is booking same listing right now, avoid thrashing
       throw new \Exception('This time is being booked right now. Please try again.');
     }
 
     try {
-      // Overlap check (fast due to index)
-      $placeholders = implode(',', array_fill(0, count($blocking_statuses), '%s'));
-
-      $sql = $wpdb->prepare(
-        "SELECT id
-         FROM {$table}
-         WHERE listing_id = %d
-           AND status IN ({$placeholders})
-           AND start_datetime < %s
-           AND end_datetime > %s
-         LIMIT 1",
-        array_merge([$listing_id], $blocking_statuses, [$end, $start])
-      );
-
-      $conflict = $wpdb->get_var($sql);
+      $conflict = self::find_conflict_id($resource_id, $start, $end, $settings);
 
       if ($conflict) {
         throw new \Exception('That time was just booked. Please choose another slot.');
@@ -228,12 +614,30 @@ private static function release_lock(int $listing_id): void {
     $inserted = $wpdb->insert($table, [
       'listing_id'         => $listing_id,
       'listing_author_id'  => $listing_author_id,
+      'provider_id'        => $provider_id ?: null,
+      'resource_id'        => $resource_id,
+      'location_id'        => (int) $context['location_id'] ?: null,
+      'service_area_id'    => (int) ($fulfillment['service_area_id'] ?? 0) ?: null,
+      'payee_user_id'      => $listing_author_id,
       'service_id'         => (string) $service_id,
       'customer_id'        => $customer_id,
       'customer_name'      => sanitize_text_field((string) ($data['customer_name'] ?? '')),
       'customer_email'     => sanitize_email((string) ($data['customer_email'] ?? '')),
       'customer_phone'     => sanitize_text_field((string) ($data['customer_phone'] ?? '')),
       'customer_notes'     => sanitize_textarea_field((string) ($data['customer_notes'] ?? '')),
+      'fulfillment_mode'   => (string) $fulfillment['fulfillment_mode'],
+      'service_address_1'  => (string) ($fulfillment['service_address_1'] ?? ''),
+      'service_address_2'  => (string) ($fulfillment['service_address_2'] ?? ''),
+      'service_city'       => (string) ($fulfillment['service_city'] ?? ''),
+      'service_region'     => (string) ($fulfillment['service_region'] ?? ''),
+      'service_postal_code'=> (string) ($fulfillment['service_postal_code'] ?? ''),
+      'service_country'    => (string) ($fulfillment['service_country'] ?? ''),
+      'service_latitude'   => $fulfillment['service_latitude'] ?? null,
+      'service_longitude'  => $fulfillment['service_longitude'] ?? null,
+      'travel_buffer_minutes' => (int) ($fulfillment['travel_buffer_minutes'] ?? 0),
+      'virtual_provider'   => (string) ($fulfillment['virtual_provider'] ?? ''),
+      'virtual_join_url'   => (string) ($fulfillment['virtual_join_url'] ?? ''),
+      'virtual_instructions' => (string) ($fulfillment['virtual_instructions'] ?? ''),
       'booking_for_other'  => !empty($data['booking_for_other']) ? 1 : 0,
       'addon_ids'          => !empty($addon_ids) ? wp_json_encode($addon_ids) : '',
       'start_datetime'     => $start,
@@ -245,7 +649,7 @@ private static function release_lock(int $listing_id): void {
       'created_at'         => current_time('mysql'),
       'updated_at'         => current_time('mysql'),
     ], [
-      '%d','%d','%s','%d','%s','%s','%s','%s','%d','%s','%s','%s','%s','%f','%s','%s','%s','%s'
+      '%d','%d','%d','%d','%d','%d','%d','%s','%d','%s','%s','%s','%s','%s','%s','%s','%s','%s','%s','%s','%f','%f','%d','%s','%s','%s','%d','%s','%s','%s','%s','%f','%s','%s','%s','%s'
     ]);
 
       if (!$inserted) {
@@ -263,20 +667,24 @@ private static function release_lock(int $listing_id): void {
       return $booking_id;
 
     } finally {
-      self::release_lock($listing_id);
+      self::release_lock($resource_id);
     }
   }
 
-  private static function normalize_addon_ids(int $listing_id, array $addon_ids): array {
+  private static function normalize_addon_ids(int $resource_id, array $addon_ids): array {
     if (empty($addon_ids)) {
       return [];
     }
     $addon_ids = array_map('absint', $addon_ids);
-    return array_values(array_filter($addon_ids, function($addon_id) use ($listing_id) {
+    return array_values(array_filter($addon_ids, function($addon_id) use ($resource_id) {
       if (!$addon_id) return false;
+      $addon = get_post($addon_id);
+      if (!$addon || $addon->post_type !== Services_CPT::POST_TYPE || $addon->post_status !== 'publish') {
+        return false;
+      }
       $is_addon = get_post_meta($addon_id, Services_API::META_ADDON, true) === '1';
-      $addon_listing = (int) get_post_meta($addon_id, Services_API::META_LISTING_ID, true);
-      return $is_addon && $addon_listing === $listing_id;
+      $addon_resource = Resources::for_service($addon_id);
+      return $is_addon && $addon_resource && (int) $addon_resource->id === $resource_id && self::is_service_active($addon_id);
     }));
   }
 
@@ -380,6 +788,9 @@ private static function release_lock(int $listing_id): void {
     if ($item) {
       $item->add_meta_data('_koopo_booking_id', (int) $booking_id, true);
       $item->add_meta_data('_koopo_listing_id', (int) $booking->listing_id, true);
+      $item->add_meta_data('_koopo_provider_id', (int) ($booking->provider_id ?? 0), true);
+      $item->add_meta_data('_koopo_resource_id', (int) ($booking->resource_id ?? 0), true);
+      $item->add_meta_data('_koopo_payee_user_id', (int) ($booking->payee_user_id ?: $booking->listing_author_id), true);
       $item->add_meta_data('_koopo_listing_author_id', (int) $booking->listing_author_id, true);
       $item->add_meta_data('_koopo_service_id', (string) $booking->service_id, true);
       $item->add_meta_data('_koopo_start_datetime', (string) $booking->start_datetime, true);
@@ -431,7 +842,7 @@ private static function release_lock(int $listing_id): void {
     }
 
     $order->update_status('completed', 'Koopo free booking auto-confirmed.', true);
-    self::maybe_sync_dokan_order($order);
+    self::maybe_notify_confirmed_booking($booking_id);
 
     return [
       'order_id' => (int) $order->get_id(),
@@ -468,8 +879,10 @@ public static function confirm_booking_safely(int $booking_id): array {
   }
 
   $listing_id = (int)$booking->listing_id;
+  $resource_id = Resources::booking_resource_id($booking);
+  if (!$resource_id) return ['ok' => false, 'reason' => 'resource_not_found'];
 
-  if (!self::acquire_lock($listing_id, 2)) {
+  if (!self::acquire_lock($resource_id, 2)) {
     return ['ok' => false, 'reason' => 'lock_timeout'];
   }
 
@@ -478,9 +891,19 @@ public static function confirm_booking_safely(int $booking_id): array {
     $booking = self::get_booking($booking_id);
     if (!$booking) return ['ok' => false, 'reason' => 'not_found'];
 
+    // Another payment/status callback may have confirmed this booking while
+    // this request waited for the listing lock.
+    if ($booking->status === 'confirmed') {
+      return ['ok' => true, 'reason' => 'already_confirmed'];
+    }
+
     // If expired, do not confirm
     if ($booking->status === 'expired') {
       return ['ok' => false, 'reason' => 'expired'];
+    }
+
+    if (!in_array($booking->status, $allowed_from, true)) {
+      return ['ok' => false, 'reason' => 'bad_status:' . $booking->status];
     }
 
     $start = $booking->start_datetime;
@@ -491,21 +914,26 @@ public static function confirm_booking_safely(int $booking_id): array {
     $sql = $wpdb->prepare(
       "SELECT id
        FROM {$table}
-       WHERE listing_id = %d
+       WHERE resource_id = %d
          AND status = 'confirmed'
          AND id <> %d
          AND start_datetime < %s
          AND end_datetime > %s
        LIMIT 1",
-      $listing_id,
+      $resource_id,
       $booking_id,
       $end,
       $start
     );
 
     $conflict_id = (int)$wpdb->get_var($sql);
+    if ($conflict_id <= 0) {
+      $settings = Settings_API::read_settings(Resources::settings_post_id($resource_id));
+      $timezone = self::resolve_listing_timezone($settings);
+      if (class_exists(Calendar_Busy::class) && Calendar_Busy::has_conflict($resource_id, $start, $end, $timezone->getName())) $conflict_id = -1;
+    }
 
-    if ($conflict_id > 0) {
+    if ($conflict_id !== 0) {
       // Mark conflict (paid but cannot be honored)
       $wpdb->update(
         $table,
@@ -534,7 +962,7 @@ public static function confirm_booking_safely(int $booking_id): array {
     return ['ok' => true, 'reason' => 'confirmed'];
 
   } finally {
-    self::release_lock($listing_id);
+    self::release_lock($resource_id);
   }
 }
 
@@ -612,8 +1040,8 @@ public static function cancel_booking_safely(int $booking_id, string $new_status
     return ['ok' => true, 'reason' => 'already_expired'];
   }
 
-  $listing_id = (int) $booking->listing_id;
-  if (!self::acquire_lock($listing_id, 2)) {
+  $resource_id = Resources::booking_resource_id($booking);
+  if (!$resource_id || !self::acquire_lock($resource_id, 2)) {
     return ['ok' => false, 'reason' => 'lock_timeout'];
   }
 
@@ -646,7 +1074,7 @@ public static function cancel_booking_safely(int $booking_id, string $new_status
 
     return ['ok' => true, 'reason' => $new_status];
   } finally {
-    self::release_lock($listing_id);
+    self::release_lock($resource_id);
   }
 }
 
@@ -665,7 +1093,8 @@ public static function cancel_booking_safely(int $booking_id, string $new_status
       return false;
     }
     
-    $listing_id = (int) $booking->listing_id;
+    $resource_id = Resources::booking_resource_id($booking);
+    if (!$resource_id) return false;
 
     // Basic validation
     $new_start = sanitize_text_field($new_start);
@@ -674,30 +1103,23 @@ public static function cancel_booking_safely(int $booking_id, string $new_status
     if (!$new_start || !$new_end || strtotime($new_end) <= strtotime($new_start)) {
       return false;
     }
-
-    $blocking_statuses = self::get_blocking_statuses($listing_id);
-
-    if (!self::acquire_lock($listing_id, 2)) {
+    $expected_duration = (int) round((strtotime((string) $booking->end_datetime) - strtotime((string) $booking->start_datetime)) / 60);
+    if ($expected_duration < 1) {
       return false;
     }
 
     try {
-      // Overlap check excluding this booking id
-      $placeholders = implode(',', array_fill(0, count($blocking_statuses), '%s'));
+      $settings = self::assert_slot_matches_schedule($resource_id, $new_start, $new_end, $expected_duration, false);
+    } catch (\Throwable $e) {
+      return false;
+    }
 
-      $sql = $wpdb->prepare(
-        "SELECT id
-         FROM {$table}
-         WHERE listing_id = %d
-           AND id <> %d
-           AND status IN ({$placeholders})
-           AND start_datetime < %s
-           AND end_datetime > %s
-         LIMIT 1",
-        array_merge([$listing_id, $booking_id], $blocking_statuses, [$new_end, $new_start])
-      );
+    if (!self::acquire_lock($resource_id, 2)) {
+      return false;
+    }
 
-      $conflict = $wpdb->get_var($sql);
+    try {
+      $conflict = self::find_conflict_id($resource_id, $new_start, $new_end, $settings, $booking_id);
       if ($conflict) {
         return false;
       }
@@ -718,7 +1140,7 @@ public static function cancel_booking_safely(int $booking_id, string $new_status
       return $updated !== false;
 
     } finally {
-      self::release_lock($listing_id);
+      self::release_lock($resource_id);
     }
   }
 

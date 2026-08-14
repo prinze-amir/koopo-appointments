@@ -4,7 +4,7 @@
 
 Build a **production-ready appointments / bookings system** for **Koopo** that:
 
-* Works **only for Places** (`gd_place`)
+* Supports both **Places** (`gd_place`) and independent **Service Profiles** (`koopo_provider`)
 * Integrates cleanly with:
 
   * **GeoDirectory** (listings)
@@ -24,8 +24,8 @@ These are **final and correct** decisions:
 * ✅ **Cart-based checkout only** (required for Dokan commissions & Stripe split)
 * ✅ **One booking = one Woo order**
 * ✅ **Service ↔ Woo product mapping**
-* ✅ **Vendor = listing `post_author`**
-* ✅ **Places only** (`gd_place`)
+* ✅ **Payee = resource `payee_user_id`**, with legacy place ownership preserved
+* ✅ **Places and independent professionals** use the same resource-based scheduler
 * ✅ **Login required to book**
 * ✅ **10-minute hold window**
 * ✅ **No events/tickets in this module**
@@ -71,7 +71,7 @@ The codebase includes the originally planned commits 17-22 and additional work l
 * Login-gated booking
 * Hold window message shown to user
 * Clean error handling
-* Places-only enforcement
+* Server-side ownership and service/resource enforcement
 
 ### Notifications
 
@@ -119,6 +119,35 @@ The codebase includes the originally planned commits 17-22 and additional work l
 * Admin dashboard and analytics panels
 * Automated reminders scaffolding
 
+### Calendar Synchronization and Availability
+
+Koopo remains the source of truth for Koopo appointments. Confirmed Koopo bookings synchronize outbound, while selected external calendars synchronize inbound as read-only busy periods. External titles and descriptions are never stored or displayed; the booking surface shows only **Unavailable**. External events cannot edit, reschedule, or cancel a Koopo booking.
+
+The vendor settings screen supports each business or professional booking calendar:
+
+* A private, revocable iCalendar subscription for Apple Calendar and compatible calendar apps
+* Direct Google Calendar OAuth synchronization
+* Direct Microsoft Outlook/Microsoft 365 OAuth synchronization
+* Per-resource destination calendars and minimal/standard event privacy
+* Background create, update, and delete operations with idempotent booking/event mappings
+* Per-resource availability-calendar selection, busy interpretation, refresh interval, last-sync health, and a manual **Sync now** action
+* Conflict checks at both slot presentation and locked booking confirmation
+
+### Waitlist and Client Operations
+
+Providers can use an expiring cancellation-fill waitlist in priority order, first-to-confirm batches, or manual mode. Customers choose a service, date range, preferred days, time range, and email/push/SMS channels. SMS delivery uses the `koopo_appt_send_transactional_sms` integration hook and requires a configured transactional SMS adapter.
+
+Confirmed bookings create provider-private client records with an appointment timeline, preferences, formulas/specifications, and private notes. Providers can create service-specific intake and consent forms, request them before an appointment, require a typed electronic signature, and attach private JPEG, PNG, WebP, or PDF files through Media Gateway direct upload. Client attachments are stored as gateway asset references rather than WordPress Media Library attachments.
+
+Configure provider client IDs and secrets under **Settings → Koopo Appointments → Calendar Integrations**. Client secrets are encrypted before storage, masked after saving, and can be replaced or removed by an administrator. These dashboard settings are the provider clients' configuration source.
+
+Register these exact OAuth redirect URIs with the providers:
+
+```text
+https://YOUR-SITE/wp-json/koopo/v1/appointments/calendar/oauth/google/callback
+https://YOUR-SITE/wp-json/koopo/v1/appointments/calendar/oauth/microsoft/callback
+```
+
 ---
 
 ## 5. What Still Remains / Optional
@@ -127,6 +156,7 @@ The codebase includes the originally planned commits 17-22 and additional work l
 
 * In-app BuddyBoss notifications (currently only a profile tab is added)
 * Advanced reporting/exports (beyond vendor CSV and current analytics dashboard)
+* Venue-side roster and approval UI for professional/place affiliations
 * Event tickets module (separate plugin)
 
 ---
@@ -137,10 +167,36 @@ The codebase includes the originally planned commits 17-22 and additional work l
 
 ---
 
+## 6.1 Release Smoke Test
+
+For production verification, run the admin smoke test script before shipping:
+
+`SITE_URL=http://localhost:8085 WP_USER=admin WP_PASS=secret bash scripts/release-smoke-admin.sh`
+
+If the site uses SSO or you already have a valid WordPress cookie jar, you can reuse that session instead of logging in through the script:
+
+`SITE_URL=http://localhost:8085 SKIP_LOGIN=1 COOKIE_JAR_PATH=/tmp/wp-cookies.txt bash scripts/release-smoke-admin.sh`
+
+What it checks:
+
+* WordPress admin login succeeds
+* Koopo admin dashboard page renders
+* Koopo bookings page renders
+* `KOOPO_ADMIN` localization is present
+* `assets/admin-dashboard.js` is actually enqueued and returns `200 OK`
+* Admin REST endpoints for stats, bookings, and export respond correctly
+* Failures report the HTTP status and a response excerpt for faster diagnosis
+
+This is a release guard, not a full E2E test suite. It is meant to catch broken admin asset loading, missing localized config, and fatal/API regressions before deployment.
+
+---
+
 ## 7. Feature Matrix (UI + API Surface)
 
 | Feature | UI / Template | JS / CSS | API / PHP |
 | --- | --- | --- | --- |
+| Service profile | `templates/dokan/provider-profile.php` and public `koopo_provider` pages | `assets/vendor-provider-profile.js`, `assets/appointments.js` | `includes/providers/class-kgaw-provider-profiles.php`, `includes/core/class-kgaw-resources.php` |
+| Service profile/place affiliations | Public service profile | N/A | `includes/providers/class-kgaw-provider-affiliations.php` |
 | Vendor dashboard (appointments) | `templates/dokan/appointments.php` | `assets/vendor-core.js`, `assets/vendor-appointments.js`, `assets/vendor.css` | `includes/dokan/class-kgaw-dokan-dashboard.php`, `includes/vendor/class-kgaw-vendor-bookings-api.php` |
 | Vendor services CRUD | `templates/dokan/services.php` | `assets/vendor-core.js`, `assets/vendor-services.js`, `assets/vendor.css` | `includes/services/class-kgaw-services-api.php`, `includes/services/class-kgaw-services-list.php` |
 | Vendor settings | `templates/dokan/settings.php` | `assets/vendor-core.js`, `assets/vendor-settings.js`, `assets/appointments-settings.css` | `includes/settings/class-kgaw-settings-api.php` |
@@ -164,7 +220,7 @@ The codebase includes the originally planned commits 17-22 and additional work l
 
 ## 9. Recommended Next Chat Opening Message (Copy/Paste)
 
-> The project is a **Places-only appointments plugin** integrated with **WooCommerce, Dokan, GeoDirectory, and BuddyBoss** using **cart-based checkout**.
+> The project is a **resource-based appointments plugin** for both independent professionals and GeoDirectory places, integrated with **WooCommerce, Dokan, GeoDirectory, and BuddyBoss** using **cart-based checkout**.
 >
 > Please audit the repository, confirm state, and recommend the next priorities.
 

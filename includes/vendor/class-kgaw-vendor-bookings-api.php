@@ -73,7 +73,9 @@ class Vendor_Bookings_API {
       'callback' => [__CLASS__, 'create_booking'],
       'permission_callback' => [__CLASS__, 'can_access'],
       'args' => [
-        'listing_id' => ['type' => 'integer', 'required' => true],
+        'listing_id' => ['type' => 'integer', 'required' => false],
+        'provider_id' => ['type' => 'integer', 'required' => false],
+        'resource_id' => ['type' => 'integer', 'required' => false],
         'service_id' => ['type' => 'integer', 'required' => true],
         'start_datetime' => ['type' => 'string', 'required' => true],
         'end_datetime' => ['type' => 'string', 'required' => true],
@@ -96,17 +98,21 @@ class Vendor_Bookings_API {
     ]);
   }
 
-  private static function analytics_cache_key(int $vendor_id, int $listing_id): string {
-    return sprintf('koopo_vendor_analytics_%d_%d', $vendor_id, $listing_id);
+  private static function analytics_cache_key(int $vendor_id, int $scope_id): string {
+    return sprintf('koopo_vendor_analytics_%d_%d', $vendor_id, $scope_id);
   }
 
   private static function invalidate_analytics_cache_for_booking($booking): void {
     if (!$booking || empty($booking->listing_author_id)) return;
     $vendor_id = (int) $booking->listing_author_id;
     $listing_id = isset($booking->listing_id) ? (int) $booking->listing_id : 0;
+    $resource_id = isset($booking->resource_id) ? (int) $booking->resource_id : 0;
     delete_transient(self::analytics_cache_key($vendor_id, 0));
     if ($listing_id) {
       delete_transient(self::analytics_cache_key($vendor_id, $listing_id));
+    }
+    if ($resource_id) {
+      delete_transient(self::analytics_cache_key($vendor_id, -$resource_id));
     }
   }
 
@@ -162,6 +168,14 @@ class Vendor_Bookings_API {
     return sprintf('[#koopo_refund_type:%s] %s', $refund_type, $clean);
   }
 
+  private static function csv_safe_value($value): string {
+    $value = is_scalar($value) ? (string) $value : '';
+    if (preg_match('/^[\s]*[=+\-@]/', $value)) {
+      return "'" . $value;
+    }
+    return $value;
+  }
+
   public static function can_access(): bool {
     if (!is_user_logged_in()) return false;
     if (function_exists('dokan_is_user_seller')) {
@@ -179,6 +193,7 @@ class Vendor_Bookings_API {
     $table = DB::table();
 
     $listing_id = absint($req->get_param('listing_id'));
+    $resource_id = absint($req->get_param('resource_id'));
     $status = sanitize_text_field((string) $req->get_param('status'));
     $search = sanitize_text_field((string) $req->get_param('search'));
     $month = sanitize_text_field((string) $req->get_param('month'));
@@ -190,12 +205,16 @@ class Vendor_Bookings_API {
     $range_start = sanitize_text_field((string) $req->get_param('range_start'));
     $range_end = sanitize_text_field((string) $req->get_param('range_end'));
 
-    $where = 'WHERE listing_author_id = %d';
+    $where = 'WHERE COALESCE(payee_user_id, listing_author_id) = %d';
     $params = [$vendor_id];
 
     if ($listing_id) {
       $where .= ' AND listing_id = %d';
       $params[] = $listing_id;
+    }
+    if ($resource_id) {
+      $where .= ' AND resource_id = %d';
+      $params[] = $resource_id;
     }
     if ($status && $status !== 'all') {
       $where .= ' AND status = %s';
@@ -302,7 +321,9 @@ class Vendor_Bookings_API {
       cache_users($customer_ids);
     }
     foreach ($rows as $r) {
-      $listing_title = $r['listing_id'] ? self::listing_title((int)$r['listing_id']) : '';
+      $provider_id = (int) ($r['provider_id'] ?? 0);
+      $subject_id = !empty($r['listing_id']) ? (int) $r['listing_id'] : $provider_id;
+      $listing_title = $subject_id ? self::listing_title($subject_id) : '';
       $service_id = (int) $r['service_id'];
       $service_title = $service_id ? self::service_title($service_id) : '';
       $service_meta = $service_id ? self::get_service_meta($service_id) : ['price' => 0.0, 'duration' => 0, 'color' => ''];
@@ -336,6 +357,15 @@ class Vendor_Bookings_API {
       $cancelled_by = (string) Bookings::extra_from_record($r, 'cancelled_by', '');
       $refund_amount_meta = (float) Bookings::extra_from_record($r, 'refund_amount', 0.0);
       $refund_status = (string) Bookings::extra_from_record($r, 'refund_status', '');
+      $fulfillment_mode = (string) Bookings::extra_from_record($r, 'fulfillment_mode', 'at_location');
+      $service_address = array_values(array_filter([
+        (string) Bookings::extra_from_record($r, 'service_address_1', ''),
+        (string) Bookings::extra_from_record($r, 'service_address_2', ''),
+        (string) Bookings::extra_from_record($r, 'service_city', ''),
+        (string) Bookings::extra_from_record($r, 'service_region', ''),
+        (string) Bookings::extra_from_record($r, 'service_postal_code', ''),
+        (string) Bookings::extra_from_record($r, 'service_country', ''),
+      ]));
       $addon_summary = self::get_addons_summary($r);
 
       $service_price = $service_meta['price'];
@@ -360,6 +390,8 @@ class Vendor_Bookings_API {
       $items[] = [
         'id' => $booking_id,
         'listing_id' => (int) $r['listing_id'],
+        'provider_id' => $provider_id,
+        'resource_id' => (int) ($r['resource_id'] ?? 0),
         'listing_title' => $listing_title ?: '',
         'service_id' => (int) $r['service_id'],
         'service_title' => $service_title ?: '',
@@ -393,6 +425,11 @@ class Vendor_Bookings_API {
         'cancelled_by' => $cancelled_by,
         'refund_amount' => $refund_amount_meta,
         'refund_status' => $refund_status,
+        'fulfillment_mode' => $fulfillment_mode,
+        'service_address' => $fulfillment_mode === 'mobile' ? implode(', ', $service_address) : '',
+        'virtual_provider' => $fulfillment_mode === 'virtual' ? (string) Bookings::extra_from_record($r, 'virtual_provider', '') : '',
+        'virtual_join_url' => $fulfillment_mode === 'virtual' ? esc_url_raw((string) Bookings::extra_from_record($r, 'virtual_join_url', '')) : '',
+        'virtual_instructions' => $fulfillment_mode === 'virtual' ? (string) Bookings::extra_from_record($r, 'virtual_instructions', '') : '',
       ];
     }
 
@@ -698,18 +735,21 @@ class Vendor_Bookings_API {
    */
   public static function create_booking(\WP_REST_Request $request) {
     $listing_id = absint($request->get_param('listing_id'));
+    $provider_id = absint($request->get_param('provider_id'));
+    $resource_id = absint($request->get_param('resource_id'));
     $service_id = absint($request->get_param('service_id'));
     $start = sanitize_text_field((string) $request->get_param('start_datetime'));
     $end = sanitize_text_field((string) $request->get_param('end_datetime'));
 
-    if (!$listing_id || !$service_id || !$start || !$end) {
-      return new \WP_REST_Response(['error' => 'listing_id, service_id, start_datetime, end_datetime are required'], 400);
+    if ((!$listing_id && !$provider_id && !$resource_id) || !$service_id || !$start || !$end) {
+      return new \WP_REST_Response(['error' => 'A booking profile, service, start, and end are required'], 400);
     }
 
-    $listing = get_post($listing_id);
-    if (!$listing || (int) $listing->post_author !== (int) get_current_user_id()) {
-      return new \WP_REST_Response(['error' => 'Invalid listing ownership'], 403);
-    }
+    if (!$resource_id) $resource_id = $provider_id ? Resources::ensure_for_provider($provider_id) : Resources::ensure_for_listing($listing_id);
+    if (!Resources::can_manage($resource_id)) return new \WP_REST_Response(['error' => 'Invalid booking profile ownership'], 403);
+    $resource = Resources::get($resource_id);
+    if ($resource && $resource->subject_type === 'provider') $provider_id = (int) $resource->subject_id;
+    if ($resource && $resource->subject_type === 'listing') $listing_id = (int) $resource->subject_id;
 
     $customer_id = absint($request->get_param('customer_id'));
     $customer_email = sanitize_email((string) $request->get_param('customer_email'));
@@ -745,6 +785,8 @@ class Vendor_Bookings_API {
 
     $payload = [
       'listing_id' => $listing_id,
+      'provider_id' => $provider_id,
+      'resource_id' => $resource_id,
       'service_id' => $service_id,
       'customer_id' => $customer_id,
       'start_datetime' => $start,
@@ -761,6 +803,9 @@ class Vendor_Bookings_API {
     try {
       $booking_id = Bookings::create_manual_booking($payload);
       $booking = Bookings::get_booking($booking_id);
+      if ($booking && (string) $booking->status === 'confirmed') {
+        do_action('koopo_booking_confirmed_safe', $booking_id, $booking);
+      }
       self::invalidate_analytics_cache_for_booking($booking);
       return new \WP_REST_Response(['booking_id' => $booking_id], 201);
     } catch (\Throwable $e) {
@@ -778,17 +823,22 @@ class Vendor_Bookings_API {
     $table = DB::table();
 
     $listing_id = absint($req->get_param('listing_id'));
+    $resource_id = absint($req->get_param('resource_id'));
     $status = sanitize_text_field((string) $req->get_param('status'));
     $search = sanitize_text_field((string) $req->get_param('search'));
     $month = sanitize_text_field((string) $req->get_param('month'));
     $year = sanitize_text_field((string) $req->get_param('year'));
 
-    $where = 'WHERE listing_author_id = %d';
+    $where = 'WHERE COALESCE(payee_user_id, listing_author_id) = %d';
     $params = [$vendor_id];
 
     if ($listing_id) {
       $where .= ' AND listing_id = %d';
       $params[] = $listing_id;
+    }
+    if ($resource_id) {
+      $where .= ' AND resource_id = %d';
+      $params[] = $resource_id;
     }
     if ($status && $status !== 'all') {
       $where .= ' AND status = %s';
@@ -850,7 +900,7 @@ class Vendor_Bookings_API {
       'Customer Email',
       'Customer Phone',
       'Service',
-      'Listing',
+      'Professional or Business',
       'Date',
       'Time',
       'Duration',
@@ -864,7 +914,8 @@ class Vendor_Bookings_API {
 
     // CSV Rows
     foreach ($rows as $r) {
-      $listing_title = $r['listing_id'] ? self::listing_title((int)$r['listing_id']) : '';
+      $subject_id = (int) ($r['listing_id'] ?? 0) ?: (int) ($r['provider_id'] ?? 0);
+      $listing_title = $subject_id ? self::listing_title($subject_id) : '';
       $service_title = $r['service_id'] ? self::service_title((int)$r['service_id']) : '';
 
       $customer_name = (string) Bookings::extra_from_record($r, 'customer_name', '');
@@ -888,11 +939,11 @@ class Vendor_Bookings_API {
 
       fputcsv($output, [
         $r['id'],
-        $customer_name,
-        $customer_email,
-        $customer_phone,
-        $service_title,
-        $listing_title,
+        self::csv_safe_value($customer_name),
+        self::csv_safe_value($customer_email),
+        self::csv_safe_value($customer_phone),
+        self::csv_safe_value($service_title),
+        self::csv_safe_value($listing_title),
         date('Y-m-d', $start_ts),
         date('H:i', $start_ts) . ' - ' . date('H:i', $end_ts),
         $duration_formatted,
@@ -915,18 +966,23 @@ class Vendor_Bookings_API {
 
     $vendor_id = get_current_user_id();
     $listing_id = absint($req->get_param('listing_id'));
+    $resource_id = absint($req->get_param('resource_id'));
 
-    $cache_key = self::analytics_cache_key($vendor_id, $listing_id);
+    $cache_key = self::analytics_cache_key($vendor_id, $resource_id ? -$resource_id : $listing_id);
     $cached = get_transient($cache_key);
     if (is_array($cached)) {
       return rest_ensure_response($cached);
     }
 
-    $where = 'WHERE listing_author_id = %d AND status != %s';
+    $where = 'WHERE COALESCE(payee_user_id, listing_author_id) = %d AND status != %s';
     $params = [$vendor_id, 'expired'];
     if ($listing_id) {
       $where .= ' AND listing_id = %d';
       $params[] = $listing_id;
+    }
+    if ($resource_id) {
+      $where .= ' AND resource_id = %d';
+      $params[] = $resource_id;
     }
 
     $total_bookings = (int) $wpdb->get_var($wpdb->prepare(

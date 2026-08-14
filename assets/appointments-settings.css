@@ -95,8 +95,10 @@ a.koopo-appt-appointments__avatar img { width:60px; height:60px; border-radius:5
 
 .kas__grid { display:grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap:12px; margin:12px 0; }
 .kas__grid input { width:100%; padding:8px; border-radius:10px; border:1px solid #ddd; }
+.kas__field-hint { display:block; margin-top:6px; color:#666; font-size:12px; line-height:1.4; font-weight:400; }
 .kas__grid--two { grid-template-columns: repeat(2, minmax(0,1fr)); }
 .kas__grid select { width:100%; padding:8px; border-radius:10px; border:1px solid #ddd; }
+.kas__row select { min-width:240px; max-width:100%; padding:8px; border-radius:10px; border:1px solid #ddd; }
 .kas__toggle-btn { position:relative; display:inline-flex; align-items:center; width:46px; height:26px; padding:0; border:1px solid #ddd !important; border-radius:999px !important; background:#e5e5e5 !important; cursor:pointer; transition: background 0.2s ease, border-color 0.2s ease; }
 .kas__toggle-btn .kas__toggle-knob { width:20px; height:20px; border-radius:50%; background:#fff; box-shadow:0 1px 3px rgba(0,0,0,0.2); transform: translateX(3px); transition: transform 0.2s ease; }
 .kas__toggle-btn.is-on { background:#35c759 !important; border-color:#35c759; }

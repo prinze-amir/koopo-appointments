@@ -43,10 +43,14 @@ class Availability {
       $duration = $duration_override;
     }
 
-    $listing_id = (int) get_post_meta($service_id, '_koopo_listing_id', true);
-    if (!$listing_id) return new \WP_REST_Response(['error' => 'Service missing listing_id'], 400);
+    $resource = Resources::for_service($service_id);
+    if (!$resource) return new \WP_REST_Response(['error' => 'Service missing booking calendar'], 400);
+    $resource_id = (int) $resource->id;
+    $listing_id = (string) $resource->subject_type === 'listing' ? (int) $resource->subject_id : 0;
+    $provider_id = (string) $resource->subject_type === 'provider' ? (int) $resource->subject_id : 0;
+    $fulfillment_mode = sanitize_key((string) $req->get_param('fulfillment_mode'));
 
-    $settings = Settings_API::read_settings($listing_id);
+    $settings = Settings_API::read_settings((int) $resource->subject_id);
     if (empty($settings['enabled'])) {
     return new \WP_REST_Response(['service_id'=>$service_id,'date'=>$date,'slots'=>[]], 200);
     }
@@ -82,11 +86,18 @@ class Availability {
     // If an interval is larger than the service duration, it will skip possible start times
     // (e.g., 30-min service showing only hourly slots). Clamp to duration.
     if ($interval > $duration) $interval = $duration;
-$busy = self::get_busy_ranges($listing_id, $date);
+$busy = self::get_busy_ranges($resource_id, $date, (string) $settings['timezone']);
 
     // Apply buffers to busy ranges
     $buffer_before = (int)$settings['buffer_before'];
     $buffer_after  = (int)$settings['buffer_after'];
+    if ($provider_id && $fulfillment_mode === 'mobile') {
+      $area = Service_Areas::get_for_provider($provider_id);
+      if ($area) {
+        $buffer_before = max($buffer_before, (int) $area->travel_buffer_minutes);
+        $buffer_after = max($buffer_after, (int) $area->travel_buffer_minutes);
+      }
+    }
     if ($buffer_before || $buffer_after) {
     $busy = array_map(function($b) use ($buffer_before, $buffer_after) {
         $s = strtotime($b['start']) - ($buffer_before * 60);
@@ -145,6 +156,8 @@ $busy = self::get_busy_ranges($listing_id, $date);
     return new \WP_REST_Response([
     'service_id' => $service_id,
     'listing_id' => $listing_id,
+    'provider_id' => $provider_id,
+    'resource_id' => $resource_id,
     'date' => $date,
     'timezone' => $settings['timezone'],
     'duration_minutes' => $duration,
@@ -197,8 +210,8 @@ $busy = self::get_busy_ranges($listing_id, $date);
     return $out;
   }
 
-  private static function get_busy_ranges(int $listing_id, string $date): array {
-    if (!$listing_id) return [];
+  private static function get_busy_ranges(int $resource_id, string $date, string $timezone): array {
+    if (!$resource_id) return [];
 
     global $wpdb;
     $table = DB::table();
@@ -207,25 +220,29 @@ $busy = self::get_busy_ranges($listing_id, $date);
     $dayEnd   = "{$date} 23:59:59";
 
     // Exclude only confirmed by default; you can include pending if you want.
-    $statuses = Bookings::get_blocking_statuses($listing_id);
+    $statuses = Bookings::get_blocking_statuses($resource_id);
     $placeholders = implode(',', array_fill(0, count($statuses), '%s'));
 
     $sql = $wpdb->prepare(
-      "SELECT start_datetime, end_datetime
+      "SELECT start_datetime, end_datetime, travel_buffer_minutes
        FROM {$table}
-       WHERE listing_id = %d
+       WHERE resource_id = %d
          AND status IN ({$placeholders})
          AND start_datetime < %s
          AND end_datetime > %s",
-      array_merge([$listing_id], $statuses, [$dayEnd, $dayStart])
+      array_merge([$resource_id], $statuses, [$dayEnd, $dayStart])
     );
 
     $rows = $wpdb->get_results($sql);
     $busy = [];
     foreach ($rows as $r) {
-      $busy[] = ['start' => $r->start_datetime, 'end' => $r->end_datetime];
+      $travel = max(0, (int) ($r->travel_buffer_minutes ?? 0));
+      $busy[] = [
+        'start' => $travel ? date('Y-m-d H:i:s', strtotime($r->start_datetime) - ($travel * 60)) : $r->start_datetime,
+        'end' => $travel ? date('Y-m-d H:i:s', strtotime($r->end_datetime) + ($travel * 60)) : $r->end_datetime,
+      ];
     }
-    return $busy;
+    return array_merge($busy, Calendar_Busy::ranges_for_local_date($resource_id, $date, $timezone));
   }
 
   private static function overlaps_any(string $start, string $end, array $busy): bool {

@@ -59,6 +59,14 @@ class Admin_Dashboard {
       [__CLASS__, 'render_analytics']
     );
 
+    add_submenu_page(
+      'koopo-appointments',
+      __('Service Profile Reviews', 'koopo-appointments'),
+      __('Provider Reviews', 'koopo-appointments'),
+      'moderate_comments',
+      'edit-comments.php?comment_type=' . Provider_Reviews::COMMENT_TYPE
+    );
+
     // Settings submenu (redirect to existing)
     add_submenu_page(
       'koopo-appointments',
@@ -194,6 +202,13 @@ class Admin_Dashboard {
       "SELECT COUNT(*) FROM {$table} WHERE status = 'conflict'"
     );
 
+    $waitlist_active = (int) $wpdb->get_var('SELECT COUNT(*) FROM '.DB::waitlist_table().' WHERE status IN ("active","offered")');
+    $waitlist_offered = (int) $wpdb->get_var('SELECT COUNT(*) FROM '.DB::waitlist_offers_table().' WHERE status="offered" AND expires_at>UTC_TIMESTAMP()');
+    $clients = (int) $wpdb->get_var('SELECT COUNT(*) FROM '.DB::clients_table());
+    $forms_pending = (int) $wpdb->get_var('SELECT COUNT(*) FROM '.DB::form_submissions_table().' WHERE status="pending"');
+    $busy_sources = (int) $wpdb->get_var('SELECT COUNT(*) FROM '.Calendar_Repository::busy_sources_table().' WHERE busy_mode<>"informational"');
+    $busy_errors = (int) $wpdb->get_var('SELECT COUNT(*) FROM '.Calendar_Repository::busy_sources_table().' WHERE last_error<>""');
+
     return rest_ensure_response([
       'today' => [
         'bookings' => (int) $today_bookings,
@@ -206,6 +221,7 @@ class Admin_Dashboard {
       'status_breakdown' => $status_counts,
       'upcoming' => (int) $upcoming,
       'conflicts' => (int) $conflicts,
+      'operations' => ['waitlist_active'=>$waitlist_active,'offers_live'=>$waitlist_offered,'clients'=>$clients,'forms_pending'=>$forms_pending,'busy_sources'=>$busy_sources,'busy_errors'=>$busy_errors],
     ]);
   }
 
@@ -304,7 +320,8 @@ class Admin_Dashboard {
     $customer = get_userdata((int) $row['customer_id']);
     $vendor = get_userdata((int) $row['listing_author_id']);
     $service_title = get_the_title((int) $row['service_id']);
-    $listing_title = get_the_title((int) $row['listing_id']);
+    $subject_id = (int) ($row['listing_id'] ?? 0) ?: (int) ($row['provider_id'] ?? 0);
+    $listing_title = get_the_title($subject_id);
 
     $tz = $row['timezone'] ?? '';
     $start_formatted = Date_Formatter::format($row['start_datetime'], $tz, 'full');
@@ -322,6 +339,8 @@ class Admin_Dashboard {
       'customer_email' => !empty($row['customer_email']) ? (string) $row['customer_email'] : ($customer ? (string) $customer->user_email : ''),
       'vendor_name' => !empty($row['vendor_name']) ? (string) $row['vendor_name'] : ($vendor ? (string) $vendor->display_name : ''),
       'listing_title' => $listing_title,
+      'provider_id' => (int) ($row['provider_id'] ?? 0),
+      'resource_id' => (int) ($row['resource_id'] ?? 0),
       'service_title' => $service_title,
       'start_datetime' => $row['start_datetime'],
       'start_formatted' => $start_formatted,
@@ -334,6 +353,14 @@ class Admin_Dashboard {
       'created_formatted' => $created_formatted,
       'created_relative' => $created_relative,
     ];
+  }
+
+  private static function csv_safe_value($value): string {
+    $value = is_scalar($value) ? (string) $value : '';
+    if (preg_match('/^[\s]*[=+\-@]/', $value)) {
+      return "'" . $value;
+    }
+    return $value;
   }
 
   /**
@@ -450,17 +477,17 @@ class Admin_Dashboard {
       $formatted = self::format_booking_for_admin($row);
       $csv_data[] = [
         $formatted['id'],
-        $formatted['customer_name'],
-        $formatted['customer_email'],
-        $formatted['vendor_name'],
-        $formatted['listing_title'],
-        $formatted['service_title'],
-        $formatted['start_formatted'],
-        $formatted['duration_formatted'],
-        $formatted['status'],
+        self::csv_safe_value($formatted['customer_name']),
+        self::csv_safe_value($formatted['customer_email']),
+        self::csv_safe_value($formatted['vendor_name']),
+        self::csv_safe_value($formatted['listing_title']),
+        self::csv_safe_value($formatted['service_title']),
+        self::csv_safe_value($formatted['start_formatted']),
+        self::csv_safe_value($formatted['duration_formatted']),
+        self::csv_safe_value($formatted['status']),
         $formatted['price'],
         $formatted['wc_order_id'],
-        $formatted['created_at'],
+        self::csv_safe_value($formatted['created_at']),
       ];
     }
 

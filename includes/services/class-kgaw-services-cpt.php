@@ -13,9 +13,10 @@ class Services_CPT {
 
   public static function register_cpt() {
     register_post_type(self::POST_TYPE, [
-      'label' => 'Koopo Services',
+      'labels' => ['name' => 'Services', 'singular_name' => 'Service', 'add_new_item' => 'Add Service', 'edit_item' => 'Edit Service'],
       'public' => false,
-      'show_ui' => false, // front-end managed
+      'show_ui' => true,
+      'show_in_menu' => 'koopo-appointments',
       'show_in_rest' => false,
       'supports' => ['title', 'author'],
       'capability_type' => 'post',
