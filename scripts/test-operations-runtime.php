@@ -22,6 +22,8 @@ try {
   foreach(['provider','customer'] as $role){$id=wp_insert_user(['user_login'=>'koopo_ops_'.$role.'_'.$stamp,'user_pass'=>wp_generate_password(32,true,true),'user_email'=>'koopo-ops-'.$role.'-'.$stamp.'@example.invalid','display_name'=>'Koopo Ops '.ucfirst($role),'role'=>'subscriber']);operations_expect(!is_wp_error($id),'User fixture failed.');$created['users'][$role]=(int)$id;}
   wp_set_current_user($created['users']['provider']);
   $created['provider']=(int)wp_insert_post(['post_type'=>Provider_Profiles::POST_TYPE,'post_status'=>'publish','post_title'=>'Koopo Operations UAT','post_author'=>$created['users']['provider']]);
+  update_post_meta($created['provider'],Provider_Profiles::META_SERVICE_MODES,['at_location']);
+  update_post_meta($created['provider'],Provider_Profiles::META_CITY,'Detroit');
   $created['resource']=Resources::ensure_for_provider($created['provider']);operations_expect($created['resource']>0,'Resource fixture failed.');
   $created['service']=(int)wp_insert_post(['post_type'=>'koopo_service','post_status'=>'publish','post_title'=>'Operations UAT Service','post_author'=>$created['users']['provider']]);
   update_post_meta($created['service'],Services_API::META_PROVIDER_ID,$created['provider']);update_post_meta($created['service'],Services_API::META_DURATION,60);update_post_meta($created['service'],Services_API::META_PRICE,0);update_post_meta($created['service'],Services_API::META_STATUS,'active');update_post_meta($created['service'],Resources::META_RESOURCE_ID,$created['resource']);

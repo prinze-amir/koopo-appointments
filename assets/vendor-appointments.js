@@ -791,6 +791,23 @@
       }
     }
 
+    async function loadApptFulfillmentOptions(){
+      const $select = $('#koopo-appt-fulfillment');
+      let modes = ['at_location'];
+      if (apptState.subjectType === 'provider' && apptState.providerId) {
+        try {
+          const profile = await api(`/providers/${apptState.providerId}`, { method:'GET' });
+          modes = Array.isArray(profile.service_modes) && profile.service_modes.length ? profile.service_modes : [];
+        } catch (e) {
+          modes = [];
+        }
+      }
+      const labels = { at_location:'At the provider location', mobile:'At the customer address', virtual:'Virtual appointment' };
+      $select.html(modes.map(mode => `<option value="${escapeHtml(mode)}">${escapeHtml(labels[mode] || mode)}</option>`).join(''));
+      $('#koopo-appt-fulfillment-wrap').toggle(modes.length > 1 || (modes[0] || '') !== 'at_location');
+      $select.trigger('change');
+    }
+
     $apptPicker.on('change', function(){
       const $option = $(this).find('option:selected');
       apptState.listingId = parseInt($option.data('listing-id'), 10) || 0;
@@ -804,6 +821,7 @@
       loadAnalytics();
       loadApptServices();
       loadApptTimezone();
+      loadApptFulfillmentOptions();
     });
     loadBookingContexts($apptPicker).then(contexts => {
       if (Array.isArray(contexts) && contexts.length) {
@@ -963,7 +981,8 @@
 
       $slots.html('<div class="koopo-loading-inline"><div class="koopo-spinner"></div><div>Loading times...</div></div>');
       const duration = getTotalDurationMinutes();
-      const qs = new URLSearchParams({ date, duration_minutes: String(duration || 0) });
+      const fulfillmentMode = $('#koopo-appt-fulfillment').val() || 'at_location';
+      const qs = new URLSearchParams({ date, duration_minutes: String(duration || 0), fulfillment_mode: fulfillmentMode });
       try {
         const data = await api(`/availability/by-service/${serviceId}?${qs.toString()}`, { method:'GET' });
         const slots = data.slots || [];
@@ -987,6 +1006,10 @@
       loadApptSlots();
     });
     $('#koopo-appt-date').on('change', function(){
+      loadApptSlots();
+    });
+    $('#koopo-appt-fulfillment').on('change', function(){
+      $('#koopo-appt-mobile-address').toggle($(this).val() === 'mobile');
       loadApptSlots();
     });
 
@@ -1073,6 +1096,7 @@
       const serviceId = parseInt($('#koopo-appt-service').val(), 10) || 0;
       const date = $('#koopo-appt-date').val();
       const status = $('#koopo-appt-status').val() || 'confirmed';
+      const fulfillmentMode = $('#koopo-appt-fulfillment').val() || 'at_location';
 
       if (!apptState.resourceId || !serviceId || !date || !apptCreateState.selectedSlot) {
         alert('Please select a service, date, and available time.');
@@ -1092,8 +1116,23 @@
         end_datetime: endDateTime,
         timezone: apptTimezone,
         status: status,
+        fulfillment_mode: fulfillmentMode,
         addon_ids: selectedAddonIds,
       };
+
+      if (fulfillmentMode === 'mobile') {
+        payload.service_address = {
+          address_1: $('#koopo-appt-address-1').val().trim(),
+          city: $('#koopo-appt-city').val().trim(),
+          region: $('#koopo-appt-region').val().trim(),
+          postal_code: $('#koopo-appt-postal-code').val().trim(),
+          country: $('#koopo-appt-country').val().trim(),
+        };
+        if (!payload.service_address.address_1 || !payload.service_address.city || !payload.service_address.postal_code) {
+          alert('Enter the customer service address before creating this mobile appointment.');
+          return;
+        }
+      }
 
       if (type === 'guest') {
         payload.customer_name = $('#koopo-appt-guest-name').val().trim();
@@ -1567,6 +1606,7 @@
 let rescheduleState = {
     bookingId: null,
     serviceId: null,
+    fulfillmentMode: 'at_location',
     duration: 0,
     currentMonth: new Date(),
     selectedDate: null,
@@ -1593,6 +1633,7 @@ let rescheduleState = {
       // Initialize state
       rescheduleState.bookingId = bookingId;
       rescheduleState.serviceId = booking.service_id;
+      rescheduleState.fulfillmentMode = booking.fulfillment_mode || 'at_location';
       rescheduleState.currentStart = booking.start_datetime;
       rescheduleState.currentEnd = booking.end_datetime;
       rescheduleState.timezone = booking.timezone || '';
@@ -1740,7 +1781,12 @@ let rescheduleState = {
     try {
       // Fetch availability from the standard availability endpoint
       // We'll exclude the current booking from conflicts by using the service's availability
-      const data = await api(`/availability/by-service/${rescheduleState.serviceId}?date=${encodeURIComponent(date)}`, {
+      const query = new URLSearchParams({
+        date,
+        booking_id: String(rescheduleState.bookingId || 0),
+        fulfillment_mode: rescheduleState.fulfillmentMode || 'at_location',
+      });
+      const data = await api(`/availability/by-service/${rescheduleState.serviceId}?${query.toString()}`, {
         method: 'GET'
       });
 

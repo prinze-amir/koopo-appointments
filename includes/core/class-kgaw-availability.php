@@ -49,6 +49,7 @@ class Availability {
     $listing_id = (string) $resource->subject_type === 'listing' ? (int) $resource->subject_id : 0;
     $provider_id = (string) $resource->subject_type === 'provider' ? (int) $resource->subject_id : 0;
     $fulfillment_mode = sanitize_key((string) $req->get_param('fulfillment_mode'));
+    $exclude_booking_id = self::authorized_excluded_booking_id(absint($req->get_param('booking_id')), $resource_id);
 
     $settings = Settings_API::read_settings((int) $resource->subject_id);
     if (empty($settings['enabled'])) {
@@ -86,7 +87,7 @@ class Availability {
     // If an interval is larger than the service duration, it will skip possible start times
     // (e.g., 30-min service showing only hourly slots). Clamp to duration.
     if ($interval > $duration) $interval = $duration;
-$busy = self::get_busy_ranges($resource_id, $date, (string) $settings['timezone']);
+    $busy = self::get_busy_ranges($resource_id, $date, (string) $settings['timezone'], $exclude_booking_id);
 
     // Apply buffers to busy ranges
     $buffer_before = (int)$settings['buffer_before'];
@@ -158,6 +159,7 @@ $busy = self::get_busy_ranges($resource_id, $date, (string) $settings['timezone'
     'listing_id' => $listing_id,
     'provider_id' => $provider_id,
     'resource_id' => $resource_id,
+    'excluded_booking_id' => $exclude_booking_id,
     'date' => $date,
     'timezone' => $settings['timezone'],
     'duration_minutes' => $duration,
@@ -210,27 +212,46 @@ $busy = self::get_busy_ranges($resource_id, $date, (string) $settings['timezone'
     return $out;
   }
 
-  private static function get_busy_ranges(int $resource_id, string $date, string $timezone): array {
+  private static function authorized_excluded_booking_id(int $booking_id, int $resource_id): int {
+    if (!$booking_id || !is_user_logged_in()) return 0;
+    $booking = Bookings::get_booking($booking_id);
+    if (!$booking || Resources::booking_resource_id($booking) !== $resource_id) return 0;
+    if ((int) ($booking->customer_id ?? 0) === get_current_user_id()) return $booking_id;
+    return Resources::can_manage($resource_id) ? $booking_id : 0;
+  }
+
+  private static function get_busy_ranges(int $resource_id, string $date, string $timezone, int $exclude_booking_id = 0): array {
     if (!$resource_id) return [];
 
     global $wpdb;
     $table = DB::table();
 
-    $dayStart = "{$date} 00:00:00";
-    $dayEnd   = "{$date} 23:59:59";
+    try {
+      $zone = new \DateTimeZone($timezone ?: 'UTC');
+    } catch (\Throwable $error) {
+      $zone = new \DateTimeZone('UTC');
+    }
+    $dayStart = (new \DateTimeImmutable("{$date} 00:00:00", $zone))->modify('-240 minutes')->format('Y-m-d H:i:s');
+    $dayEnd = (new \DateTimeImmutable("{$date} 23:59:59", $zone))->modify('+240 minutes')->format('Y-m-d H:i:s');
 
     // Exclude only confirmed by default; you can include pending if you want.
     $statuses = Bookings::get_blocking_statuses($resource_id);
     $placeholders = implode(',', array_fill(0, count($statuses), '%s'));
 
+    $exclude_sql = $exclude_booking_id > 0 ? ' AND id <> %d' : '';
+    $params = array_merge([$resource_id], $statuses);
+    if ($exclude_booking_id > 0) $params[] = $exclude_booking_id;
+    $params[] = $dayEnd;
+    $params[] = $dayStart;
     $sql = $wpdb->prepare(
       "SELECT start_datetime, end_datetime, travel_buffer_minutes
        FROM {$table}
        WHERE resource_id = %d
          AND status IN ({$placeholders})
+         {$exclude_sql}
          AND start_datetime < %s
          AND end_datetime > %s",
-      array_merge([$resource_id], $statuses, [$dayEnd, $dayStart])
+      $params
     );
 
     $rows = $wpdb->get_results($sql);

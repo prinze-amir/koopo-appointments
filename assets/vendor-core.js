@@ -244,6 +244,7 @@
     const serviceModes = $('.koopo-provider-mode:checked').map(function(){ return $(this).val(); }).get();
     if (!name) { $status.text('Enter your service profile name.'); return; }
     if (!categoryId) { $status.text('Choose a primary service category.'); return; }
+    if (!serviceModes.length) { $status.text('Choose at least one service delivery option.'); return; }
     $button.prop('disabled', true);
     $status.text('Creating profile…');
     try {

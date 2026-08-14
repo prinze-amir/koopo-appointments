@@ -206,7 +206,13 @@ class Bookings {
     if ($mode === '') $mode = in_array('at_location', $modes, true) ? 'at_location' : (in_array('mobile', $modes, true) ? 'mobile' : 'virtual');
     if (!in_array($mode, ['at_location','mobile','virtual'], true) || !in_array($mode, $modes, true)) throw new \Exception('This delivery option is not available for the selected professional.');
     $out = ['fulfillment_mode'=>$mode,'service_area_id'=>0,'travel_buffer_minutes'=>0];
-    if ($mode === 'mobile') {
+    if ($mode === 'at_location') {
+      $direct_location = Provider_Profiles::direct_location($provider_id, true);
+      $affiliated_locations = Provider_Affiliations::approved_locations($provider_id);
+      if (!$direct_location && !$affiliated_locations) {
+        throw new \Exception('This professional has not configured an appointment location.');
+      }
+    } elseif ($mode === 'mobile') {
       $address = Service_Areas::sanitize_address((array) ($data['service_address'] ?? $data));
       $coverage = Service_Areas::check_destination($provider_id, $address);
       if (is_wp_error($coverage)) throw new \Exception($coverage->get_error_message());
@@ -226,6 +232,9 @@ class Bookings {
     } elseif ($mode === 'virtual') {
       $virtual = Provider_Profiles::virtual_delivery($provider_id, true);
       $join_url = in_array((string)$virtual['method'], ['custom_link','zoom','google_meet'], true) ? esc_url_raw((string)($virtual['join_url'] ?? '')) : '';
+      if (in_array((string) $virtual['method'], ['custom_link','zoom','google_meet'], true) && !$join_url) {
+        throw new \Exception('This professional has not configured a virtual meeting link.');
+      }
       $out = array_merge($out, [
         'virtual_provider'=>sanitize_key((string)($virtual['method'] ?? 'provider_sends')),
         'virtual_join_url'=>$join_url,
@@ -391,8 +400,10 @@ class Bookings {
 
     $buffer_before = max(0, (int) ($settings['buffer_before'] ?? 0));
     $buffer_after = max(0, (int) ($settings['buffer_after'] ?? 0));
-    $query_start = $start_dt->modify(sprintf('-%d minutes', $buffer_after))->format('Y-m-d H:i:s');
-    $query_end = $end_dt->modify(sprintf('+%d minutes', $buffer_before))->format('Y-m-d H:i:s');
+    $candidate_start = $start_dt->modify(sprintf('-%d minutes', $buffer_before));
+    $candidate_end = $end_dt->modify(sprintf('+%d minutes', $buffer_after));
+    $query_start = $candidate_start->format('Y-m-d H:i:s');
+    $query_end = $candidate_end->format('Y-m-d H:i:s');
 
     if (class_exists(Calendar_Busy::class) && Calendar_Busy::has_conflict($resource_id, $query_start, $query_end, $timezone->getName())) {
       return -1;
@@ -403,21 +414,44 @@ class Bookings {
     if ($exclude_booking_id > 0) {
       $params[] = $exclude_booking_id;
     }
-    $params[] = $query_end;
-    $params[] = $query_start;
+    // Mobile bookings persist their own travel buffer. Widen the SQL window so
+    // those rows are candidates, then compare their exact effective ranges in
+    // PHP. The stored value is capped at 240 minutes by Service_Areas.
+    $maximum_existing_travel = 240;
+    $params[] = $candidate_end->modify(sprintf('+%d minutes', $maximum_existing_travel))->format('Y-m-d H:i:s');
+    $params[] = $candidate_start->modify(sprintf('-%d minutes', $maximum_existing_travel))->format('Y-m-d H:i:s');
 
     $sql = $wpdb->prepare(
-      "SELECT id
+      "SELECT id, start_datetime, end_datetime, travel_buffer_minutes
        FROM {$table}
        WHERE resource_id = %d
          AND status IN ({$placeholders}){$where_exclude}
          AND start_datetime < %s
          AND end_datetime > %s
-       LIMIT 1",
+       ORDER BY start_datetime ASC",
       $params
     );
 
-    return (int) $wpdb->get_var($sql);
+    $rows = $wpdb->get_results($sql) ?: [];
+    foreach ($rows as $row) {
+      try {
+        $travel = min($maximum_existing_travel, max(0, (int) ($row->travel_buffer_minutes ?? 0)));
+        $existing_start = (new \DateTimeImmutable((string) $row->start_datetime, $timezone))->modify(sprintf('-%d minutes', $travel));
+        $existing_end = (new \DateTimeImmutable((string) $row->end_datetime, $timezone))->modify(sprintf('+%d minutes', $travel));
+      } catch (\Throwable $error) {
+        // Fail closed if an existing blocking row contains malformed time data.
+        return (int) $row->id;
+      }
+      if (self::effective_ranges_overlap($candidate_start, $candidate_end, $existing_start, $existing_end)) {
+        return (int) $row->id;
+      }
+    }
+
+    return 0;
+  }
+
+  private static function effective_ranges_overlap(\DateTimeImmutable $start_a, \DateTimeImmutable $end_a, \DateTimeImmutable $start_b, \DateTimeImmutable $end_b): bool {
+    return $start_a < $end_b && $end_a > $start_b;
   }
 
   private static function maybe_notify_confirmed_booking(int $booking_id): void {
@@ -909,29 +943,13 @@ public static function confirm_booking_safely(int $booking_id): array {
     $start = $booking->start_datetime;
     $end   = $booking->end_datetime;
 
-    // Only CONFIRMED bookings should block final confirmation
-    // (pending_payment already blocked at creation time; this is the final safety check)
-    $sql = $wpdb->prepare(
-      "SELECT id
-       FROM {$table}
-       WHERE resource_id = %d
-         AND status = 'confirmed'
-         AND id <> %d
-         AND start_datetime < %s
-         AND end_datetime > %s
-       LIMIT 1",
-      $resource_id,
-      $booking_id,
-      $end,
-      $start
-    );
-
-    $conflict_id = (int)$wpdb->get_var($sql);
-    if ($conflict_id <= 0) {
-      $settings = Settings_API::read_settings(Resources::settings_post_id($resource_id));
-      $timezone = self::resolve_listing_timezone($settings);
-      if (class_exists(Calendar_Busy::class) && Calendar_Busy::has_conflict($resource_id, $start, $end, $timezone->getName())) $conflict_id = -1;
+    $settings = Settings_API::read_settings(Resources::settings_post_id($resource_id));
+    $travel_buffer = min(240, max(0, (int) self::extra_from_record($booking, 'travel_buffer_minutes', 0)));
+    if ($travel_buffer > 0) {
+      $settings['buffer_before'] = max((int) ($settings['buffer_before'] ?? 0), $travel_buffer);
+      $settings['buffer_after'] = max((int) ($settings['buffer_after'] ?? 0), $travel_buffer);
     }
+    $conflict_id = self::find_conflict_id($resource_id, $start, $end, $settings, $booking_id);
 
     if ($conflict_id !== 0) {
       // Mark conflict (paid but cannot be honored)
@@ -1110,6 +1128,11 @@ public static function cancel_booking_safely(int $booking_id, string $new_status
 
     try {
       $settings = self::assert_slot_matches_schedule($resource_id, $new_start, $new_end, $expected_duration, false);
+      $travel_buffer = min(240, max(0, (int) self::extra_from_record($booking, 'travel_buffer_minutes', 0)));
+      if ($travel_buffer > 0) {
+        $settings['buffer_before'] = max((int) ($settings['buffer_before'] ?? 0), $travel_buffer);
+        $settings['buffer_after'] = max((int) ($settings['buffer_after'] ?? 0), $travel_buffer);
+      }
     } catch (\Throwable $e) {
       return false;
     }

@@ -4,7 +4,7 @@ namespace Koopo_Appointments;
 defined('ABSPATH') || exit;
 
 class DB {
-  const VERSION = '4.1';
+  const VERSION = '4.2';
 
   public static function table() {
     global $wpdb;
@@ -308,8 +308,12 @@ class DB {
       client_id BIGINT UNSIGNED NOT NULL,
       customer_id BIGINT UNSIGNED NOT NULL,
       answers_json LONGTEXT NOT NULL,
+      form_snapshot_json LONGTEXT NULL,
+      consent_text TEXT NULL,
       signature_name VARCHAR(191) NOT NULL DEFAULT '',
       signature_hash CHAR(64) NOT NULL DEFAULT '',
+      signer_ip_hash CHAR(64) NOT NULL DEFAULT '',
+      user_agent_hash CHAR(64) NOT NULL DEFAULT '',
       signed_at DATETIME NULL,
       status VARCHAR(30) NOT NULL DEFAULT 'completed',
       requested_at DATETIME NULL,
@@ -359,6 +363,7 @@ class DB {
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       PRIMARY KEY (id),
+      UNIQUE KEY provider_id (provider_id),
       KEY provider_status (provider_id, status),
       KEY status_radius (status, radius_meters)
     ) {$charset};";

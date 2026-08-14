@@ -33,6 +33,32 @@ final class Provider_Profiles {
     add_filter('template_include', [__CLASS__, 'public_template'], 99);
     add_action('pre_get_posts', [__CLASS__, 'filter_archive_query']);
     add_filter('the_content', [__CLASS__, 'append_public_profile']);
+    add_action('before_delete_post', [__CLASS__, 'deactivate_owned_data'], 25, 2);
+  }
+
+  public static function deactivate_owned_data(int $post_id, ?\WP_Post $post = null): void {
+    $post = $post ?: get_post($post_id);
+    if (!$post || $post->post_type !== self::POST_TYPE) return;
+    global $wpdb;
+    $resource = Resources::for_subject('provider', $post_id);
+    if ($resource) {
+      $wpdb->update(DB::resources_table(), ['status' => 'inactive', 'updated_at' => current_time('mysql')], ['id' => (int) $resource->id]);
+      $wpdb->update(DB::client_forms_table(), ['enabled' => 0], ['resource_id' => (int) $resource->id]);
+      $wpdb->update(DB::waitlist_table(), ['status' => 'closed', 'updated_at' => current_time('mysql')], ['resource_id' => (int) $resource->id]);
+    }
+    $wpdb->delete(DB::affiliations_table(), ['provider_id' => $post_id], ['%d']);
+    $wpdb->delete(DB::service_index_table(), ['provider_id' => $post_id], ['%d']);
+    $service_ids = get_posts([
+      'post_type' => Services_CPT::POST_TYPE,
+      'post_status' => 'any',
+      'posts_per_page' => -1,
+      'fields' => 'ids',
+      'meta_key' => Services_API::META_PROVIDER_ID,
+      'meta_value' => $post_id,
+    ]);
+    foreach ($service_ids as $service_id) {
+      if ('trash' !== get_post_status($service_id)) wp_trash_post((int) $service_id);
+    }
   }
 
   public static function register_post_type(): void {
@@ -103,6 +129,7 @@ final class Provider_Profiles {
     $payload = (array) $request->get_json_params();
     $title = sanitize_text_field((string) ($payload['name'] ?? $payload['title'] ?? ''));
     if (!$title) return new \WP_REST_Response(['error' => 'Service profile name is required.'], 400);
+    if (empty($payload['service_modes']) || !is_array($payload['service_modes'])) return new \WP_REST_Response(['error' => 'Choose at least one service delivery option.', 'code' => 'service_mode_required'], 422);
     $provider_id = wp_insert_post([
       'post_type' => self::POST_TYPE,
       'post_status' => 'publish',
@@ -113,7 +140,11 @@ final class Provider_Profiles {
       'comment_status' => 'open',
     ], true);
     if (is_wp_error($provider_id)) return new \WP_REST_Response(['error' => $provider_id->get_error_message()], 500);
-    self::save_meta((int) $provider_id, $payload);
+    $saved = self::save_meta((int) $provider_id, $payload);
+    if (is_wp_error($saved)) {
+      wp_delete_post((int) $provider_id, true);
+      return new \WP_REST_Response(['error' => $saved->get_error_message(), 'code' => $saved->get_error_code()], 422);
+    }
     update_post_meta((int) $provider_id, '_koopo_appt_enabled', '1');
     $resource_id = Resources::ensure_for_provider((int) $provider_id);
     update_post_meta((int) $provider_id, Resources::META_RESOURCE_ID, $resource_id);
@@ -133,8 +164,10 @@ final class Provider_Profiles {
       if (isset($payload['name'])) $update['post_title'] = sanitize_text_field((string) $payload['name']);
       if (isset($payload['bio'])) $update['post_content'] = wp_kses_post((string) $payload['bio']);
       if (isset($payload['headline'])) $update['post_excerpt'] = sanitize_textarea_field((string) $payload['headline']);
-      wp_update_post($update);
-      self::save_meta($provider_id, $payload);
+      $saved = self::save_meta($provider_id, $payload);
+      if (is_wp_error($saved)) return new \WP_REST_Response(['error' => $saved->get_error_message(), 'code' => $saved->get_error_code()], 422);
+      $updated = wp_update_post($update, true);
+      if (is_wp_error($updated)) return new \WP_REST_Response(['error' => $updated->get_error_message(), 'code' => $updated->get_error_code()], 500);
     }
     return new \WP_REST_Response(self::format($provider_id, self::can_manage($provider_id)), 200);
   }
@@ -159,14 +192,32 @@ final class Provider_Profiles {
     return new \WP_REST_Response(Resources::contexts_for_user($user_id), 200);
   }
 
-  public static function save_meta(int $provider_id, array $payload): void {
-    if (isset($payload['headline'])) update_post_meta($provider_id, self::META_HEADLINE, sanitize_text_field((string) $payload['headline']));
-    if (isset($payload['phone'])) update_post_meta($provider_id, self::META_PHONE, sanitize_text_field((string) $payload['phone']));
+  public static function save_meta(int $provider_id, array $payload) {
+    $validated_modes = null;
     if (isset($payload['service_modes']) && is_array($payload['service_modes'])) {
       $allowed = ['at_location', 'mobile', 'virtual'];
-      $modes = array_values(array_intersect($allowed, array_map('sanitize_key', $payload['service_modes'])));
-      update_post_meta($provider_id, self::META_SERVICE_MODES, $modes);
+      $validated_modes = array_values(array_intersect($allowed, array_map('sanitize_key', $payload['service_modes'])));
+      if (!$validated_modes) return new \WP_Error('service_mode_required', __('Choose at least one service delivery option.', 'koopo-appointments'));
     }
+    $validated_virtual = null;
+    if (array_key_exists('virtual_delivery', $payload) && is_array($payload['virtual_delivery'])) {
+      $virtual = $payload['virtual_delivery'];
+      $method = sanitize_key((string) ($virtual['method'] ?? 'provider_sends'));
+      if (!in_array($method, ['provider_sends', 'custom_link', 'google_meet', 'zoom'], true)) $method = 'provider_sends';
+      $join_url = esc_url_raw((string) ($virtual['join_url'] ?? ''));
+      if (in_array($method, ['custom_link', 'google_meet', 'zoom'], true)
+        && (!$join_url || 'https' !== strtolower((string) wp_parse_url($join_url, PHP_URL_SCHEME)))) {
+        return new \WP_Error('virtual_url_required', __('Enter a valid HTTPS meeting URL or choose “Provider sends details”.', 'koopo-appointments'));
+      }
+      $validated_virtual = ['method' => $method, 'join_url' => $join_url, 'instructions' => sanitize_textarea_field((string) ($virtual['instructions'] ?? ''))];
+    }
+    if (array_key_exists('service_area', $payload) && is_array($payload['service_area']) && class_exists(Service_Areas::class)) {
+      $area = Service_Areas::save_for_provider($provider_id, $payload['service_area']);
+      if (is_wp_error($area)) return $area;
+    }
+    if (isset($payload['headline'])) update_post_meta($provider_id, self::META_HEADLINE, sanitize_text_field((string) $payload['headline']));
+    if (isset($payload['phone'])) update_post_meta($provider_id, self::META_PHONE, sanitize_text_field((string) $payload['phone']));
+    if (null !== $validated_modes) update_post_meta($provider_id, self::META_SERVICE_MODES, $validated_modes);
     $location_fields = [
       'location_name' => self::META_LOCATION_NAME,
       'address' => self::META_ADDRESS,
@@ -181,16 +232,10 @@ final class Provider_Profiles {
     if (array_key_exists('latitude', $payload)) update_post_meta($provider_id, self::META_LATITUDE, self::coordinate($payload['latitude'], -90, 90));
     if (array_key_exists('longitude', $payload)) update_post_meta($provider_id, self::META_LONGITUDE, self::coordinate($payload['longitude'], -180, 180));
     if (array_key_exists('location_public', $payload)) update_post_meta($provider_id, self::META_LOCATION_PUBLIC, !empty($payload['location_public']) ? '1' : '0');
-    if (array_key_exists('service_area', $payload) && is_array($payload['service_area']) && class_exists(Service_Areas::class)) {
-      Service_Areas::save_for_provider($provider_id, $payload['service_area']);
-    }
-    if (array_key_exists('virtual_delivery', $payload) && is_array($payload['virtual_delivery'])) {
-      $virtual = $payload['virtual_delivery'];
-      $method = sanitize_key((string) ($virtual['method'] ?? 'provider_sends'));
-      if (!in_array($method, ['provider_sends', 'custom_link', 'google_meet', 'zoom'], true)) $method = 'provider_sends';
-      update_post_meta($provider_id, self::META_VIRTUAL_METHOD, $method);
-      update_post_meta($provider_id, self::META_VIRTUAL_URL, esc_url_raw((string) ($virtual['join_url'] ?? '')));
-      update_post_meta($provider_id, self::META_VIRTUAL_INSTRUCTIONS, sanitize_textarea_field((string) ($virtual['instructions'] ?? '')));
+    if (null !== $validated_virtual) {
+      update_post_meta($provider_id, self::META_VIRTUAL_METHOD, $validated_virtual['method']);
+      update_post_meta($provider_id, self::META_VIRTUAL_URL, $validated_virtual['join_url']);
+      update_post_meta($provider_id, self::META_VIRTUAL_INSTRUCTIONS, $validated_virtual['instructions']);
     }
     if (array_key_exists('category_id', $payload)) {
       $category_id = absint($payload['category_id']);
@@ -202,6 +247,7 @@ final class Provider_Profiles {
       }
     }
     update_post_meta($provider_id, self::META_STATUS, 'active');
+    return true;
   }
 
   private static function coordinate($value, float $min, float $max): string {
@@ -439,6 +485,7 @@ final class Provider_Profiles {
       'rest' => esc_url_raw(rest_url('koopo/v1')),
       'nonce' => wp_create_nonce('wp_rest'),
       'loggedIn' => is_user_logged_in(),
+      'tileUrl' => (string) apply_filters('koopo_appt_provider_map_tile_url', 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'),
     ]);
   }
 

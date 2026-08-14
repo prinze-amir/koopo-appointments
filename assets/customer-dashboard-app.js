@@ -21,6 +21,7 @@
   let rescheduleState = {
     bookingId: null,
     serviceId: null,
+    fulfillmentMode: 'at_location',
     timezone: '',
     currentMonth: new Date(),
     selectedDate: null,
@@ -409,6 +410,7 @@
     currentBookingId = booking.id;
     rescheduleState.bookingId = booking.id;
     rescheduleState.serviceId = booking.service_id;
+    rescheduleState.fulfillmentMode = booking.fulfillment_mode || 'at_location';
     rescheduleState.timezone = booking.timezone || '';
     rescheduleState.selectedDate = null;
     rescheduleState.selectedSlot = null;
@@ -504,7 +506,12 @@
     $slotsContainer.html('<div class="koopo-reschedule-loading">Loading available times...</div>');
 
     try {
-      const data = await api(`/availability/by-service/${rescheduleState.serviceId}?date=${encodeURIComponent(date)}`, { method: 'GET' });
+      const query = new URLSearchParams({
+        date,
+        booking_id: String(rescheduleState.bookingId || 0),
+        fulfillment_mode: rescheduleState.fulfillmentMode || 'at_location',
+      });
+      const data = await api(`/availability/by-service/${rescheduleState.serviceId}?${query.toString()}`, { method: 'GET' });
       const slots = data.slots || [];
 
       if (!slots.length) {

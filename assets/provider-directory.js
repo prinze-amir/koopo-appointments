@@ -29,7 +29,8 @@
   if(!points.length)return;
   const map=window.L.map(mapNode,{scrollWheelZoom:false,zoomControl:true});
   window.koopoProviderMap=map;
-  window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap contributors'}).addTo(map);
+  const tileUrl=String(window.KOOPO_PROVIDER&&KOOPO_PROVIDER.tileUrl||'https://tile.openstreetmap.org/{z}/{x}/{y}.png');
+  window.L.tileLayer(tileUrl,{maxZoom:19,attribution:'&copy; OpenStreetMap contributors'}).addTo(map);
   const bounds=[];const markers={};
   points.forEach(point=>{
     if(point.type==='service_area'){

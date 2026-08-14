@@ -61,6 +61,15 @@ final class Service_Areas {
 
   public static function check(\WP_REST_Request $request): \WP_REST_Response {
     $provider_id = absint($request['id']);
+    $provider = get_post($provider_id);
+    $modes = $provider ? (array) get_post_meta($provider_id, Provider_Profiles::META_SERVICE_MODES, true) : [];
+    if (!$provider || $provider->post_type !== Provider_Profiles::POST_TYPE || $provider->post_status !== 'publish' || !in_array('mobile', $modes, true)) {
+      return new \WP_REST_Response(['error' => __('Mobile coverage is unavailable for this service profile.', 'koopo-appointments'), 'code' => 'mobile_area_unavailable'], 404);
+    }
+    $limit = self::consume_check_rate_limit(get_current_user_id(), $provider_id);
+    if (is_wp_error($limit)) {
+      return new \WP_REST_Response(['error' => $limit->get_error_message(), 'code' => $limit->get_error_code()], 429);
+    }
     $payload = (array) $request->get_json_params();
     $result = self::check_destination($provider_id, self::sanitize_address($payload));
     if (is_wp_error($result)) return new \WP_REST_Response(['error' => $result->get_error_message(), 'code' => $result->get_error_code()], 422);
@@ -123,14 +132,26 @@ final class Service_Areas {
       'updated_at' => current_time('mysql'),
     ];
     if ($existing) {
-      $wpdb->update(DB::service_areas_table(), $data, ['id' => (int) $existing->id]);
+      $saved = $wpdb->update(DB::service_areas_table(), $data, ['id' => (int) $existing->id]);
       $id = (int) $existing->id;
     } else {
       $data['created_at'] = current_time('mysql');
-      $wpdb->insert(DB::service_areas_table(), $data);
+      $saved = $wpdb->insert(DB::service_areas_table(), $data);
+      if (false === $saved) {
+        // A concurrent first save may have won the provider unique key.
+        $existing = self::get_for_provider($provider_id, false);
+        if ($existing) {
+          $saved = $wpdb->update(DB::service_areas_table(), $data, ['id' => (int) $existing->id]);
+          $wpdb->insert_id = (int) $existing->id;
+        }
+      }
       $id = (int) $wpdb->insert_id;
     }
-    return $wpdb->get_row($wpdb->prepare('SELECT * FROM ' . DB::service_areas_table() . ' WHERE id = %d', $id));
+    if (false === $saved || $id <= 0) {
+      return new \WP_Error('service_area_save_failed', __('The mobile service area could not be saved. Please try again.', 'koopo-appointments'));
+    }
+    $row = $wpdb->get_row($wpdb->prepare('SELECT * FROM ' . DB::service_areas_table() . ' WHERE id = %d', $id));
+    return $row ?: new \WP_Error('service_area_save_failed', __('The mobile service area could not be loaded after saving.', 'koopo-appointments'));
   }
 
   public static function public_area(int $provider_id): ?array {
@@ -171,16 +192,34 @@ final class Service_Areas {
       set_transient($cache_key, $filtered, 30 * DAY_IN_SECONDS);
       return $filtered;
     }
+    if (function_exists('geodir_get_option') && 'osm' === (string) geodir_get_option('maps_api', 'google')
+      && !apply_filters('koopo_appt_allow_public_osm_geocoding', false, $address)) {
+      return new \WP_Error(
+        'geocoder_privacy_configuration_required',
+        __('Mobile coverage requires a configured commercial or self-hosted geocoder. Public OpenStreetMap geocoding is disabled for private addresses.', 'koopo-appointments')
+      );
+    }
     if (!function_exists('geodir_get_gps_from_address')) return new \WP_Error('geocoder_unavailable', __('Address validation is temporarily unavailable.', 'koopo-appointments'));
-    if (get_transient('koopo_appt_geocode_rate_lock')) return new \WP_Error('geocoder_busy', __('Address validation is busy. Please try again in a moment.', 'koopo-appointments'));
-    set_transient('koopo_appt_geocode_rate_lock', 1, 2);
-    $result = geodir_get_gps_from_address([
-      'street' => $address['address_1'],
-      'city' => $address['city'],
-      'region' => $address['region'],
-      'zip' => $address['postal_code'],
-      'country' => $address['country'],
-    ], true);
+    global $wpdb;
+    $lock_name = 'koopo_appt_geocode';
+    $locked = (string) $wpdb->get_var($wpdb->prepare('SELECT GET_LOCK(%s, 1)', $lock_name)) === '1';
+    if (!$locked) return new \WP_Error('geocoder_busy', __('Address validation is busy. Please try again in a moment.', 'koopo-appointments'));
+    try {
+      $last_request = (float) get_option('koopo_appt_geocode_last_request', 0);
+      if ($last_request > 0 && microtime(true) - $last_request < 1.05) {
+        return new \WP_Error('geocoder_busy', __('Address validation is busy. Please try again in a moment.', 'koopo-appointments'));
+      }
+      update_option('koopo_appt_geocode_last_request', (string) microtime(true), false);
+      $result = geodir_get_gps_from_address([
+        'street' => $address['address_1'],
+        'city' => $address['city'],
+        'region' => $address['region'],
+        'zip' => $address['postal_code'],
+        'country' => $address['country'],
+      ], true);
+    } finally {
+      $wpdb->query($wpdb->prepare('SELECT RELEASE_LOCK(%s)', $lock_name));
+    }
     if (is_wp_error($result) || !is_array($result) || empty($result['latitude']) || empty($result['longitude'])) {
       return is_wp_error($result) ? $result : new \WP_Error('address_not_found', __('We could not locate that address. Check it and try again.', 'koopo-appointments'));
     }
@@ -210,8 +249,8 @@ final class Service_Areas {
       'public_label' => (string) ($area->public_label ?? ''),
       'travel_buffer_minutes' => (int) ($area->travel_buffer_minutes ?? 0),
       'approximate_center' => [
-        'latitude' => round((float) ($area->origin_latitude ?? 0), 2),
-        'longitude' => round((float) ($area->origin_longitude ?? 0), 2),
+        'latitude' => round((float) ($area->origin_latitude ?? 0), 1),
+        'longitude' => round((float) ($area->origin_longitude ?? 0), 1),
       ],
     ];
     if ($private) {
@@ -232,6 +271,18 @@ final class Service_Areas {
     if ($value === null || $value === '' || !is_numeric($value)) return null;
     $number = (float) $value;
     return $number >= $minimum && $number <= $maximum ? round($number, 7) : null;
+  }
+
+  private static function consume_check_rate_limit(int $user_id, int $provider_id) {
+    $window = 60;
+    $maximum = max(1, (int) apply_filters('koopo_appt_service_area_checks_per_minute', 10, $user_id, $provider_id));
+    $key = 'koopo_appt_area_check_' . md5($user_id . '|' . $provider_id);
+    $count = (int) get_transient($key);
+    if ($count >= $maximum) {
+      return new \WP_Error('service_area_rate_limited', __('Too many coverage checks. Please wait a minute and try again.', 'koopo-appointments'));
+    }
+    set_transient($key, $count + 1, $window);
+    return true;
   }
 
   public static function distance_meters(float $lat1, float $lng1, float $lat2, float $lng2): float {

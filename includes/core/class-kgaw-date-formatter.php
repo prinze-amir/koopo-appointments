@@ -295,7 +295,10 @@ class Date_Formatter {
         (string) Bookings::extra_from_record($booking, 'service_postal_code', ''),
       ]));
     } elseif ($fulfillment_mode === 'virtual') {
-      $location = (string) Bookings::extra_from_record($booking, 'virtual_join_url', '') ?: __('Online appointment', 'koopo-appointments');
+      $status = isset($booking->status) ? (string) $booking->status : '';
+      $location = $status === 'confirmed'
+        ? ((string) Bookings::extra_from_record($booking, 'virtual_join_url', '') ?: __('Online appointment', 'koopo-appointments'))
+        : __('Online appointment - access details available after confirmation', 'koopo-appointments');
     }
 
     // Google Calendar

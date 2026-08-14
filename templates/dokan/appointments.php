@@ -173,6 +173,21 @@ defined('ABSPATH') || exit;
           <input type="date" class="koopo-input" id="koopo-appt-date" />
         </label>
 
+        <label class="koopo-label koopo-label--full" id="koopo-appt-fulfillment-wrap">
+          <?php esc_html_e('Appointment location', 'koopo-appointments'); ?>
+          <select class="koopo-input" id="koopo-appt-fulfillment">
+            <option value="at_location"><?php esc_html_e('At the provider location', 'koopo-appointments'); ?></option>
+          </select>
+        </label>
+
+        <div class="koopo-form-grid koopo-label--full" id="koopo-appt-mobile-address" style="display:none;">
+          <label class="koopo-label koopo-label--full"><?php esc_html_e('Customer service address', 'koopo-appointments'); ?><input type="text" class="koopo-input" id="koopo-appt-address-1" autocomplete="street-address" /></label>
+          <label class="koopo-label"><?php esc_html_e('City', 'koopo-appointments'); ?><input type="text" class="koopo-input" id="koopo-appt-city" autocomplete="address-level2" /></label>
+          <label class="koopo-label"><?php esc_html_e('State/Region', 'koopo-appointments'); ?><input type="text" class="koopo-input" id="koopo-appt-region" autocomplete="address-level1" /></label>
+          <label class="koopo-label"><?php esc_html_e('Postal code', 'koopo-appointments'); ?><input type="text" class="koopo-input" id="koopo-appt-postal-code" autocomplete="postal-code" /></label>
+          <label class="koopo-label"><?php esc_html_e('Country', 'koopo-appointments'); ?><input type="text" class="koopo-input" id="koopo-appt-country" value="United States" autocomplete="country-name" /></label>
+        </div>
+
         <div class="koopo-label koopo-label--full">
           <?php esc_html_e('Available Times', 'appointments'); ?>
           <div class="koopo-appt-slot-list" id="koopo-appt-slot-list">

@@ -114,6 +114,16 @@ final class Provider_Reviews {
     $provider = get_post($provider_id);
     if (!$provider || Provider_Profiles::POST_TYPE !== $provider->post_type || 'publish' !== $provider->post_status) return new \WP_REST_Response(['error' => 'Service profile not found.'], 404);
     if ((int) $provider->post_author === $user_id && !current_user_can('moderate_comments')) return new \WP_REST_Response(['error' => 'You cannot review your own service profile.'], 403);
+    global $wpdb;
+    $eligible_booking_id = (int) $wpdb->get_var($wpdb->prepare(
+      'SELECT id FROM ' . DB::table() . " WHERE provider_id = %d AND customer_id = %d AND status = 'confirmed' AND end_datetime <= %s ORDER BY end_datetime DESC LIMIT 1",
+      $provider_id,
+      $user_id,
+      current_time('mysql')
+    ));
+    if (!$eligible_booking_id && !current_user_can('moderate_comments')) {
+      return new \WP_REST_Response(['error' => 'Reviews are available after a completed appointment with this service provider.'], 403);
+    }
     $existing = get_comments(['post_id'=>$provider_id,'type'=>self::COMMENT_TYPE,'user_id'=>$user_id,'status'=>'all','number'=>1,'fields'=>'ids']);
     if ($existing) return new \WP_REST_Response(['error' => 'You have already reviewed this service profile.'], 409);
     $payload = (array) $request->get_json_params();
@@ -134,6 +144,7 @@ final class Provider_Reviews {
     if (is_wp_error($comment_id)) return new \WP_REST_Response(['error' => $comment_id->get_error_message()], 400);
     if (!$comment_id) return new \WP_REST_Response(['error' => 'The review could not be saved.'], 500);
     update_comment_meta((int) $comment_id, self::META_RATING, $rating);
+    update_comment_meta((int) $comment_id, '_koopo_verified_booking_id', $eligible_booking_id);
     $comment = get_comment((int) $comment_id);
     return new \WP_REST_Response([
       'review' => self::format($comment),
@@ -154,6 +165,7 @@ final class Provider_Reviews {
       'avatar_url' => $avatar_url,
       'profile_url' => $user_id && function_exists('bp_core_get_user_domain') ? (string) bp_core_get_user_domain($user_id) : '',
       'date' => (string) get_comment_date('c', $comment),
+      'verified' => (int) get_comment_meta($comment->comment_ID, '_koopo_verified_booking_id', true) > 0,
     ];
   }
 

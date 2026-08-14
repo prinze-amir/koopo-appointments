@@ -121,7 +121,7 @@ The codebase includes the originally planned commits 17-22 and additional work l
 
 ### Calendar Synchronization and Availability
 
-Koopo remains the source of truth for Koopo appointments. Confirmed Koopo bookings synchronize outbound, while selected external calendars synchronize inbound as read-only busy periods. External titles and descriptions are never stored or displayed; the booking surface shows only **Unavailable**. External events cannot edit, reschedule, or cancel a Koopo booking.
+Koopo remains the source of truth for Koopo appointments. Confirmed Koopo bookings synchronize outbound, while selected external calendars synchronize inbound as read-only busy periods. External titles and descriptions are never stored or displayed; the booking surface shows only **Unavailable**. External events cannot edit, reschedule, or cancel a Koopo booking. Virtual join links remain hidden from customer calendar links until the booking is confirmed.
 
 The vendor settings screen supports each business or professional booking calendar:
 
@@ -137,7 +137,11 @@ The vendor settings screen supports each business or professional booking calend
 
 Providers can use an expiring cancellation-fill waitlist in priority order, first-to-confirm batches, or manual mode. Customers choose a service, date range, preferred days, time range, and email/push/SMS channels. SMS delivery uses the `koopo_appt_send_transactional_sms` integration hook and requires a configured transactional SMS adapter.
 
+Mobile coverage must use a commercial or self-hosted geocoder suitable for processing private service addresses. Koopo disables GeoDirectory's public OpenStreetMap geocoder for these requests by default; a site-specific `koopo_appt_geocode_address` adapter is preferred. The Professionals map tile URL is filterable through `koopo_appt_provider_map_tile_url`.
+
 Confirmed bookings create provider-private client records with an appointment timeline, preferences, formulas/specifications, and private notes. Providers can create service-specific intake and consent forms, request them before an appointment, require a typed electronic signature, and attach private JPEG, PNG, WebP, or PDF files through Media Gateway direct upload. Client attachments are stored as gateway asset references rather than WordPress Media Library attachments.
+
+WordPress privacy export and erasure hooks cover appointment contact details, mobile addresses, waitlist entries, client notes, intake answers, and signature evidence. Financial appointment facts remain anonymized rather than deleted. Provider-held remote files are reported as retained until they are removed through the client-file workflow so the Media Gateway reference is released correctly. Administrators must publish an explicit retention policy before production use.
 
 Configure provider client IDs and secrets under **Settings → Koopo Appointments → Calendar Integrations**. Client secrets are encrypted before storage, masked after saving, and can be replaced or removed by an administrator. These dashboard settings are the provider clients' configuration source.
 

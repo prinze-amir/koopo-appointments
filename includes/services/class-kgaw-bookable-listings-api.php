@@ -4,6 +4,7 @@ namespace Koopo_Appointments;
 defined('ABSPATH') || exit;
 
 class Bookable_Listings_API {
+  const REBUILD_HOOK = 'koopo_appt_rebuild_bookable_index';
   private static bool $syncing = false;
 
   public static function init(): void {
@@ -17,6 +18,7 @@ class Bookable_Listings_API {
     add_action('updated_post_meta', [__CLASS__, 'handle_post_meta_change'], 20, 4);
     add_action('deleted_post_meta', [__CLASS__, 'handle_post_meta_change'], 20, 4);
     add_action('set_object_terms', [__CLASS__, 'handle_terms_change'], 20, 6);
+    add_action(self::REBUILD_HOOK, [__CLASS__, 'run_rebuild_batch'], 10, 1);
   }
 
   public static function routes(): void {
@@ -253,6 +255,9 @@ class Bookable_Listings_API {
       }
     } elseif ($post->post_type === 'gd_place') {
       self::delete_listing_index($post_id);
+    } elseif ($post->post_type === Provider_Profiles::POST_TYPE) {
+      global $wpdb;
+      $wpdb->delete(DB::service_index_table(), ['provider_id' => $post_id], ['%d']);
     }
   }
 
@@ -320,6 +325,26 @@ class Bookable_Listings_API {
     }
   }
 
+  public static function run_rebuild_batch(int $page = 1): void {
+    $batch_size = 200;
+    $q = new \WP_Query([
+      'post_type' => Services_CPT::POST_TYPE,
+      'post_status' => 'publish',
+      'posts_per_page' => $batch_size,
+      'paged' => max(1, $page),
+      'fields' => 'ids',
+      'orderby' => 'ID',
+      'order' => 'ASC',
+      'no_found_rows' => true,
+    ]);
+    foreach ($q->posts as $service_id) self::sync_service((int) $service_id);
+    if (count($q->posts) === $batch_size) {
+      self::schedule_rebuild(max(1, $page) + 1);
+    } else {
+      update_option('koopo_appt_bookable_index_version', DB::VERSION, false);
+    }
+  }
+
   /** Public place cards for the unified Professionals booking archive. */
   public static function archive_places(string $search = '', string $service_category = '', int $limit = 50): array {
     self::maybe_seed_index();
@@ -333,10 +358,16 @@ class Bookable_Listings_API {
     $sql = "SELECT li.* FROM " . DB::listing_index_table() . " li INNER JOIN {$wpdb->posts} p ON p.ID = li.listing_id WHERE {$where} ORDER BY li.sort_score DESC, li.updated_at DESC LIMIT %d";
     $params[] = min(100, max(1, $limit));
     $rows = $wpdb->get_results($wpdb->prepare($sql, $params), ARRAY_A) ?: [];
+    $listing_ids = array_values(array_filter(array_map('absint', wp_list_pluck($rows, 'listing_id'))));
+    if ($listing_ids) {
+      update_meta_cache('post', $listing_ids);
+      update_object_term_cache($listing_ids, 'gd_place');
+    }
+    $services_by_listing = self::indexed_services_for_listings($listing_ids);
     $items = [];
     foreach ($rows as $row) {
       $listing_id = (int) $row['listing_id'];
-      $services = self::indexed_services_for_listing($listing_id);
+      $services = $services_by_listing[$listing_id] ?? [];
       if (!$services) continue;
       $terms = wp_get_object_terms($listing_id, 'gd_placecategory');
       if (is_wp_error($terms)) $terms = [];
@@ -364,12 +395,24 @@ class Bookable_Listings_API {
   }
 
   private static function indexed_services_for_listing(int $listing_id): array {
+    $grouped = self::indexed_services_for_listings([$listing_id]);
+    return $grouped[$listing_id] ?? [];
+  }
+
+  private static function indexed_services_for_listings(array $listing_ids): array {
     global $wpdb;
+    $listing_ids = array_values(array_filter(array_map('absint', $listing_ids)));
+    if (!$listing_ids) return [];
+    $placeholders = implode(',', array_fill(0, count($listing_ids), '%d'));
     $rows = $wpdb->get_results($wpdb->prepare(
-      'SELECT * FROM ' . DB::service_index_table() . " WHERE listing_id = %d AND status != 'inactive' AND is_addon = 0 AND wc_product_id IS NOT NULL AND wc_product_id > 0 ORDER BY sort_order ASC, title ASC",
-      $listing_id
+      'SELECT * FROM ' . DB::service_index_table() . " WHERE listing_id IN ({$placeholders}) AND status != 'inactive' AND is_addon = 0 AND wc_product_id IS NOT NULL AND wc_product_id > 0 ORDER BY listing_id, sort_order ASC, title ASC",
+      $listing_ids
     ), ARRAY_A) ?: [];
-    return array_map([__CLASS__, 'format_service_row'], $rows);
+    $product_ids = array_values(array_filter(array_map('absint', wp_list_pluck($rows, 'wc_product_id'))));
+    if ($product_ids) update_meta_cache('post', $product_ids);
+    $grouped = [];
+    foreach ($rows as $row) $grouped[(int) $row['listing_id']][] = self::format_service_row($row);
+    return $grouped;
   }
 
   private static function place_category_matches(array $categories, string $service_category): bool {
@@ -409,13 +452,26 @@ class Bookable_Listings_API {
   }
 
   private static function maybe_seed_index(): void {
+    if ((string) get_option('koopo_appt_bookable_index_version', '') === DB::VERSION) return;
     global $wpdb;
     $service_count = (int) $wpdb->get_var("SELECT COUNT(*) FROM " . DB::service_index_table());
     $listing_count = (int) $wpdb->get_var("SELECT COUNT(*) FROM " . DB::listing_index_table());
     if ($service_count > 0 && $listing_count > 0) {
+      update_option('koopo_appt_bookable_index_version', DB::VERSION, false);
       return;
     }
-    self::rebuild_index(1000);
+    self::schedule_rebuild(1);
+  }
+
+  private static function schedule_rebuild(int $page): void {
+    $args = [$page];
+    if (function_exists('as_enqueue_async_action')) {
+      if (!function_exists('as_has_scheduled_action') || !as_has_scheduled_action(self::REBUILD_HOOK, $args, 'koopo-appointments-index')) {
+        as_enqueue_async_action(self::REBUILD_HOOK, $args, 'koopo-appointments-index', true);
+      }
+      return;
+    }
+    if (!wp_next_scheduled(self::REBUILD_HOOK, $args)) wp_schedule_single_event(time() + 5, self::REBUILD_HOOK, $args);
   }
 
   private static function delete_service_index(int $service_id): void {

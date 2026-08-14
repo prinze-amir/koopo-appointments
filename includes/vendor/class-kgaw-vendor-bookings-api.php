@@ -793,6 +793,8 @@ class Vendor_Bookings_API {
       'end_datetime' => $end,
       'timezone' => $timezone,
       'status' => $status,
+      'fulfillment_mode' => sanitize_key((string) $request->get_param('fulfillment_mode')),
+      'service_address' => is_array($request->get_param('service_address')) ? (array) $request->get_param('service_address') : [],
       'customer_name' => $customer_name,
       'customer_email' => $customer_email,
       'customer_phone' => $customer_phone,

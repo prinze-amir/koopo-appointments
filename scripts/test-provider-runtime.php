@@ -70,6 +70,9 @@ try {
     uat_expect(!is_wp_error($provider_id), 'Service profile creation failed.');
     $provider_id = (int) $provider_id;
     update_post_meta($provider_id, '_koopo_appt_enabled', '1');
+    update_post_meta($provider_id, Provider_Profiles::META_SERVICE_MODES, ['at_location']);
+    update_post_meta($provider_id, Provider_Profiles::META_LOCATION_NAME, 'Koopo UAT Studio');
+    update_post_meta($provider_id, Provider_Profiles::META_CITY, 'Detroit');
     $resource_id = Resources::ensure_for_provider($provider_id);
     uat_expect($resource_id > 0, 'Resource creation failed.');
     $created['providers'][$key] = $provider_id;
