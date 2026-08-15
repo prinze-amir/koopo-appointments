@@ -149,8 +149,12 @@ class Automated_Reminders {
         continue;
       }
 
-      // Send reminder
-      $sent = self::send_reminder_email($booking, $hours_before);
+      // Registered members receive the reminder in the Koopo inbox as well as email.
+      $email_sent = self::send_reminder_email($booking, $hours_before);
+      $inbox_sent = (int)($booking->customer_id ?? 0) > 0
+        && class_exists(Appointment_Messaging::class)
+        && Appointment_Messaging::send_reminder((int)$booking->id, $hours_before);
+      $sent = $email_sent || $inbox_sent;
       
       if ($sent) {
         // Mark as sent

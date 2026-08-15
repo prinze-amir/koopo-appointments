@@ -870,12 +870,13 @@ input#koopo-service-addon {
 }
 
 .koopo-appt-slot {
-  border: 1px solid #e5e5e5;
+  border: 1px solid #e5e5e5 !important;
   background: #fff;
   border-radius: 8px;
   padding: 8px 10px;
   font-size: 15px !important;
   cursor: pointer;
+  color:#1a8c57
 }
 
 .koopo-appt-slot.is-selected {

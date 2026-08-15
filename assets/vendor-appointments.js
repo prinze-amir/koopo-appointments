@@ -72,6 +72,7 @@
   function badgeForStatus(status){
     const s = String(status||'').toLowerCase();
     if (s === 'confirmed') return '<span class="koopo-badge koopo-badge--green">Confirmed</span>';
+    if (s === 'pending_invitation') return '<span class="koopo-badge koopo-badge--yellow">Awaiting customer</span>';
     if (s === 'pending_payment') return '<span class="koopo-badge koopo-badge--yellow">Pending</span>';
     if (s === 'expired') return '<span class="koopo-badge koopo-badge--gray">Expired</span>';
     if (s === 'cancelled') return '<span class="koopo-badge koopo-badge--red">Cancelled</span>';
@@ -97,6 +98,12 @@
       html += `<span class="koopo-conflict-badge">⚠️ Requires Action</span><br>`;
       html += `<button class="koopo-btn koopo-btn--sm koopo-appt-action" data-action="reschedule" data-id="${id}">Reschedule</button> `;
       html += `<button class="koopo-btn koopo-btn--sm koopo-btn--danger koopo-appt-action" data-action="refund" data-id="${id}">Refund</button>`;
+      return html;
+    }
+
+    if (st === 'pending_invitation') {
+      html += `<button class="koopo-btn koopo-btn--sm koopo-appt-invite-action" data-action="resend" data-id="${id}">Resend invite</button> `;
+      html += `<button class="koopo-btn koopo-btn--sm koopo-btn--danger koopo-appt-invite-action" data-action="revoke" data-id="${id}">Revoke</button>`;
       return html;
     }
 
@@ -953,10 +960,17 @@
       if (type === 'guest') {
         $('.koopo-appt-customer--user').hide();
         $('.koopo-appt-customer--guest').show();
+        $('.koopo-appt-status-control').hide();
       } else {
         $('.koopo-appt-customer--guest').hide();
         $('.koopo-appt-customer--user').show();
+        $('.koopo-appt-status-control').show();
       }
+    });
+
+    $apptCreateModal.on('change', '#koopo-appt-invite-sms', function(){
+      $('.koopo-appt-sms-consent').toggle($(this).is(':checked'));
+      if (!$(this).is(':checked')) $('#koopo-appt-sms-consent').prop('checked', false);
     });
 
     function getTotalDurationMinutes(){
@@ -1138,6 +1152,28 @@
         payload.customer_name = $('#koopo-appt-guest-name').val().trim();
         payload.customer_email = $('#koopo-appt-guest-email').val().trim();
         payload.customer_phone = $('#koopo-appt-guest-phone').val().trim();
+        if (!payload.customer_name || (!payload.customer_email && !payload.customer_phone)) {
+          alert('Enter the guest name and an email address or phone number.');
+          return;
+        }
+        const emailInvite = $('#koopo-appt-invite-email').is(':checked');
+        const smsInvite = $('#koopo-appt-invite-sms').is(':checked');
+        const smsConsent = $('#koopo-appt-sms-consent').is(':checked');
+        if (emailInvite && !payload.customer_email) {
+          alert('Enter an email address or turn off the email invitation.');
+          return;
+        }
+        if (smsInvite && (!payload.customer_phone || !smsConsent)) {
+          alert('A phone number and customer consent are required for a text invitation.');
+          return;
+        }
+        if (!emailInvite && !smsInvite) {
+          alert('Choose email or text so the guest can register and claim the appointment.');
+          return;
+        }
+        payload.invite_channels = [emailInvite ? 'email' : '', smsInvite ? 'sms' : ''].filter(Boolean);
+        payload.invite_hold_minutes = Number($('#koopo-appt-invite-hold').val() || 120);
+        payload.sms_consent = smsConsent;
       } else {
         const userId = parseInt($('#koopo-appt-user-id').val(), 10) || 0;
         const userEmail = $('#koopo-appt-user-email').val().trim();
@@ -1152,13 +1188,29 @@
       $btn.prop('disabled', true).text('Creating...');
       setCreateModalLoading(true, 'Creating appointment...');
       try {
-        await api('/vendor/bookings/create', { method:'POST', body: JSON.stringify(payload) });
+        const created = await api('/vendor/bookings/create', { method:'POST', body: JSON.stringify(payload) });
         $apptCreateModal.hide();
         selectedAddonIds = [];
         $('#koopo-appt-addon-selected').empty();
         loadAppointments();
         if (apptState.view === 'calendar') loadCalendar();
-        alert('Appointment created.');
+        let copied = false;
+        if (created.customer_is_guest && created?.invitation?.link && navigator.clipboard?.writeText) {
+          try {
+            await navigator.clipboard.writeText(created.invitation.link);
+            copied = true;
+          } catch (clipboardError) {
+            copied = false;
+          }
+        }
+        const warning = created?.invitation?.delivery?.warnings?.includes('sms_adapter_not_configured')
+          ? ' The text was not sent because an SMS provider is not configured; copy or email the invitation instead.'
+          : '';
+        const copyMessage = copied ? ' The registration link was copied to your clipboard.' : '';
+        alert(created.customer_is_guest ? `Appointment invitation created.${copyMessage}${warning}` : 'Appointment created and sent to the customer\'s Koopo inbox.');
+        if (created.customer_is_guest && created?.invitation?.link && !copied) {
+          window.prompt('Copy the registration and checkout link:', created.invitation.link);
+        }
       } catch (e) {
         alert(e.message || 'Failed to create appointment.');
       } finally {
@@ -1357,6 +1409,32 @@
     $apptDetailsActions.on('click', '.koopo-appt-action', function(e){
       e.preventDefault();
       handleBasicAction($(this));
+    });
+
+    $apptTable.add($apptDetailsActions).on('click', '.koopo-appt-invite-action', async function(e){
+      e.preventDefault();
+      const $btn = $(this);
+      const id = parseInt($btn.data('id'), 10) || 0;
+      const action = String($btn.data('action') || '');
+      if (!id || !['resend', 'revoke'].includes(action)) return;
+      if (action === 'revoke' && !confirm('Revoke this invitation and release the appointment time?')) return;
+      $btn.prop('disabled', true);
+      try {
+        const result = await api(`/vendor/bookings/${id}/invitation/${action}`, { method:'POST', body:'{}' });
+        let copied = false;
+        if (action === 'resend' && result?.link && navigator.clipboard?.writeText) {
+          try { await navigator.clipboard.writeText(result.link); copied = true; } catch (clipboardError) { copied = false; }
+        }
+        alert(action === 'resend' ? `Invitation resent.${copied ? ' The new link was copied.' : ''}` : 'Invitation revoked and appointment time released.');
+        if (action === 'resend' && result?.link && !copied) window.prompt('Copy the new invitation link:', result.link);
+        $apptDetailsModal.hide();
+        await loadAppointments();
+        if (apptState.view === 'calendar') loadCalendar();
+      } catch (error) {
+        alert(error.message || `Unable to ${action} invitation.`);
+      } finally {
+        $btn.prop('disabled', false);
+      }
     });
 
     $apptPager.on('click', 'button[data-page]', function(){

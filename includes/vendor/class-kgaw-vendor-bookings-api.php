@@ -87,6 +87,9 @@ class Vendor_Bookings_API {
         'customer_phone' => ['type' => 'string', 'required' => false],
         'customer_notes' => ['type' => 'string', 'required' => false],
         'addon_ids' => ['type' => 'array', 'required' => false],
+        'invite_channels' => ['type' => 'array', 'required' => false],
+        'invite_hold_minutes' => ['type' => 'integer', 'required' => false],
+        'sms_consent' => ['type' => 'boolean', 'required' => false],
       ],
     ]);
 
@@ -759,15 +762,18 @@ class Vendor_Bookings_API {
     $addon_ids = $request->get_param('addon_ids');
     $addon_ids = is_array($addon_ids) ? array_map('absint', $addon_ids) : [];
 
-    if (!$customer_id && $customer_email) {
-      $user = get_user_by('email', $customer_email);
-      if ($user) {
-        $customer_id = (int) $user->ID;
-      }
+    if (!$customer_id) $customer_id = Booking_Invitations::resolve_user($customer_email, $customer_phone);
+    if ($customer_id) {
+      $customer = get_userdata($customer_id);
+      if (!$customer) return new \WP_REST_Response(['error' => 'The selected Koopo member is unavailable.'], 404);
+      $customer_name = (string) $customer->display_name;
+      $customer_email = (string) $customer->user_email;
+      $customer_phone = (string) (get_user_meta($customer_id, 'billing_phone', true) ?: $customer_phone);
     }
 
-    if (!$customer_id && !$customer_name && !$customer_email) {
-      return new \WP_REST_Response(['error' => 'Provide a customer (existing user email/ID) or guest name/email'], 400);
+    $is_guest = !$customer_id;
+    if ($is_guest && (!$customer_name || (!$customer_email && !$customer_phone))) {
+      return new \WP_REST_Response(['error' => 'Provide the guest name and an email address or phone number.'], 400);
     }
 
     $timezone = sanitize_text_field((string) $request->get_param('timezone'));
@@ -782,6 +788,7 @@ class Vendor_Bookings_API {
     if (!in_array($status, ['confirmed', 'pending_payment'], true)) {
       $status = 'confirmed';
     }
+    if ($is_guest) $status = Booking_Invitations::STATUS;
 
     $payload = [
       'listing_id' => $listing_id,
@@ -799,17 +806,34 @@ class Vendor_Bookings_API {
       'customer_email' => $customer_email,
       'customer_phone' => $customer_phone,
       'customer_notes' => $customer_notes,
+      'booking_for_other' => $is_guest,
       'addon_ids' => $addon_ids,
     ];
 
     try {
       $booking_id = Bookings::create_manual_booking($payload);
       $booking = Bookings::get_booking($booking_id);
+      $invitation = null;
+      if ($is_guest) {
+        $channels = $request->get_param('invite_channels');
+        $channels = is_array($channels) ? $channels : ($customer_email ? ['email'] : []);
+        $invitation = Booking_Invitations::create(
+          $booking_id,
+          get_current_user_id(),
+          $channels,
+          absint($request->get_param('invite_hold_minutes')) ?: Booking_Invitations::DEFAULT_HOLD_MINUTES,
+          (bool) $request->get_param('sms_consent')
+        );
+        if (is_wp_error($invitation)) {
+          Bookings::delete_booking_data_by_id($booking_id);
+          return new \WP_REST_Response(['error'=>$invitation->get_error_message(),'code'=>$invitation->get_error_code()], 422);
+        }
+      }
       if ($booking && (string) $booking->status === 'confirmed') {
         do_action('koopo_booking_confirmed_safe', $booking_id, $booking);
       }
       self::invalidate_analytics_cache_for_booking($booking);
-      return new \WP_REST_Response(['booking_id' => $booking_id], 201);
+      return new \WP_REST_Response(['booking_id' => $booking_id, 'customer_is_guest'=>$is_guest, 'invitation'=>$invitation], 201);
     } catch (\Throwable $e) {
       return new \WP_REST_Response(['error' => $e->getMessage()], 400);
     }

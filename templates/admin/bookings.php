@@ -20,6 +20,7 @@ defined('ABSPATH') || exit;
     <div class="koopo-filter-row">
       <select id="koopo-filter-status" class="koopo-filter-select">
         <option value="all"><?php esc_html_e('All Statuses', 'koopo-appointments'); ?></option>
+        <option value="pending_invitation"><?php esc_html_e('Awaiting Customer', 'koopo-appointments'); ?></option>
         <option value="confirmed"><?php esc_html_e('Confirmed', 'koopo-appointments'); ?></option>
         <option value="pending_payment"><?php esc_html_e('Pending Payment', 'koopo-appointments'); ?></option>
         <option value="cancelled"><?php esc_html_e('Cancelled', 'koopo-appointments'); ?></option>

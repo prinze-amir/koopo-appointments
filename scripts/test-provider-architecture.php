@@ -52,7 +52,10 @@ if (!preg_match('/public function list_busy_events\(.*?\n  }\n\n  private functi
 if (preg_match('/summary|subject|attendees|description/i', $busy_method[0])) throw new RuntimeException('External busy ingestion requests private event content.');
 expect_source('includes/core/class-kgaw-bookings.php', 'Calendar_Busy::has_conflict', 'Locked booking conflict checks do not include external busy periods.');
 expect_source('includes/waitlist/class-kgaw-waitlist.php', "'first_to_confirm'", 'Waitlist first-to-confirm mode is missing.');
-expect_source('includes/waitlist/class-kgaw-waitlist.php', 'koopo_appt_send_transactional_sms', 'Waitlist SMS integration seam is missing.');
+$waitlist = source('includes/waitlist/class-kgaw-waitlist.php');
+if (strpos($waitlist, 'koopo_appt_send_transactional_sms') !== false || strpos($waitlist, "['email','push','sms']") !== false) {
+  throw new RuntimeException('Registered-customer waitlists must not send SMS.');
+}
 expect_source('includes/clients/class-kgaw-client-records.php', 'requires_signature', 'Client consent signature contract is missing.');
 expect_source('includes/clients/class-kgaw-client-records.php', 'send_hours_before', 'Automated form request scheduling is missing.');
 expect_source('includes/media/class-kgaw-service-profile-media-adapter.php', "const CLIENT_FILE_ROLE = 'appointment_client_file';", 'Direct-offload private client file role is missing.');

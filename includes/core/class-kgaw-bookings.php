@@ -52,10 +52,10 @@ class Bookings {
    * Filter: koopo_appt_blocking_statuses
    */
   public static function get_blocking_statuses(int $listing_id): array {
-    $statuses = apply_filters('koopo_appt_blocking_statuses', ['pending_payment','confirmed'], $listing_id);
+    $statuses = apply_filters('koopo_appt_blocking_statuses', ['pending_invitation','pending_payment','confirmed'], $listing_id);
     // normalize: unique, non-empty strings
     $statuses = array_values(array_unique(array_filter(array_map('strval', (array)$statuses))));
-    return $statuses ?: ['pending_payment','confirmed'];
+    return $statuses ?: ['pending_invitation','pending_payment','confirmed'];
   }
 
   private static function supported_listing_post_types(): array {
@@ -502,6 +502,10 @@ private static function release_lock(int $resource_id): void {
     if (!$customer_id) {
       return new \WP_REST_Response(['error' => 'Unauthorized'], 401);
     }
+    $customer = get_userdata($customer_id);
+    if (!$customer) {
+      return new \WP_REST_Response(['error' => 'Customer account not found'], 404);
+    }
 
     // Defaults: keep booking rows deterministic even if caller omits optional fields.
     $timezone = sanitize_text_field((string)($data['timezone'] ?? ''));
@@ -537,12 +541,13 @@ private static function release_lock(int $resource_id): void {
       'price'           => null,
       'addon_ids'       => $addon_ids,
       'status'          => $status,
-      // Customer information fields
-      'customer_name'   => isset($data['customer_name']) ? sanitize_text_field($data['customer_name']) : '',
-      'customer_email'  => isset($data['customer_email']) ? sanitize_email($data['customer_email']) : '',
-      'customer_phone'  => isset($data['customer_phone']) ? sanitize_text_field($data['customer_phone']) : '',
+      // Customer-facing bookings always belong to the authenticated account.
+      // Provider-created guest appointments use the separate vendor route.
+      'customer_name'   => sanitize_text_field((string) $customer->display_name),
+      'customer_email'  => sanitize_email((string) $customer->user_email),
+      'customer_phone'  => sanitize_text_field((string) ($data['customer_phone'] ?? get_user_meta($customer_id, 'billing_phone', true))),
       'customer_notes'  => isset($data['customer_notes']) ? sanitize_textarea_field($data['customer_notes']) : '',
-      'booking_for_other' => isset($data['booking_for_other']) ? (bool)$data['booking_for_other'] : false,
+      'booking_for_other' => false,
       'fulfillment_mode' => sanitize_key((string) ($data['fulfillment_mode'] ?? '')),
       'service_address' => isset($data['service_address']) && is_array($data['service_address']) ? $data['service_address'] : [],
     ];
@@ -639,7 +644,7 @@ private static function release_lock(int $resource_id): void {
       }
 
     $status = isset($data['status']) ? sanitize_text_field((string) $data['status']) : 'pending_payment';
-    $allowed_statuses = ['pending_payment', 'confirmed'];
+    $allowed_statuses = ['pending_invitation', 'pending_payment', 'confirmed'];
     if (!in_array($status, $allowed_statuses, true)) {
       $status = 'pending_payment';
     }
@@ -691,6 +696,10 @@ private static function release_lock(int $resource_id): void {
       }
 
       $booking_id = (int) $wpdb->insert_id;
+      if ($status === 'pending_payment') {
+        $hold_minutes = max(1, (int) apply_filters('koopo_appt_pending_expire_minutes', 10));
+        self::set_hold_expires_at($booking_id, gmdate('Y-m-d H:i:s', time() + ($hold_minutes * MINUTE_IN_SECONDS)));
+      }
       if ($status === 'pending_payment') {
         $booking = self::get_booking($booking_id);
         if ($booking) {
@@ -764,7 +773,7 @@ private static function release_lock(int $resource_id): void {
     }
   }
 
-  private static function create_free_order_for_booking(int $booking_id) {
+  public static function create_free_order_for_booking(int $booking_id) {
     $booking = self::get_booking($booking_id);
     if (!$booking) {
       return new \WP_Error('koopo_booking_not_found', 'Booking not found');
@@ -1198,7 +1207,8 @@ public static function init_cleanup_cron() {
     "SELECT id FROM {$table}
      WHERE status = 'pending_payment'
        AND (wc_order_id IS NULL OR wc_order_id = 0)
-       AND created_at < (NOW() - INTERVAL %d MINUTE)
+       AND ((hold_expires_at IS NOT NULL AND hold_expires_at <= UTC_TIMESTAMP())
+         OR (hold_expires_at IS NULL AND created_at < (NOW() - INTERVAL %d MINUTE)))
      LIMIT 200",
     $minutes
   ));
@@ -1268,6 +1278,7 @@ public static function init_cleanup_cron() {
     global $wpdb;
     $table = DB::table();
     $booking_id = (int) $booking_id;
+    $wpdb->delete(DB::booking_invites_table(), ['booking_id' => $booking_id], ['%d']);
     $wpdb->delete($table, ['id' => $booking_id], ['%d']);
     $wpdb->query($wpdb->prepare(
       "DELETE FROM {$wpdb->options} WHERE option_name LIKE %s",
@@ -1420,6 +1431,28 @@ public static function init_cleanup_cron() {
     global $wpdb;
     $table = DB::table();
     $wpdb->update($table, ['wc_order_id' => (int)$order_id], ['id' => (int)$booking_id], ['%d'], ['%d']);
+  }
+
+  public static function set_hold_expires_at(int $booking_id, ?string $expires_at): bool {
+    global $wpdb;
+    return false !== $wpdb->update(
+      DB::table(),
+      ['hold_expires_at' => $expires_at ?: null, 'updated_at' => current_time('mysql')],
+      ['id' => $booking_id],
+      ['%s', '%s'],
+      ['%d']
+    );
+  }
+
+  public static function set_inbox_thread_id(int $booking_id, int $thread_id): bool {
+    global $wpdb;
+    return false !== $wpdb->update(
+      DB::table(),
+      ['inbox_thread_id' => $thread_id ?: null, 'updated_at' => current_time('mysql')],
+      ['id' => $booking_id],
+      ['%d', '%s'],
+      ['%d']
+    );
   }
 
   public static function set_status($booking_id, $status) {

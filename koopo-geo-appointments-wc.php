@@ -2,18 +2,18 @@
 /**
  * Plugin Name: Koopo Appointments
  * Description: Appointments for Koopo professionals and GeoDirectory places with WooCommerce/Dokan integration.
- * Version: 0.9.2
+ * Version: 0.10.0
  * Author: Koopo
  */
 
 defined('ABSPATH') || exit;
 
-define('KOOPO_APPT_VERSION', '0.9.2');
+define('KOOPO_APPT_VERSION', '0.10.0');
 define('KOOPO_APPT_PATH', plugin_dir_path(__FILE__));
 define('KOOPO_APPT_URL', plugin_dir_url(__FILE__));
 
 final class Koopo_Appointments {
-  const VERSION = '0.9.2';
+  const VERSION = '0.10.0';
   const SLUG = 'koopo-geo-appointments-wc';
 
   private static $instance = null;
@@ -60,10 +60,13 @@ final class Koopo_Appointments {
   public function activate() {
     require_once __DIR__ . '/includes/core/class-kgaw-db.php';
     require_once __DIR__ . '/includes/core/class-kgaw-resources.php';
+
     require_once __DIR__ . '/includes/customer/class-kgaw-customer-dashboard.php';
     require_once __DIR__ . '/includes/calendar/class-kgaw-calendar-repository.php';
+    require_once __DIR__ . '/includes/invitations/class-kgaw-booking-invitations.php';
     Koopo_Appointments\DB::create_tables();
     Koopo_Appointments\Calendar_Repository::create_tables();
+    Koopo_Appointments\Booking_Invitations::rewrite();
     Koopo_Appointments\Customer_Dashboard::flush_rewrite_rules();
   }
 
@@ -86,6 +89,7 @@ final class Koopo_Appointments {
     require_once __DIR__ . '/includes/core/class-kgaw-features.php';
     require_once __DIR__ . '/includes/core/class-kgaw-access.php';
     require_once __DIR__ . '/includes/core/class-kgaw-resources.php';
+    require_once __DIR__ . '/includes/geocoding/class-kgaw-geocoding-router.php';
 
     // First-class service professionals. BuddyBoss supplies identity/presentation;
     // provider and resource records remain owned by Koopo Appointments.
@@ -157,6 +161,8 @@ final class Koopo_Appointments {
     // Notifications
     require_once __DIR__ . '/includes/notifications/class-kgaw-notifications.php';
     require_once __DIR__ . '/includes/notifications/class-kgaw-automated-reminders.php';
+    require_once __DIR__ . '/includes/notifications/class-kgaw-appointment-messaging.php';
+    require_once __DIR__ . '/includes/invitations/class-kgaw-booking-invitations.php';
 
     // Refunds
     require_once __DIR__ . '/includes/refunds/class-kgaw-refund-policy.php';
@@ -202,6 +208,8 @@ final class Koopo_Appointments {
     Koopo_Appointments\Order_Hooks::init();
     Koopo_Appointments\Order_Display::init();
     Koopo_Appointments\Notifications::init();
+    Koopo_Appointments\Appointment_Messaging::init();
+    Koopo_Appointments\Booking_Invitations::init();
     // Admin settings dashboard.
     Koopo_Appointments\Admin_Dashboard::init();
     Koopo_Appointments\Analytics_Dashboard::init();

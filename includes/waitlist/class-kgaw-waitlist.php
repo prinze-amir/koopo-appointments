@@ -221,7 +221,6 @@ final class Waitlist {
     $subject_id=(int)($entry->listing_id?:$entry->provider_id);$url=add_query_arg('koopo_waitlist_offer',$token,get_permalink($subject_id));$when=Date_Formatter::format((string)$opening->start_datetime,(string)$opening->timezone,'full');$channels=array_filter(explode(',',(string)$entry->channels));$message=sprintf('An opening for %s is available on %s. This offer expires in %d minutes.',get_the_title((int)$entry->service_id),$when,$minutes);
     if(in_array('email',$channels,true)&&is_email($entry->customer_email))wp_mail((string)$entry->customer_email,__('A Koopo appointment opening is available','koopo-appointments'),$message."\n\n".$url);
     if(in_array('push',$channels,true)&&function_exists('bp_notifications_add_notification'))bp_notifications_add_notification(['user_id'=>(int)$entry->customer_id,'item_id'=>$offer_id,'secondary_item_id'=>$subject_id,'component_name'=>'koopo_appointments','component_action'=>'waitlist_offer','date_notified'=>bp_core_current_time(),'is_new'=>1]);
-    if(in_array('sms',$channels,true)&&$entry->customer_phone)do_action('koopo_appt_send_transactional_sms',(string)$entry->customer_phone,$message.' '.$url,['type'=>'waitlist_offer','offer_id'=>$offer_id]);
   }
 
   public static function offer_url(int $offer_id): string {
@@ -237,5 +236,5 @@ final class Waitlist {
   private static function format_entry(object $row):array{return ['id'=>(int)$row->id,'resource_id'=>(int)$row->resource_id,'listing_id'=>(int)$row->listing_id,'provider_id'=>(int)$row->provider_id,'service_id'=>(int)$row->service_id,'service_title'=>get_the_title((int)$row->service_id),'customer_id'=>(int)$row->customer_id,'customer_name'=>(string)$row->customer_name,'customer_email'=>(string)$row->customer_email,'customer_phone'=>(string)$row->customer_phone,'fulfillment_mode'=>(string)($row->fulfillment_mode??'at_location'),'date_from'=>$row->date_from,'date_to'=>$row->date_to,'preferred_days'=>$row->preferred_days?explode(',',(string)$row->preferred_days):[],'earliest_time'=>$row->earliest_time,'latest_time'=>$row->latest_time,'channels'=>$row->channels?explode(',',(string)$row->channels):[],'priority'=>(int)$row->priority,'status'=>(string)$row->status,'provider_note'=>(string)$row->provider_note,'last_notified_at'=>$row->last_notified_at,'created_at'=>$row->created_at];}
   private static function date(string $value):string{return preg_match('/^\d{4}-\d{2}-\d{2}$/',$value)?$value:'';}
   private static function time(string $value):string{if(!preg_match('/^(\d{2}):(\d{2})(?::\d{2})?$/',$value,$m))return '';return ((int)$m[1]<24&&(int)$m[2]<60)?sprintf('%02d:%02d:00',(int)$m[1],(int)$m[2]):'';}
-  private static function channels(array $channels):array{return array_values(array_intersect(['email','push','sms'],array_map('sanitize_key',$channels)));}
+  private static function channels(array $channels):array{return array_values(array_intersect(['email','push'],array_map('sanitize_key',$channels)));}
 }

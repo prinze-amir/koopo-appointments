@@ -115,7 +115,6 @@
           <span>Notify me by</span>
           <label><input type="checkbox" value="email" checked> Email</label>
           <label><input type="checkbox" value="push" checked> Push</label>
-          <label><input type="checkbox" value="sms"> SMS</label>
         </div>
         <button type="button" class="koopo-appt__waitlist-join">Join waitlist</button>
         <span class="koopo-appt__waitlist-status" role="status"></span>
@@ -180,9 +179,6 @@
   // Pre-fill user information
   async function prefillUserInfo($root){
     const state = getState($root);
-
-    // Only pre-fill if not "booking for someone else"
-    if ($root.find('.koopo-appt__booking-for-other').is(':checked')) return;
 
     // If we already have user info cached, use it
     if (state.userInfo) {
@@ -685,7 +681,6 @@
       const customerEmail = $root.find('.koopo-appt__customer-email').val().trim();
       const customerPhone = $root.find('.koopo-appt__customer-phone').val().trim();
       const customerNotes = $root.find('.koopo-appt__customer-notes').val().trim();
-      const bookingForOther = $root.find('.koopo-appt__booking-for-other').is(':checked');
 
       if (!customerName || !customerEmail || !customerPhone) {
         throw new Error('Please fill in all required fields (Name, Email, Phone).');
@@ -705,11 +700,8 @@
           timezone: listingSettings.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || '',
           price: price,
           addon_ids: addonIds,
-          customer_name: customerName,
-          customer_email: customerEmail,
           customer_phone: customerPhone,
           customer_notes: customerNotes,
-          booking_for_other: bookingForOther,
           fulfillment_mode: state.fulfillmentMode || 'at_location',
           service_address: state.fulfillmentMode === 'mobile' ? serviceAddress($root) : {}
         })
@@ -906,21 +898,6 @@
     const state = getState($root);
     // Go back one step
     goToStep($root, state.currentStep - 1);
-  });
-
-  // Booking for someone else toggle
-  $(document).on('change', '.koopo-appt__booking-for-other', function(){
-    const $root = $(this).closest('.koopo-appt');
-    if ($(this).is(':checked')) {
-      // Clear fields when booking for someone else
-      $root.find('.koopo-appt__customer-name').val('');
-      $root.find('.koopo-appt__customer-email').val('');
-      $root.find('.koopo-appt__customer-phone').val('');
-    } else {
-      // Re-populate with user info
-      prefillUserInfo($root);
-    }
-    updateSummary($root);
   });
 
   // Form field changes

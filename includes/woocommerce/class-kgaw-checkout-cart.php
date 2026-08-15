@@ -59,10 +59,16 @@ class Checkout_Cart {
     }
 
     $created_ts = strtotime((string) $booking->created_at);
+    $hold_expires_ts = !empty($booking->hold_expires_at)
+      ? strtotime((string) $booking->hold_expires_at . ' UTC')
+      : 0;
     $now_ts     = current_time('timestamp');
     $has_order  = !empty($booking->wc_order_id) && (int) $booking->wc_order_id > 0;
 
-    if (!$has_order && $created_ts && ($now_ts - $created_ts) > ($hold_minutes * 60)) {
+    $expired = $hold_expires_ts
+      ? time() >= $hold_expires_ts
+      : ($created_ts && ($now_ts - $created_ts) > ($hold_minutes * 60));
+    if (!$has_order && $expired) {
       Bookings::set_status($booking_id, 'expired');
       if (apply_filters('koopo_appt_delete_expired_booking', true, $booking_id, $booking)) {
         Bookings::delete_booking_data_by_id($booking_id);

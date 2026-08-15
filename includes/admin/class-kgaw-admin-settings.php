@@ -22,6 +22,13 @@ class Admin_Settings {
   const OPTION_MICROSOFT_CALENDAR_CLIENT_ID = 'koopo_appt_microsoft_calendar_client_id';
   const OPTION_MICROSOFT_CALENDAR_CLIENT_SECRET = 'koopo_appt_microsoft_calendar_client_secret';
   const OPTION_MICROSOFT_CALENDAR_TENANT = 'koopo_appt_microsoft_calendar_tenant';
+  const OPTION_GEOCODER_MODE = 'koopo_appt_geocoder_mode';
+  const OPTION_GEOCODER_AUTO_ORDER = 'koopo_appt_geocoder_auto_order';
+  const OPTION_GEOCODER_DAILY_LIMITS = 'koopo_appt_geocoder_daily_limits';
+  const OPTION_GEOCODER_OSM_PUBLIC = 'koopo_appt_geocoder_osm_public';
+  const OPTION_GEOCODEFARM_KEY = 'koopo_appt_geocodefarm_key';
+  const OPTION_GEOAPIFY_KEY = 'koopo_appt_geoapify_key';
+  const OPTION_GOOGLE_GEOCODING_KEY = 'koopo_appt_google_geocoding_key';
 
   public static function init() {
     add_action('admin_menu', [__CLASS__, 'menu']);
@@ -93,6 +100,33 @@ class Admin_Settings {
       'sanitize_callback' => [__CLASS__, 'sanitize_microsoft_calendar_tenant'],
       'default' => 'common',
     ]);
+    register_setting('koopo_appt_settings', self::OPTION_GEOCODER_MODE, [
+      'type' => 'string',
+      'sanitize_callback' => [__CLASS__, 'sanitize_geocoder_mode'],
+      'default' => 'auto',
+    ]);
+    register_setting('koopo_appt_settings', self::OPTION_GEOCODER_AUTO_ORDER, [
+      'type' => 'array',
+      'sanitize_callback' => [__CLASS__, 'sanitize_geocoder_auto_order'],
+      'default' => ['geocodefarm', 'geoapify', 'google', 'osm'],
+    ]);
+    register_setting('koopo_appt_settings', self::OPTION_GEOCODER_DAILY_LIMITS, [
+      'type' => 'array',
+      'sanitize_callback' => [__CLASS__, 'sanitize_geocoder_daily_limits'],
+      'default' => self::default_geocoder_daily_limits(),
+    ]);
+    register_setting('koopo_appt_settings', self::OPTION_GEOCODER_OSM_PUBLIC, [
+      'type' => 'boolean',
+      'sanitize_callback' => static fn($value): int => empty($value) ? 0 : 1,
+      'default' => 0,
+    ]);
+    foreach ([self::OPTION_GEOCODEFARM_KEY, self::OPTION_GEOAPIFY_KEY, self::OPTION_GOOGLE_GEOCODING_KEY] as $option) {
+      register_setting('koopo_appt_settings', $option, [
+        'type' => 'string',
+        'sanitize_callback' => static fn($value): string => self::sanitize_geocoder_key($value, $option),
+        'default' => '',
+      ]);
+    }
 
     add_settings_section(
       'koopo_appt_general',
@@ -147,6 +181,63 @@ class Admin_Settings {
       'koopo-appointments-settings',
       'koopo_appt_calendar_integrations'
     );
+
+    add_settings_section(
+      'koopo_appt_geocoding',
+      'Service Profile Geocoding',
+      [__CLASS__, 'geocoding_description'],
+      'koopo-appointments-settings'
+    );
+    add_settings_field(self::OPTION_GEOCODER_MODE, 'Provider mode', [__CLASS__, 'field_geocoder_mode'], 'koopo-appointments-settings', 'koopo_appt_geocoding');
+    add_settings_field(self::OPTION_GEOCODER_AUTO_ORDER, 'Automatic routing order', [__CLASS__, 'field_geocoder_auto_order'], 'koopo-appointments-settings', 'koopo_appt_geocoding');
+    add_settings_field('koopo_appt_geocoder_keys', 'Provider API keys', [__CLASS__, 'field_geocoder_keys'], 'koopo-appointments-settings', 'koopo_appt_geocoding');
+    add_settings_field(self::OPTION_GEOCODER_DAILY_LIMITS, 'Auto daily allowances', [__CLASS__, 'field_geocoder_daily_limits'], 'koopo-appointments-settings', 'koopo_appt_geocoding');
+    add_settings_field(self::OPTION_GEOCODER_OSM_PUBLIC, 'Public OSM fallback', [__CLASS__, 'field_geocoder_osm_public'], 'koopo-appointments-settings', 'koopo_appt_geocoding');
+  }
+
+  public static function geocoding_description(): void {
+    ?>
+    <p>Geocode service-profile locations and mobile coverage addresses on the server. Automatic mode uses configured free allowances first, caches successful results, and moves to the next healthy provider when a quota or provider fails.</p>
+    <p><strong>Privacy:</strong> public Nominatim is never used for customer home addresses or private mobile-provider origins. API keys are encrypted and never returned to browsers.</p>
+    <?php
+  }
+
+  public static function field_geocoder_mode(): void {
+    $mode = self::geocoder_mode();
+    $labels = ['auto'=>'Automatic router','geocodefarm'=>'GeocodeFarm','geoapify'=>'Geoapify','google'=>'Google Geocoding','osm'=>'OpenStreetMap / Nominatim (public addresses only)','disabled'=>'Disabled'];
+    ?><select name="<?php echo esc_attr(self::OPTION_GEOCODER_MODE); ?>"><?php foreach ($labels as $value => $label): ?><option value="<?php echo esc_attr($value); ?>" <?php selected($mode, $value); ?>><?php echo esc_html($label); ?></option><?php endforeach; ?></select><?php
+  }
+
+  public static function field_geocoder_auto_order(): void {
+    ?><input type="text" class="large-text code" name="<?php echo esc_attr(self::OPTION_GEOCODER_AUTO_ORDER); ?>" value="<?php echo esc_attr(implode(',', self::geocoder_auto_order())); ?>" />
+    <p class="description">Comma-separated: <code>geocodefarm,geoapify,google,osm</code>. Providers without a key, with no remaining allowance, or in a health cooldown are skipped.</p><?php
+  }
+
+  public static function field_geocoder_keys(): void {
+    $providers = [
+      'geocodefarm' => ['GeocodeFarm', self::OPTION_GEOCODEFARM_KEY],
+      'geoapify' => ['Geoapify', self::OPTION_GEOAPIFY_KEY],
+      'google' => ['Google Geocoding', self::OPTION_GOOGLE_GEOCODING_KEY],
+    ];
+    ?><fieldset style="max-width:760px"><?php foreach ($providers as $provider => [$label, $option]): $saved = self::geocoder_api_key($provider) !== ''; ?>
+      <p><label for="<?php echo esc_attr($option); ?>"><strong><?php echo esc_html($label); ?></strong></label><br />
+      <input type="password" id="<?php echo esc_attr($option); ?>" name="<?php echo esc_attr($option); ?>" value="" class="large-text" autocomplete="new-password" spellcheck="false" placeholder="<?php echo esc_attr($saved ? 'Saved securely — leave blank to keep current key' : 'Enter API key'); ?>" />
+      <?php if ($saved): ?><br /><label><input type="checkbox" name="<?php echo esc_attr($option . '_clear'); ?>" value="1" /> Remove saved key</label><?php endif; ?></p>
+    <?php endforeach; ?></fieldset><?php
+  }
+
+  public static function field_geocoder_daily_limits(): void {
+    $limits = self::geocoder_daily_limits();
+    $usage = Geocoding_Router::usage_today();
+    $labels = ['geocodefarm'=>'GeocodeFarm','geoapify'=>'Geoapify','google'=>'Google','osm'=>'OSM public fallback'];
+    ?><fieldset><p class="description">Maximum outgoing requests per UTC day while using Automatic mode. Set a provider to 0 to exclude it from Automatic mode; explicit provider mode ignores this allowance.</p><?php foreach ($labels as $provider => $label): ?>
+      <label style="display:inline-block;margin:8px 18px 0 0"><span style="display:block;font-weight:600"><?php echo esc_html($label); ?></span><input type="number" min="0" max="1000000" step="1" name="<?php echo esc_attr(self::OPTION_GEOCODER_DAILY_LIMITS . '[' . $provider . ']'); ?>" value="<?php echo esc_attr((int) ($limits[$provider] ?? 0)); ?>" /><small style="display:block"><?php echo esc_html(sprintf('%d used today', (int) ($usage[$provider] ?? 0))); ?></small></label>
+    <?php endforeach; ?></fieldset><?php
+  }
+
+  public static function field_geocoder_osm_public(): void {
+    ?><label><input type="checkbox" name="<?php echo esc_attr(self::OPTION_GEOCODER_OSM_PUBLIC); ?>" value="1" <?php checked(self::geocoder_osm_public_enabled()); ?> /> Permit public Nominatim only for addresses explicitly shown on public service profiles.</label>
+    <p class="description">OSM remains unavailable for private customer and mobile-origin addresses regardless of this setting.</p><?php
   }
 
   public static function calendar_integrations_description(): void {
@@ -296,6 +387,87 @@ class Admin_Settings {
     $stored = trim((string) get_option(self::OPTION_MICROSOFT_CALENDAR_TENANT, ''));
     if ($stored !== '') return $stored;
     return 'common';
+  }
+
+  public static function sanitize_geocoder_mode($value): string {
+    $value = Geocoding_Router::canonical_provider((string) $value);
+    return in_array($value, array_merge(['auto', 'disabled'], Geocoding_Router::PROVIDERS), true) ? $value : 'auto';
+  }
+
+  public static function sanitize_geocoder_auto_order($value): array {
+    if (is_string($value)) $value = preg_split('/\s*,\s*/', trim($value));
+    $clean = [];
+    foreach ((array) $value as $provider) {
+      $provider = Geocoding_Router::canonical_provider((string) $provider);
+      if (in_array($provider, Geocoding_Router::PROVIDERS, true) && !in_array($provider, $clean, true)) $clean[] = $provider;
+    }
+    return $clean ?: ['geocodefarm', 'geoapify', 'google', 'osm'];
+  }
+
+  public static function sanitize_geocoder_daily_limits($value): array {
+    $defaults = self::default_geocoder_daily_limits();
+    $value = is_array($value) ? $value : [];
+    foreach ($defaults as $provider => $default) {
+      $defaults[$provider] = min(1000000, max(0, absint($value[$provider] ?? $default)));
+    }
+    return $defaults;
+  }
+
+  public static function default_geocoder_daily_limits(): array {
+    return ['geocodefarm'=>250, 'geoapify'=>3000, 'google'=>0, 'osm'=>100];
+  }
+
+  public static function geocoder_mode(): string {
+    return self::sanitize_geocoder_mode((string) get_option(self::OPTION_GEOCODER_MODE, 'auto'));
+  }
+
+  public static function geocoder_auto_order(): array {
+    return self::sanitize_geocoder_auto_order(get_option(self::OPTION_GEOCODER_AUTO_ORDER, ['geocodefarm', 'geoapify', 'google', 'osm']));
+  }
+
+  public static function geocoder_daily_limits(): array {
+    return self::sanitize_geocoder_daily_limits(get_option(self::OPTION_GEOCODER_DAILY_LIMITS, self::default_geocoder_daily_limits()));
+  }
+
+  public static function geocoder_daily_limit(string $provider): int {
+    $limits = self::geocoder_daily_limits();
+    return (int) ($limits[Geocoding_Router::canonical_provider($provider)] ?? 0);
+  }
+
+  public static function geocoder_osm_public_enabled(): bool {
+    return '1' === (string) get_option(self::OPTION_GEOCODER_OSM_PUBLIC, '0');
+  }
+
+  public static function sanitize_geocoder_key($value, string $option): string {
+    if (!empty($_POST[$option . '_clear'])) { // phpcs:ignore WordPress.Security.NonceVerification.Missing -- options.php validates the settings nonce.
+      return '';
+    }
+    $value = trim((string) wp_unslash($value));
+    if ($value === '') return (string) get_option($option, '');
+    try {
+      return Calendar_Crypto::encrypt(['secret' => $value]);
+    } catch (\Throwable $error) {
+      add_settings_error($option, 'koopo_appt_geocoder_key_error', 'The geocoding API key could not be encrypted. The previous value was preserved.');
+      return (string) get_option($option, '');
+    }
+  }
+
+  public static function geocoder_api_key(string $provider): string {
+    $options = [
+      'geocodefarm' => self::OPTION_GEOCODEFARM_KEY,
+      'geoapify' => self::OPTION_GEOAPIFY_KEY,
+      'google' => self::OPTION_GOOGLE_GEOCODING_KEY,
+    ];
+    $option = $options[Geocoding_Router::canonical_provider($provider)] ?? '';
+    if ($option === '') return '';
+    $stored = (string) get_option($option, '');
+    if ($stored === '') return '';
+    try {
+      $decoded = Calendar_Crypto::decrypt($stored);
+      return !empty($decoded['secret']) && is_string($decoded['secret']) ? $decoded['secret'] : '';
+    } catch (\Throwable $error) {
+      return '';
+    }
   }
 
   public static function sanitize_hold_minutes($value) {

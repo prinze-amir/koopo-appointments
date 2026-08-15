@@ -17,6 +17,9 @@ final class Provider_Profiles {
   const META_COUNTRY = '_koopo_provider_country';
   const META_LATITUDE = '_koopo_provider_latitude';
   const META_LONGITUDE = '_koopo_provider_longitude';
+  const META_GEOCODE_PROVIDER = '_koopo_provider_geocode_provider';
+  const META_GEOCODED_AT = '_koopo_provider_geocoded_at';
+  const META_GEOCODE_ACCURACY = '_koopo_provider_geocode_accuracy';
   const META_LOCATION_PUBLIC = '_koopo_provider_location_public';
   const META_VIRTUAL_METHOD = '_koopo_provider_virtual_method';
   const META_VIRTUAL_URL = '_koopo_provider_virtual_url';
@@ -210,6 +213,39 @@ final class Provider_Profiles {
         return new \WP_Error('virtual_url_required', __('Enter a valid HTTPS meeting URL or choose “Provider sends details”.', 'koopo-appointments'));
       }
       $validated_virtual = ['method' => $method, 'join_url' => $join_url, 'instructions' => sanitize_textarea_field((string) ($virtual['instructions'] ?? ''))];
+    }
+    $address_keys = ['address', 'city', 'region', 'postal_code', 'country'];
+    $address_changed = (bool) array_intersect($address_keys, array_keys($payload));
+    if ($address_changed) {
+      $address = Service_Areas::sanitize_address([
+        'address' => array_key_exists('address', $payload) ? $payload['address'] : get_post_meta($provider_id, self::META_ADDRESS, true),
+        'city' => array_key_exists('city', $payload) ? $payload['city'] : get_post_meta($provider_id, self::META_CITY, true),
+        'region' => array_key_exists('region', $payload) ? $payload['region'] : get_post_meta($provider_id, self::META_REGION, true),
+        'postal_code' => array_key_exists('postal_code', $payload) ? $payload['postal_code'] : get_post_meta($provider_id, self::META_POSTAL_CODE, true),
+        'country' => array_key_exists('country', $payload) ? $payload['country'] : get_post_meta($provider_id, self::META_COUNTRY, true),
+      ]);
+      $manual_lat = array_key_exists('latitude', $payload) ? self::coordinate($payload['latitude'], -90, 90) : '';
+      $manual_lng = array_key_exists('longitude', $payload) ? self::coordinate($payload['longitude'], -180, 180) : '';
+      if ($manual_lat !== '' && $manual_lng !== '') {
+        update_post_meta($provider_id, self::META_GEOCODE_PROVIDER, 'manual');
+        update_post_meta($provider_id, self::META_GEOCODED_AT, current_time('mysql', true));
+        delete_post_meta($provider_id, self::META_GEOCODE_ACCURACY);
+      } elseif ($address['city'] !== '' && ($address['address_1'] !== '' || $address['postal_code'] !== '')) {
+        $is_public = array_key_exists('location_public', $payload) ? !empty($payload['location_public']) : '1' === (string) get_post_meta($provider_id, self::META_LOCATION_PUBLIC, true);
+        $geocoded = Service_Areas::geocode($address, $is_public ? Geocoding_Router::PUBLIC_PRIVACY_CLASS : 'provider_private', 'provider_profile_location');
+        if (is_wp_error($geocoded)) return $geocoded;
+        $payload['latitude'] = $geocoded['latitude'];
+        $payload['longitude'] = $geocoded['longitude'];
+        update_post_meta($provider_id, self::META_GEOCODE_PROVIDER, sanitize_key((string) ($geocoded['provider'] ?? 'custom')));
+        update_post_meta($provider_id, self::META_GEOCODED_AT, sanitize_text_field((string) ($geocoded['geocoded_at'] ?? current_time('mysql', true))));
+        update_post_meta($provider_id, self::META_GEOCODE_ACCURACY, sanitize_text_field((string) ($geocoded['accuracy'] ?? '')));
+      } else {
+        $payload['latitude'] = '';
+        $payload['longitude'] = '';
+        delete_post_meta($provider_id, self::META_GEOCODE_PROVIDER);
+        delete_post_meta($provider_id, self::META_GEOCODED_AT);
+        delete_post_meta($provider_id, self::META_GEOCODE_ACCURACY);
+      }
     }
     if (array_key_exists('service_area', $payload) && is_array($payload['service_area']) && class_exists(Service_Areas::class)) {
       $area = Service_Areas::save_for_provider($provider_id, $payload['service_area']);

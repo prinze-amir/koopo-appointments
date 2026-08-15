@@ -69,6 +69,7 @@ defined('ABSPATH') || exit;
       <label for="koopo-appointments-status">Status</label>
       <select id="koopo-appointments-status" class="koopo-select">
         <option value="all">All</option>
+        <option value="pending_invitation">Awaiting Customer</option>
         <option value="pending_payment">Pending Payment</option>
         <option value="confirmed">Confirmed</option>
         <option value="expired">Expired</option>
@@ -233,6 +234,21 @@ defined('ABSPATH') || exit;
             <?php esc_html_e('Guest Phone', 'appointments'); ?>
             <input type="text" class="koopo-input" id="koopo-appt-guest-phone" />
           </label>
+          <div class="koopo-label koopo-label--full koopo-appt-invite-options">
+            <strong><?php esc_html_e('Registration invitation', 'appointments'); ?></strong>
+            <p class="koopo-muted"><?php esc_html_e('The appointment is held while this person creates a Koopo account. After registration, reminders move to their Koopo inbox, push notifications, and email.', 'appointments'); ?></p>
+            <label><input type="checkbox" id="koopo-appt-invite-email" checked /> <?php esc_html_e('Send email invitation', 'appointments'); ?></label>
+            <label><input type="checkbox" id="koopo-appt-invite-sms" /> <?php esc_html_e('Send one text invitation', 'appointments'); ?></label>
+            <label class="koopo-appt-sms-consent" style="display:none"><input type="checkbox" id="koopo-appt-sms-consent" /> <?php esc_html_e('Customer agreed to receive this appointment invitation by text.', 'appointments'); ?></label>
+            <label><?php esc_html_e('Hold the time for', 'appointments'); ?>
+              <select class="koopo-input" id="koopo-appt-invite-hold">
+                <option value="30"><?php esc_html_e('30 minutes', 'appointments'); ?></option>
+                <option value="120" selected><?php esc_html_e('2 hours', 'appointments'); ?></option>
+                <option value="720"><?php esc_html_e('12 hours', 'appointments'); ?></option>
+                <option value="1440"><?php esc_html_e('24 hours', 'appointments'); ?></option>
+              </select>
+            </label>
+          </div>
         </div>
 
         <label class="koopo-label koopo-label--full">
@@ -252,7 +268,7 @@ defined('ABSPATH') || exit;
           <strong id="koopo-appt-total-amount">$0.00</strong>
         </div>
 
-        <label class="koopo-label">
+        <label class="koopo-label koopo-appt-status-control">
           <?php esc_html_e('Status', 'appointments'); ?>
           <select class="koopo-input" id="koopo-appt-status">
             <option value="confirmed"><?php esc_html_e('Confirmed', 'appointments'); ?></option>

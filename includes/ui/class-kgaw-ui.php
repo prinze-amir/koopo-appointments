@@ -139,6 +139,8 @@ class UI {
         )
       );
     }
+    $booking_user = wp_get_current_user();
+    $booking_phone = (string) get_user_meta((int) $booking_user->ID, 'billing_phone', true);
 
     $atts = shortcode_atts([
       'button_text' => 'Book Now',
@@ -253,27 +255,20 @@ class UI {
 
             <!-- STEP 3: Customer Information -->
             <div class="koopo-appt__panel" data-panel="3">
-              <div class="koopo-appt__booking-for">
-                <label class="koopo-appt__checkbox-label">
-                  <input type="checkbox" class="koopo-appt__booking-for-other" />
-                  <span>Booking for someone else</span>
-                </label>
-              </div>
-
               <div class="koopo-appt__form-grid">
                 <label class="koopo-appt__label">
-                  Name *
-                  <input type="text" class="koopo-appt__field koopo-appt__customer-name" required />
+                  Koopo account name
+                  <input type="text" class="koopo-appt__field koopo-appt__customer-name" value="<?php echo esc_attr((string) $booking_user->display_name); ?>" required readonly aria-readonly="true" />
                 </label>
 
                 <label class="koopo-appt__label">
-                  Email *
-                  <input type="email" class="koopo-appt__field koopo-appt__customer-email" required />
+                  Koopo account email
+                  <input type="email" class="koopo-appt__field koopo-appt__customer-email" value="<?php echo esc_attr((string) $booking_user->user_email); ?>" required readonly aria-readonly="true" />
                 </label>
 
                 <label class="koopo-appt__label">
-                  Phone *
-                  <input type="tel" class="koopo-appt__field koopo-appt__customer-phone" required />
+                  Your contact phone *
+                  <input type="tel" class="koopo-appt__field koopo-appt__customer-phone" value="<?php echo esc_attr($booking_phone); ?>" required />
                 </label>
               </div>
 

@@ -586,6 +586,20 @@ class Notifications {
       $review_link = $listing_link ? rtrim($listing_link, '/') . '/#reviews' : home_url('/');
       $link = $review_link ?: home_url('/');
       $text = 'Your appointment has passed. Leave feedback for your recent booking.';
+    } elseif (str_starts_with((string)$action, 'appointment_')) {
+      $appointment_action = substr((string)$action, strlen('appointment_'));
+      $link = class_exists(MyAccount::class) ? MyAccount::manage_appointment_url((int)$item_id) : home_url('/');
+      $labels = [
+        'checkout_required'=>'Your appointment is awaiting payment. Open it to continue checkout.',
+        'confirmed'=>'Your appointment is confirmed.',
+        'cancelled'=>'Your appointment was cancelled.',
+        'refunded'=>'A refund update is available for your appointment.',
+        'rescheduled'=>'Your appointment was rescheduled.',
+        'review_invite'=>'Your appointment is ready for a review.',
+        'reminder'=>'You have an upcoming appointment.',
+        'claimed'=>'This appointment was added to your Koopo account.',
+      ];
+      $text = $labels[$appointment_action] ?? 'Your appointment has an update.';
     } else {
       return $content;
     }
@@ -694,6 +708,7 @@ class Notifications {
     $outro = $data['outro'] ?? '';
     $buttons = $data['buttons'] ?? [];
     $lis = '';
+    $intro_lines = '';
     $outro_lines = '';
     $buttons_html = '';
 
@@ -701,11 +716,11 @@ class Notifications {
       if (!$l) continue;
       $lis .= '<li>' . wp_kses_post($l) . '</li>';
     }
-    foreach ($outro as $o) {
+    foreach ((array) $outro as $o) {
       if (!$o) continue;
       $outro_lines .= '<p>' . wp_kses_post($o) . '</p>';
     }
-    foreach ($intro as $i) {
+    foreach ((array) $intro as $i) {
       if (!$i) continue;
       $intro_lines .= '<p>' . wp_kses_post($i) . '</p>';
     }
@@ -732,7 +747,7 @@ class Notifications {
           <h2 style='margin:0;color:#fff;'>{$title}</h2>
         </div>
         <div style='background:#fff;padding:20px;border:1px solid #e5e5e5;'>
-        <p>{$intro_lines}</p>
+          {$intro_lines}
           <ul style='padding-left:20px;'>{$lis}</ul>
           <div style='margin:16px 0;text-align:center;'>{$buttons_html}</div>
           <div>{$outro_lines}</div>

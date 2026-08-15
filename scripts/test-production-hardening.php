@@ -52,7 +52,7 @@ namespace Koopo_Appointments {
   $source = static fn(string $path): string => (string) file_get_contents($root . '/' . $path);
   expect(strpos($source('includes/core/class-kgaw-availability.php'), 'authorized_excluded_booking_id') !== false, 'Reschedule availability exclusion guard is missing.');
   expect(strpos($source('includes/privacy/class-kgaw-privacy.php'), 'wp_privacy_personal_data_erasers') !== false, 'WordPress privacy eraser is missing.');
-  expect(strpos($source('includes/providers/class-kgaw-service-areas.php'), 'geocoder_privacy_configuration_required') !== false, 'Public geocoder privacy guard is missing.');
+  expect(strpos($source('includes/geocoding/class-kgaw-geocoding-router.php'), "privacy_class'] !== self::PUBLIC_PRIVACY_CLASS") !== false, 'Public geocoder privacy guard is missing.');
   expect(strpos($source('includes/core/class-kgaw-db.php'), 'form_snapshot_json') !== false, 'Immutable intake form snapshot schema is missing.');
 
   echo "production hardening tests passed\n";

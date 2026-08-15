@@ -4,7 +4,7 @@ namespace Koopo_Appointments;
 defined('ABSPATH') || exit;
 
 class DB {
-  const VERSION = '4.2';
+  const VERSION = '4.3';
 
   public static function table() {
     global $wpdb;
@@ -38,6 +38,7 @@ class DB {
   public static function form_submissions_table() { global $wpdb; return $wpdb->prefix . 'koopo_appt_form_submissions'; }
   public static function client_files_table() { global $wpdb; return $wpdb->prefix . 'koopo_appt_client_files'; }
   public static function service_areas_table() { global $wpdb; return $wpdb->prefix . 'koopo_appt_service_areas'; }
+  public static function booking_invites_table() { global $wpdb; return $wpdb->prefix . 'koopo_appt_booking_invites'; }
 
   public static function create_tables() {
     global $wpdb;
@@ -87,6 +88,8 @@ class DB {
       refund_status VARCHAR(30) NOT NULL DEFAULT '',
       review_invite_sent DATETIME NULL,
       wc_order_id BIGINT UNSIGNED NULL,
+      hold_expires_at DATETIME NULL,
+      inbox_thread_id BIGINT UNSIGNED NULL,
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       PRIMARY KEY (id),
@@ -99,6 +102,7 @@ class DB {
       KEY customer_id (customer_id),
       KEY wc_order_id (wc_order_id),
       KEY status (status),
+      KEY status_hold (status, hold_expires_at),
       KEY start_datetime (start_datetime),
       KEY customer_email (customer_email),
       KEY customer_phone (customer_phone),
@@ -368,6 +372,30 @@ class DB {
       KEY status_radius (status, radius_meters)
     ) {$charset};";
 
+    $booking_invites = self::booking_invites_table();
+    $booking_invites_sql = "CREATE TABLE {$booking_invites} (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      booking_id BIGINT UNSIGNED NOT NULL,
+      created_by BIGINT UNSIGNED NOT NULL,
+      claimed_user_id BIGINT UNSIGNED NULL,
+      token_hash CHAR(64) NOT NULL,
+      channels VARCHAR(40) NOT NULL DEFAULT 'email',
+      status VARCHAR(30) NOT NULL DEFAULT 'pending',
+      send_attempts SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+      email_sent_at DATETIME NULL,
+      sms_sent_at DATETIME NULL,
+      expires_at DATETIME NOT NULL,
+      claimed_at DATETIME NULL,
+      revoked_at DATETIME NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY booking_id (booking_id),
+      UNIQUE KEY token_hash (token_hash),
+      KEY status_expiry (status, expires_at),
+      KEY creator_status (created_by, status)
+    ) {$charset};";
+
     require_once ABSPATH . 'wp-admin/includes/upgrade.php';
     dbDelta($sql);
     dbDelta($resources_sql);
@@ -381,6 +409,7 @@ class DB {
     dbDelta($submissions_sql);
     dbDelta($client_files_sql);
     dbDelta($service_areas_sql);
+    dbDelta($booking_invites_sql);
     update_option('koopo_appt_db_version', self::VERSION);
   }
 

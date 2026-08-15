@@ -100,10 +100,15 @@ final class Service_Areas {
     $latitude = self::coordinate($payload['latitude'] ?? null, -90, 90);
     $longitude = self::coordinate($payload['longitude'] ?? null, -180, 180);
     if ($latitude === null || $longitude === null) {
-      $geocoded = self::geocode($address);
+      $geocoded = self::geocode($address, 'provider_private', 'service_area_origin');
       if (is_wp_error($geocoded)) return $geocoded;
       $latitude = (float) $geocoded['latitude'];
       $longitude = (float) $geocoded['longitude'];
+      update_post_meta($provider_id, '_koopo_service_area_geocode_provider', sanitize_key((string) ($geocoded['provider'] ?? 'custom')));
+      update_post_meta($provider_id, '_koopo_service_area_geocoded_at', sanitize_text_field((string) ($geocoded['geocoded_at'] ?? current_time('mysql', true))));
+    } else {
+      update_post_meta($provider_id, '_koopo_service_area_geocode_provider', 'manual');
+      update_post_meta($provider_id, '_koopo_service_area_geocoded_at', current_time('mysql', true));
     }
     $radius_meters = isset($payload['radius_meters'])
       ? absint($payload['radius_meters'])
@@ -162,7 +167,7 @@ final class Service_Areas {
   public static function check_destination(int $provider_id, array $address) {
     $area = self::get_for_provider($provider_id);
     if (!$area) return new \WP_Error('mobile_area_unavailable', __('This provider has not finished setting up mobile coverage.', 'koopo-appointments'));
-    $geocoded = self::geocode($address);
+    $geocoded = self::geocode($address, 'customer_private', 'mobile_coverage_check');
     if (is_wp_error($geocoded)) return $geocoded;
     $distance = self::distance_meters((float) $area->origin_latitude, (float) $area->origin_longitude, (float) $geocoded['latitude'], (float) $geocoded['longitude']);
     return [
@@ -177,55 +182,30 @@ final class Service_Areas {
     ];
   }
 
-  public static function geocode(array $address) {
+  public static function geocode(array $address, string $privacy_class = 'customer_private', string $purpose = 'mobile_coverage_check') {
     $address = self::sanitize_address($address);
     if ($address['city'] === '' || ($address['address_1'] === '' && $address['postal_code'] === '')) {
       return new \WP_Error('incomplete_service_address', __('Enter a street or postal code and city before checking coverage.', 'koopo-appointments'));
     }
-    $cache_key = 'koopo_appt_geo_' . md5(wp_json_encode($address));
-    $cached = get_transient($cache_key);
-    if (is_array($cached) && isset($cached['latitude'], $cached['longitude'])) return $cached;
+    $cacheable = sanitize_key($privacy_class) !== 'customer_private';
+    $cache_key = 'koopo_appt_geo_v2_' . hash('sha256', wp_json_encode([$address, sanitize_key($privacy_class)]));
+    if ($cacheable) {
+      $cached = get_transient($cache_key);
+      if (is_array($cached) && isset($cached['latitude'], $cached['longitude'])) return $cached;
+    }
 
-    $filtered = apply_filters('koopo_appt_geocode_address', null, $address);
+    $context = ['privacy_class'=>sanitize_key($privacy_class), 'purpose'=>sanitize_key($purpose)];
+    $filtered = apply_filters('koopo_appt_geocode_address', null, $address, $context);
     if (is_wp_error($filtered)) return $filtered;
     if (is_array($filtered) && isset($filtered['latitude'], $filtered['longitude'])) {
-      set_transient($cache_key, $filtered, 30 * DAY_IN_SECONDS);
+      if ($cacheable) set_transient($cache_key, $filtered, 30 * DAY_IN_SECONDS);
       return $filtered;
     }
-    if (function_exists('geodir_get_option') && 'osm' === (string) geodir_get_option('maps_api', 'google')
-      && !apply_filters('koopo_appt_allow_public_osm_geocoding', false, $address)) {
-      return new \WP_Error(
-        'geocoder_privacy_configuration_required',
-        __('Mobile coverage requires a configured commercial or self-hosted geocoder. Public OpenStreetMap geocoding is disabled for private addresses.', 'koopo-appointments')
-      );
-    }
-    if (!function_exists('geodir_get_gps_from_address')) return new \WP_Error('geocoder_unavailable', __('Address validation is temporarily unavailable.', 'koopo-appointments'));
-    global $wpdb;
-    $lock_name = 'koopo_appt_geocode';
-    $locked = (string) $wpdb->get_var($wpdb->prepare('SELECT GET_LOCK(%s, 1)', $lock_name)) === '1';
-    if (!$locked) return new \WP_Error('geocoder_busy', __('Address validation is busy. Please try again in a moment.', 'koopo-appointments'));
-    try {
-      $last_request = (float) get_option('koopo_appt_geocode_last_request', 0);
-      if ($last_request > 0 && microtime(true) - $last_request < 1.05) {
-        return new \WP_Error('geocoder_busy', __('Address validation is busy. Please try again in a moment.', 'koopo-appointments'));
-      }
-      update_option('koopo_appt_geocode_last_request', (string) microtime(true), false);
-      $result = geodir_get_gps_from_address([
-        'street' => $address['address_1'],
-        'city' => $address['city'],
-        'region' => $address['region'],
-        'zip' => $address['postal_code'],
-        'country' => $address['country'],
-      ], true);
-    } finally {
-      $wpdb->query($wpdb->prepare('SELECT RELEASE_LOCK(%s)', $lock_name));
-    }
-    if (is_wp_error($result) || !is_array($result) || empty($result['latitude']) || empty($result['longitude'])) {
-      return is_wp_error($result) ? $result : new \WP_Error('address_not_found', __('We could not locate that address. Check it and try again.', 'koopo-appointments'));
-    }
-    $normalized = ['latitude'=>(float)$result['latitude'],'longitude'=>(float)$result['longitude']];
-    set_transient($cache_key, $normalized, 30 * DAY_IN_SECONDS);
-    return $normalized;
+    if (!class_exists(Geocoding_Router::class)) return new \WP_Error('geocoder_unavailable', __('Address validation is temporarily unavailable.', 'koopo-appointments'));
+    $result = Geocoding_Router::geocode($address, $context);
+    if (is_wp_error($result)) return $result;
+    if ($cacheable) set_transient($cache_key, $result, 30 * DAY_IN_SECONDS);
+    return $result;
   }
 
   public static function sanitize_address(array $payload): array {

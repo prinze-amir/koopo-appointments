@@ -135,9 +135,15 @@ The vendor settings screen supports each business or professional booking calend
 
 ### Waitlist and Client Operations
 
-Providers can use an expiring cancellation-fill waitlist in priority order, first-to-confirm batches, or manual mode. Customers choose a service, date range, preferred days, time range, and email/push/SMS channels. SMS delivery uses the `koopo_appt_send_transactional_sms` integration hook and requires a configured transactional SMS adapter.
+Providers can use an expiring cancellation-fill waitlist in priority order, first-to-confirm batches, or manual mode. Registered customers choose a service, date range, preferred days, time range, and email/push channels. SMS is reserved for a provider's explicit, consented invitation to an unregistered guest; all messages after account claim use the Koopo inbox, push, and email.
 
-Mobile coverage must use a commercial or self-hosted geocoder suitable for processing private service addresses. Koopo disables GeoDirectory's public OpenStreetMap geocoder for these requests by default; a site-specific `koopo_appt_geocode_address` adapter is preferred. The Professionals map tile URL is filterable through `koopo_appt_provider_map_tile_url`.
+Providers can schedule an appointment for an unregistered person from the Dokan Appointments dashboard. The provider chooses email and/or a one-time SMS invitation, records SMS consent, and selects a 30-minute to 24-hour hold. Koopo stores only a SHA-256 token hash, rotates the link on resend, limits delivery attempts, and releases unclaimed times after expiration. The recipient signs in or registers, claims the appointment into the matching account, and continues directly to WooCommerce checkout. Customer-facing booking forms cannot change appointment ownership or book for another person.
+
+Registered-customer confirmations and reminders create real BuddyBoss message threads for the Koopo app inbox, alongside BuddyBoss notifications and email. An SMS adapter may subscribe to `koopo_appt_send_transactional_sms`; calls include `guest_only` and `consent_recorded` metadata and are emitted only for provider-created, unregistered guest invitations.
+
+Service-profile geocoding is configured under **Settings → Koopo Appointments → Service Profile Geocoding**. Koopo supports GeocodeFarm, Geoapify, Google Geocoding, and public OpenStreetMap/Nominatim. Automatic mode uses the configured daily free allowances in administrator-defined order, caches eligible provider/profile results for 30 days, and temporarily removes unhealthy or rate-limited providers. API keys are encrypted and used only by the WordPress server.
+
+Public Nominatim is eligible only for addresses explicitly displayed on public service profiles. It is never used for customer home addresses or private mobile-provider origins, and customer coverage coordinates are not retained in the geocode cache. The `koopo_appt_geocode_address` filter remains available as a site-specific override, and the Professionals map tile URL is independently filterable through `koopo_appt_provider_map_tile_url`.
 
 Confirmed bookings create provider-private client records with an appointment timeline, preferences, formulas/specifications, and private notes. Providers can create service-specific intake and consent forms, request them before an appointment, require a typed electronic signature, and attach private JPEG, PNG, WebP, or PDF files through Media Gateway direct upload. Client attachments are stored as gateway asset references rather than WordPress Media Library attachments.
 
