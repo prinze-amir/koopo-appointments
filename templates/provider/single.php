@@ -20,6 +20,9 @@ foreach ($profile['locations'] as $location) {
   if (!empty($location['latitude']) && !empty($location['longitude'])) $points[] = ['providerId' => $provider_id, 'name' => $profile['name'], 'location' => $location['name'], 'lat' => (float) $location['latitude'], 'lng' => (float) $location['longitude']];
 }
 ?>
+<script>
+    document.body.classList.add('page-template-page-fullwidth-content', 'page-template-page-fullwidth-content-php');
+</script>
 <main class="koopo-pro-profile">
   <nav class="koopo-pro-breadcrumb" aria-label="<?php esc_attr_e('Breadcrumb', 'koopo-appointments'); ?>"><a href="<?php echo esc_url(get_post_type_archive_link(Provider_Profiles::POST_TYPE)); ?>">← <?php esc_html_e('All professionals', 'koopo-appointments'); ?></a></nav>
   <header class="koopo-pro-hero">

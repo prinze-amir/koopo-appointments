@@ -95,6 +95,7 @@ final class Privacy {
     )) ?: []);
     $removed = false;
     foreach ($booking_ids as $booking_id) {
+      $wpdb->delete(DB::notification_deliveries_table(), ['booking_id' => $booking_id], ['%d']);
       $wpdb->delete(DB::booking_invites_table(), ['booking_id' => $booking_id], ['%d']);
       $wpdb->update(DB::table(), [
         'customer_id' => 0,

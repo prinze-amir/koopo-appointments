@@ -124,11 +124,11 @@ class Notifications {
       ],
     ]);
 
-    self::send_mail($admin, $subject, $body_admin);
-    self::send_mail($seller, $subject, $body_seller);
+    self::send_mail($booking_id, 'conflict', 'admin', $admin, $subject, $body_admin);
+    self::send_mail($booking_id, 'conflict', 'provider', $seller, $subject, $body_seller);
 
     if ($customer) {
-      self::send_mail($customer, $subject, $body_customer);
+      self::send_mail($booking_id, 'conflict', 'customer', $customer, $subject, $body_customer);
     }
   }
 
@@ -206,9 +206,9 @@ class Notifications {
       ],
     ]);
 
-    if ($customer) self::send_mail($customer, $subject, $body_customer);
-    self::send_mail($seller, $subject, $body_seller);
-    self::send_mail($admin, $subject, $body_admin);
+    if ($customer) self::send_mail($booking_id, 'confirmed', 'customer', $customer, $subject, $body_customer);
+    self::send_mail($booking_id, 'confirmed', 'provider', $seller, $subject, $body_seller);
+    self::send_mail($booking_id, 'confirmed', 'admin', $admin, $subject, $body_admin);
   }
 
   public static function email_cancelled(int $booking_id, $booking_obj) {
@@ -298,8 +298,8 @@ class Notifications {
       ],
     ]);
 
-    if ($customer) self::send_mail($customer, $subject_customer, $body_customer);
-    if ($seller) self::send_mail($seller, $subject_vendor, $body_seller);
+    if ($customer) self::send_mail($booking_id, 'cancelled', 'customer', $customer, $subject_customer, $body_customer);
+    if ($seller) self::send_mail($booking_id, 'cancelled', 'provider', $seller, $subject_vendor, $body_seller);
   }
 
   public static function email_refunded(int $booking_id, $booking_obj) {
@@ -340,8 +340,8 @@ class Notifications {
       ],
     ]);
 
-    if ($customer) self::send_mail($customer, $subject, $body_customer);
-    if ($seller) self::send_mail($seller, $subject, $body_seller);
+    if ($customer) self::send_mail($booking_id, 'refunded', 'customer', $customer, $subject, $body_customer);
+    if ($seller) self::send_mail($booking_id, 'refunded', 'provider', $seller, $subject, $body_seller);
   }
 
   public static function email_rescheduled(int $booking_id, string $new_start, string $new_end, $booking_obj) {
@@ -389,7 +389,8 @@ class Notifications {
       ],
     ]);
 
-    if ($customer) self::send_mail($customer, $subject, $body_customer);
+    $event_name = 'rescheduled_' . substr(hash('sha256', $new_start . '|' . $new_end), 0, 12);
+    if ($customer) self::send_mail($booking_id, $event_name, 'customer', $customer, $subject, $body_customer);
   }
 
   public static function email_expired(int $booking_id, $booking_obj) {
@@ -414,7 +415,7 @@ class Notifications {
       ],
     ]);
 
-    self::send_mail($customer, $subject, $body_customer);
+    self::send_mail($booking_id, 'expired', 'customer', $customer, $subject, $body_customer);
   }
 
   public static function email_pending_payment(int $booking_id, $booking_obj) {
@@ -448,7 +449,7 @@ class Notifications {
       ],
     ]);
 
-    self::send_mail($customer, $subject, $body_customer);
+    self::send_mail($booking_id, 'pending_payment', 'customer', $customer, $subject, $body_customer);
   }
 
   public static function notify_pending_payment(int $booking_id, $booking_obj) {
@@ -528,7 +529,7 @@ class Notifications {
       ],
     ]);
 
-    self::send_mail($customer, $subject, $body_customer);
+    self::send_mail($booking_id, 'review_invite', 'customer', $customer, $subject, $body_customer);
   }
 
   public static function notify_review_invite(int $booking_id, $booking_obj) {
@@ -624,10 +625,10 @@ class Notifications {
     return $components;
   }
 
-  private static function send_mail(string $to, string $subject, string $body): void {
+  private static function send_mail(int $booking_id, string $event_name, string $recipient_role, string $to, string $subject, string $body): void {
     if (!$to) return;
     $headers = ['Content-Type: text/html; charset=UTF-8'];
-    wp_mail($to, $subject, $body, $headers);
+    Notification_Delivery::send_email($booking_id, $event_name, $recipient_role, $to, $subject, $body, $headers);
   }
 
   private static function email_logo_url(): string {

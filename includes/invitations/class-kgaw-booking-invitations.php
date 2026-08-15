@@ -8,6 +8,7 @@ final class Booking_Invitations {
   const STATUS = 'pending_invitation';
   const DEFAULT_HOLD_MINUTES = 120;
   const REWRITE_VERSION = '1';
+  const SMS_CONSENT_VERSION = 'guest-invite-v1';
 
   public static function init(): void {
     add_action('rest_api_init', [__CLASS__, 'routes']);
@@ -65,8 +66,6 @@ final class Booking_Invitations {
     if ($normalized) {
       $users = get_users(['number'=>2, 'fields'=>'ids', 'meta_key'=>'_koopo_verified_phone_e164', 'meta_value'=>$normalized]);
       if (count($users) === 1) return (int) $users[0];
-      $users = get_users(['number'=>2, 'fields'=>'ids', 'meta_key'=>'billing_phone', 'meta_value'=>$phone]);
-      if (count($users) === 1) return (int) $users[0];
     }
     return (int) apply_filters('koopo_appt_resolve_user_by_phone', 0, $normalized, $phone);
   }
@@ -95,6 +94,10 @@ final class Booking_Invitations {
     $data = [
       'booking_id'=>$booking_id, 'created_by'=>$created_by, 'token_hash'=>hash('sha256', $token),
       'channels'=>implode(',', $channels), 'status'=>'pending', 'send_attempts'=>0,
+      'sms_consent_at'=>in_array('sms', $channels, true) ? $now : null,
+      'sms_consent_by'=>in_array('sms', $channels, true) ? $created_by : null,
+      'sms_consent_version'=>in_array('sms', $channels, true) ? self::SMS_CONSENT_VERSION : '',
+      'sms_consent_phone'=>in_array('sms', $channels, true) ? $phone : '',
       'expires_at'=>gmdate('Y-m-d H:i:s', $expires_ts), 'created_at'=>$now, 'updated_at'=>$now,
     ];
     $table = DB::booking_invites_table();
@@ -104,15 +107,17 @@ final class Booking_Invitations {
       : $wpdb->insert($table, $data);
     if (false === $saved) return new \WP_Error('invitation_save_failed', __('The invitation could not be created.', 'koopo-appointments'));
 
-    $delivery = self::deliver($booking, $token, $channels, $sms_consent);
+    $invitation_id = $existing ? (int) $existing : (int) $wpdb->insert_id;
+    $delivery = self::deliver($booking, $invitation_id, $token, $channels, $sms_consent);
     return ['link'=>self::url($token), 'expires_at'=>$data['expires_at'], 'channels'=>$channels, 'delivery'=>$delivery];
   }
 
-  private static function deliver(object $booking, string $token, array $channels, bool $sms_consent): array {
+  private static function deliver(object $booking, int $invitation_id, string $token, array $channels, bool $sms_consent): array {
     global $wpdb;
     $table = DB::booking_invites_table();
     $now = current_time('mysql', true);
-    $update = ['send_attempts' => (int) $wpdb->get_var($wpdb->prepare("SELECT send_attempts FROM {$table} WHERE booking_id=%d", (int)$booking->id)) + 1, 'updated_at'=>$now];
+    $attempt = (int) $wpdb->get_var($wpdb->prepare("SELECT send_attempts FROM {$table} WHERE booking_id=%d", (int)$booking->id)) + 1;
+    $update = ['send_attempts' => $attempt, 'updated_at'=>$now];
     $result = ['email'=>false, 'sms'=>false, 'warnings'=>[]];
     $url = self::url($token);
     $service = get_the_title((int) $booking->service_id);
@@ -121,17 +126,33 @@ final class Booking_Invitations {
     $when = Date_Formatter::format((string)$booking->start_datetime, (string)$booking->timezone, 'full');
     if (in_array('email', $channels, true) && is_email($booking->customer_email)) {
       $body = sprintf("%s scheduled a %s appointment for you on %s.\n\nCreate or sign in to your Koopo account to review the appointment and complete checkout:\n%s", $provider, $service, $when, $url);
-      $result['email'] = wp_mail((string)$booking->customer_email, __('Review your Koopo appointment invitation', 'koopo-appointments'), $body);
+      $result['email'] = Notification_Delivery::send_email(
+        (int) $booking->id,
+        'guest_invitation_' . $attempt,
+        'guest',
+        (string) $booking->customer_email,
+        __('Review your Koopo appointment invitation', 'koopo-appointments'),
+        $body,
+        [],
+        $invitation_id
+      );
       if ($result['email']) $update['email_sent_at'] = $now;
       else $result['warnings'][] = 'email_not_sent';
     }
     if (in_array('sms', $channels, true) && $sms_consent) {
-      if (has_action('koopo_appt_send_transactional_sms')) {
-        $message = sprintf('Koopo invite: %s on %s. Register and checkout: %s', wp_html_excerpt($service, 32, ''), Date_Formatter::format((string)$booking->start_datetime, (string)$booking->timezone, 'date'), $url);
-        do_action('koopo_appt_send_transactional_sms', self::normalize_phone((string)$booking->customer_phone), $message, ['type'=>'guest_appointment_invite','booking_id'=>(int)$booking->id,'guest_only'=>true,'consent_recorded'=>true]);
-        $result['sms'] = true;
-        $update['sms_sent_at'] = $now;
-      } else $result['warnings'][] = 'sms_adapter_not_configured';
+      $message = sprintf('Koopo invite: %s on %s. Register and checkout: %s', wp_html_excerpt($service, 32, ''), Date_Formatter::format((string)$booking->start_datetime, (string)$booking->timezone, 'date'), $url);
+      $sms = Transactional_SMS::send(self::normalize_phone((string)$booking->customer_phone), $message, [
+        'type'=>'guest_appointment_invite',
+        'booking_id'=>(int)$booking->id,
+        'invitation_id'=>$invitation_id,
+        'attempt'=>$attempt,
+        'guest_only'=>true,
+        'consent_recorded'=>true,
+        'consent_version'=>self::SMS_CONSENT_VERSION,
+      ]);
+      $result['sms'] = !empty($sms['accepted']);
+      if ($result['sms']) $update['sms_sent_at'] = $now;
+      else $result['warnings'][] = (string) ($sms['error_code'] ?? 'sms_not_sent');
     }
     $wpdb->update($table, $update, ['booking_id'=>(int)$booking->id]);
     return $result;
@@ -183,7 +204,7 @@ final class Booking_Invitations {
     } catch (\Throwable $error) {
       $wpdb->query('ROLLBACK');
       $messages = [
-        'invitation_identity_mismatch'=>__('Sign in with the email address or phone number that received this invitation.', 'koopo-appointments'),
+        'invitation_identity_mismatch'=>__('Sign in with the invited email address, or verify the invited phone number on your Koopo account before claiming.', 'koopo-appointments'),
         'invitation_claim_conflict'=>__('This invitation was claimed in another session.', 'koopo-appointments'),
       ];
       return new \WP_Error($error->getMessage(), $messages[$error->getMessage()] ?? __('This invitation is expired or unavailable.', 'koopo-appointments'), ['status'=>$error->getMessage()==='invitation_identity_mismatch'?403:409]);
@@ -209,21 +230,7 @@ final class Booking_Invitations {
     if ($email && hash_equals($email, strtolower((string)$user->user_email))) return true;
     $phone = self::normalize_phone((string)$booking->customer_phone);
     $user_phone = self::normalize_phone((string)get_user_meta($user_id, '_koopo_verified_phone_e164', true));
-    if (!$user_phone) $user_phone = self::normalize_phone((string)get_user_meta($user_id, 'billing_phone', true));
     if ($phone && $user_phone && hash_equals($phone, $user_phone)) return true;
-
-    // A phone-only invitation is a high-entropy bearer link delivered by SMS.
-    // This allows a newly registered member to claim before their account phone
-    // field is populated. Email invitations still require an exact email match.
-    if (!$email && $phone) {
-      global $wpdb;
-      $invite = $wpdb->get_row($wpdb->prepare(
-        'SELECT channels,sms_sent_at FROM ' . DB::booking_invites_table() . ' WHERE booking_id=%d',
-        (int) $booking->id
-      ));
-      $channels = $invite ? array_filter(explode(',', (string) $invite->channels)) : [];
-      return $invite && in_array('sms', $channels, true) && !empty($invite->sms_sent_at);
-    }
     return false;
   }
 
@@ -242,7 +249,7 @@ final class Booking_Invitations {
     ], ['id'=>(int)$invite->id, 'status'=>'pending']);
     if (1 !== $updated) return new \WP_Error('invitation_resend_conflict', __('This invitation changed before it could be resent.', 'koopo-appointments'), ['status'=>409]);
     $booking = Bookings::get_booking($booking_id);
-    $delivery = self::deliver($booking, $token, $channels, in_array('sms', $channels, true));
+    $delivery = self::deliver($booking, (int)$invite->id, $token, $channels, !empty($invite->sms_consent_at) && !empty($invite->sms_consent_phone));
     return ['link'=>self::url($token), 'expires_at'=>(string)$invite->expires_at, 'channels'=>array_values($channels), 'delivery'=>$delivery];
   }
 

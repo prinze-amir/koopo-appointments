@@ -52,6 +52,9 @@ foreach ($profiles as $profile) {
   }
 }
 ?>
+<script>
+    document.body.classList.add('page-template-page-fullwidth-content', 'page-template-page-fullwidth-content-php');
+</script>
 <main class="koopo-pro-directory" id="koopo-professionals">
   <section class="koopo-pro-directory__intro">
     <div>

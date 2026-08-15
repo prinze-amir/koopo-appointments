@@ -159,6 +159,8 @@ final class Koopo_Appointments {
     require_once __DIR__ . '/includes/dokan/class-kgaw-dokan-pack-adapter.php';
 
     // Notifications
+    require_once __DIR__ . '/includes/notifications/class-kgaw-notification-delivery.php';
+    require_once __DIR__ . '/includes/notifications/class-kgaw-transactional-sms.php';
     require_once __DIR__ . '/includes/notifications/class-kgaw-notifications.php';
     require_once __DIR__ . '/includes/notifications/class-kgaw-automated-reminders.php';
     require_once __DIR__ . '/includes/notifications/class-kgaw-appointment-messaging.php';

@@ -1278,6 +1278,7 @@ public static function init_cleanup_cron() {
     global $wpdb;
     $table = DB::table();
     $booking_id = (int) $booking_id;
+    $wpdb->delete(DB::notification_deliveries_table(), ['booking_id' => $booking_id], ['%d']);
     $wpdb->delete(DB::booking_invites_table(), ['booking_id' => $booking_id], ['%d']);
     $wpdb->delete($table, ['id' => $booking_id], ['%d']);
     $wpdb->query($wpdb->prepare(

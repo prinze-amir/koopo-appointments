@@ -219,8 +219,23 @@ final class Waitlist {
 
   private static function notify(int $offer_id,object $entry,object $opening,string $token,int $minutes):void{
     $subject_id=(int)($entry->listing_id?:$entry->provider_id);$url=add_query_arg('koopo_waitlist_offer',$token,get_permalink($subject_id));$when=Date_Formatter::format((string)$opening->start_datetime,(string)$opening->timezone,'full');$channels=array_filter(explode(',',(string)$entry->channels));$message=sprintf('An opening for %s is available on %s. This offer expires in %d minutes.',get_the_title((int)$entry->service_id),$when,$minutes);
-    if(in_array('email',$channels,true)&&is_email($entry->customer_email))wp_mail((string)$entry->customer_email,__('A Koopo appointment opening is available','koopo-appointments'),$message."\n\n".$url);
-    if(in_array('push',$channels,true)&&function_exists('bp_notifications_add_notification'))bp_notifications_add_notification(['user_id'=>(int)$entry->customer_id,'item_id'=>$offer_id,'secondary_item_id'=>$subject_id,'component_name'=>'koopo_appointments','component_action'=>'waitlist_offer','date_notified'=>bp_core_current_time(),'is_new'=>1]);
+    if(in_array('email',$channels,true)&&is_email($entry->customer_email))Notification_Delivery::send_email((int)$opening->id,'waitlist_offer_'.$offer_id,'customer',(string)$entry->customer_email,__('A Koopo appointment opening is available','koopo-appointments'),$message."\n\n".$url);
+    if(in_array('push',$channels,true))self::send_inbox_offer($offer_id,$entry,$opening,$subject_id,$message,$url);
+  }
+
+  private static function send_inbox_offer(int $offer_id,object $entry,object $opening,int $subject_id,string $message,string $url):bool{
+    $recipient_id=(int)$entry->customer_id;$resource=Resources::get((int)$entry->resource_id);$sender_id=$resource?(int)$resource->payee_user_id:0;
+    if(!$recipient_id||!$sender_id||$sender_id===$recipient_id||!function_exists('messages_new_message'))return false;
+    $delivery_id=Notification_Delivery::claim(['booking_id'=>(int)$opening->id,'recipient_user_id'=>$recipient_id,'event_name'=>'waitlist_offer_'.$offer_id,'channel'=>'inbox','recipient'=>(string)$recipient_id]);
+    if(is_wp_error($delivery_id))return $delivery_id->get_error_code()==='delivery_already_handled';
+    $sent=null;$allow_transactional_message=static fn()=>true;add_filter('bb_user_can_send_messages',$allow_transactional_message,PHP_INT_MAX,3);
+    try{$sent=messages_new_message(['sender_id'=>$sender_id,'recipients'=>[$recipient_id],'subject'=>__('Appointment opening','koopo-appointments'),'content'=>$message."\n\n".$url,'error_type'=>'wp_error','mark_visible'=>true,'return'=>'object']);}
+    finally{remove_filter('bb_user_can_send_messages',$allow_transactional_message,PHP_INT_MAX);}
+    $message_id=!is_wp_error($sent)&&is_object($sent)?absint($sent->id??0):0;
+    if(!$message_id){Notification_Delivery::fail((int)$delivery_id,'buddyboss_message_not_sent');return false;}
+    if(function_exists('bp_messages_update_meta'))bp_messages_update_meta($message_id,'linked_entity',['type'=>'waitlist_offer','offerId'=>$offer_id,'bookingId'=>(int)$opening->id,'deepLink'=>'koopo://appointments/waitlist/'.$offer_id]);
+    if(function_exists('bp_notifications_add_notification'))bp_notifications_add_notification(['user_id'=>$recipient_id,'item_id'=>$offer_id,'secondary_item_id'=>$subject_id,'component_name'=>'koopo_appointments','component_action'=>'waitlist_offer','date_notified'=>function_exists('bp_core_current_time')?bp_core_current_time():current_time('mysql',true),'is_new'=>1]);
+    Notification_Delivery::complete((int)$delivery_id,(string)$message_id);do_action('koopo_appt_waitlist_message_sent',$offer_id,$message_id,$recipient_id);return true;
   }
 
   public static function offer_url(int $offer_id): string {

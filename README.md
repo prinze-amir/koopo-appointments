@@ -139,7 +139,9 @@ Providers can use an expiring cancellation-fill waitlist in priority order, firs
 
 Providers can schedule an appointment for an unregistered person from the Dokan Appointments dashboard. The provider chooses email and/or a one-time SMS invitation, records SMS consent, and selects a 30-minute to 24-hour hold. Koopo stores only a SHA-256 token hash, rotates the link on resend, limits delivery attempts, and releases unclaimed times after expiration. The recipient signs in or registers, claims the appointment into the matching account, and continues directly to WooCommerce checkout. Customer-facing booking forms cannot change appointment ownership or book for another person.
 
-Registered-customer confirmations and reminders create real BuddyBoss message threads for the Koopo app inbox, alongside BuddyBoss notifications and email. An SMS adapter may subscribe to `koopo_appt_send_transactional_sms`; calls include `guest_only` and `consent_recorded` metadata and are emitted only for provider-created, unregistered guest invitations.
+Registered-customer confirmations, reminders, and waitlist offers create real BuddyBoss messages for the Koopo app inbox, alongside BuddyBoss notifications and email. The existing private-message mobile hook provides the Expo push path. Delivery attempts are recorded by hashed recipient and idempotency key so retries cannot duplicate an already-sent message.
+
+An SMS adapter must subscribe to the `koopo_appt_send_transactional_sms_result` filter and return an array with `accepted` (boolean), `provider_message_id` (string), `error_code` (string), and `retryable` (boolean). Calls include `guest_only`, `consent_recorded`, `consent_version`, booking, invitation, and attempt metadata, and are made only for provider-created unregistered-guest invitations. The legacy `koopo_appt_send_transactional_sms` action remains an observer seam, but action-only callbacks are never recorded as successful because they cannot report provider acceptance.
 
 Service-profile geocoding is configured under **Settings → Koopo Appointments → Service Profile Geocoding**. Koopo supports GeocodeFarm, Geoapify, Google Geocoding, and public OpenStreetMap/Nominatim. Automatic mode uses the configured daily free allowances in administrator-defined order, caches eligible provider/profile results for 30 days, and temporarily removes unhealthy or rate-limited providers. API keys are encrypted and used only by the WordPress server.
 
@@ -164,7 +166,6 @@ https://YOUR-SITE/wp-json/koopo/v1/appointments/calendar/oauth/microsoft/callbac
 
 ### Optional / Later
 
-* In-app BuddyBoss notifications (currently only a profile tab is added)
 * Advanced reporting/exports (beyond vendor CSV and current analytics dashboard)
 * Venue-side roster and approval UI for professional/place affiliations
 * Event tickets module (separate plugin)

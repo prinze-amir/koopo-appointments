@@ -141,9 +141,10 @@ class Automated_Reminders {
     ));
 
     foreach ($bookings as $booking) {
-      // Check if reminder already sent for this window
+      // Preserve the legacy order marker, while the delivery ledger also covers
+      // free appointments that have no WooCommerce order.
       $reminder_key = "koopo_reminder_{$hours_before}h";
-      $already_sent = get_post_meta($booking->wc_order_id, $reminder_key, true);
+      $already_sent = !empty($booking->wc_order_id) && get_post_meta($booking->wc_order_id, $reminder_key, true);
       
       if ($already_sent) {
         continue;
@@ -234,11 +235,16 @@ class Automated_Reminders {
       'manage_url' => $manage_url,
     ]);
 
-    // Send email
     $headers = ['Content-Type: text/html; charset=UTF-8'];
-    $sent = wp_mail($customer_email, $subject, $body, $headers);
-
-    return $sent;
+    return Notification_Delivery::send_email(
+      (int) $booking->id,
+      'reminder_' . max(1, $hours_before) . 'h',
+      'customer',
+      $customer_email,
+      $subject,
+      $body,
+      $headers
+    );
   }
 
   /**

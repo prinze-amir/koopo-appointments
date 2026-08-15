@@ -26,6 +26,18 @@ final class Appointment_Messaging {
     $sender_id = (int) ($booking->payee_user_id ?? $booking->listing_author_id ?? 0);
     if (!$sender_id || $sender_id === $recipient_id) return false;
 
+    $event_name = 'appointment_' . sanitize_key($action);
+    if ($action === 'reminder') $event_name .= '_' . max(1, absint($context['hours_before'] ?? 0)) . 'h';
+    if ($action === 'rescheduled') $event_name .= '_' . substr(hash('sha256', (string)$booking->start_datetime . '|' . (string)$booking->end_datetime), 0, 12);
+    $delivery_id = Notification_Delivery::claim([
+      'booking_id' => $booking_id,
+      'recipient_user_id' => $recipient_id,
+      'event_name' => $event_name,
+      'channel' => 'inbox',
+      'recipient' => (string) $recipient_id,
+    ]);
+    if (is_wp_error($delivery_id)) return $delivery_id->get_error_code() === 'delivery_already_handled';
+
     $content = self::content($booking, $action, $context);
     $thread_id = (int) ($booking->inbox_thread_id ?? 0);
     $message_id = 0;
@@ -58,16 +70,16 @@ final class Appointment_Messaging {
     }
 
     if ($message_id && function_exists('bp_messages_update_meta')) {
-      bp_messages_update_meta($message_id, '_koopo_linked_entity', wp_json_encode([
+      bp_messages_update_meta($message_id, 'linked_entity', [
         'type' => 'appointment',
         'bookingId' => $booking_id,
         'action' => sanitize_key($action),
         'deepLink' => 'koopo://appointments/' . $booking_id,
-      ]));
+      ]);
     }
     if ($thread_id && $thread_id !== (int) ($booking->inbox_thread_id ?? 0)) Bookings::set_inbox_thread_id($booking_id, $thread_id);
 
-    if (function_exists('bp_notifications_add_notification')) {
+    if ($message_id > 0 && function_exists('bp_notifications_add_notification')) {
       bp_notifications_add_notification([
         'user_id' => $recipient_id,
         'item_id' => $booking_id,
@@ -80,7 +92,12 @@ final class Appointment_Messaging {
     }
 
     do_action('koopo_appt_internal_booking_message_sent', $booking_id, $action, $message_id, $thread_id);
-    return $message_id > 0 || function_exists('bp_notifications_add_notification');
+    if ($message_id > 0) {
+      Notification_Delivery::complete((int) $delivery_id, (string) $message_id);
+      return true;
+    }
+    Notification_Delivery::fail((int) $delivery_id, 'buddyboss_message_not_sent');
+    return false;
   }
 
   private static function content(object $booking, string $action, array $context): string {

@@ -4,7 +4,7 @@ namespace Koopo_Appointments;
 defined('ABSPATH') || exit;
 
 class DB {
-  const VERSION = '4.3';
+  const VERSION = '4.4';
 
   public static function table() {
     global $wpdb;
@@ -39,6 +39,7 @@ class DB {
   public static function client_files_table() { global $wpdb; return $wpdb->prefix . 'koopo_appt_client_files'; }
   public static function service_areas_table() { global $wpdb; return $wpdb->prefix . 'koopo_appt_service_areas'; }
   public static function booking_invites_table() { global $wpdb; return $wpdb->prefix . 'koopo_appt_booking_invites'; }
+  public static function notification_deliveries_table() { global $wpdb; return $wpdb->prefix . 'koopo_appt_notification_deliveries'; }
 
   public static function create_tables() {
     global $wpdb;
@@ -384,6 +385,10 @@ class DB {
       send_attempts SMALLINT UNSIGNED NOT NULL DEFAULT 0,
       email_sent_at DATETIME NULL,
       sms_sent_at DATETIME NULL,
+      sms_consent_at DATETIME NULL,
+      sms_consent_by BIGINT UNSIGNED NULL,
+      sms_consent_version VARCHAR(40) NOT NULL DEFAULT '',
+      sms_consent_phone VARCHAR(32) NOT NULL DEFAULT '',
       expires_at DATETIME NOT NULL,
       claimed_at DATETIME NULL,
       revoked_at DATETIME NULL,
@@ -394,6 +399,30 @@ class DB {
       UNIQUE KEY token_hash (token_hash),
       KEY status_expiry (status, expires_at),
       KEY creator_status (created_by, status)
+    ) {$charset};";
+
+    $notification_deliveries = self::notification_deliveries_table();
+    $notification_deliveries_sql = "CREATE TABLE {$notification_deliveries} (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      booking_id BIGINT UNSIGNED NULL,
+      invitation_id BIGINT UNSIGNED NULL,
+      recipient_user_id BIGINT UNSIGNED NULL,
+      event_key CHAR(64) NOT NULL,
+      event_name VARCHAR(80) NOT NULL,
+      channel VARCHAR(20) NOT NULL,
+      recipient_hash CHAR(64) NOT NULL DEFAULT '',
+      status VARCHAR(20) NOT NULL DEFAULT 'processing',
+      provider_message_id VARCHAR(191) NOT NULL DEFAULT '',
+      attempt_count SMALLINT UNSIGNED NOT NULL DEFAULT 1,
+      last_error_code VARCHAR(100) NOT NULL DEFAULT '',
+      sent_at DATETIME NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY event_key (event_key),
+      KEY booking_channel (booking_id, channel),
+      KEY invitation_channel (invitation_id, channel),
+      KEY status_updated (status, updated_at)
     ) {$charset};";
 
     require_once ABSPATH . 'wp-admin/includes/upgrade.php';
@@ -410,6 +439,7 @@ class DB {
     dbDelta($client_files_sql);
     dbDelta($service_areas_sql);
     dbDelta($booking_invites_sql);
+    dbDelta($notification_deliveries_sql);
     update_option('koopo_appt_db_version', self::VERSION);
   }
 
