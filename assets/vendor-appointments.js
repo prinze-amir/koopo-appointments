@@ -1203,8 +1203,10 @@
             copied = false;
           }
         }
-        const warning = created?.invitation?.delivery?.warnings?.includes('sms_adapter_not_configured')
-          ? ' The text was not sent because an SMS provider is not configured; copy or email the invitation instead.'
+        const smsRequested = payload?.invite_channels?.includes('sms');
+        const smsAccepted = Boolean(created?.invitation?.delivery?.sms);
+        const warning = smsRequested && !smsAccepted
+          ? ' The SMS provider did not accept the text; copy or email the invitation link instead.'
           : '';
         const copyMessage = copied ? ' The registration link was copied to your clipboard.' : '';
         alert(created.customer_is_guest ? `Appointment invitation created.${copyMessage}${warning}` : 'Appointment created and sent to the customer\'s Koopo inbox.');

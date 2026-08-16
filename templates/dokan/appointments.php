@@ -1,5 +1,6 @@
 <?php
 defined('ABSPATH') || exit;
+$koopo_sms_status = class_exists('\Koopo_Appointments\SMS_Provider') ? \Koopo_Appointments\SMS_Provider::status() : ['ready'=>false];
 ?>
 <div class="dokan-dashboard-wrap">
 <?php
@@ -238,7 +239,7 @@ defined('ABSPATH') || exit;
             <strong><?php esc_html_e('Registration invitation', 'appointments'); ?></strong>
             <p class="koopo-muted"><?php esc_html_e('The appointment is held while this person creates a Koopo account. After registration, reminders move to their Koopo inbox, push notifications, and email.', 'appointments'); ?></p>
             <label><input type="checkbox" id="koopo-appt-invite-email" checked /> <?php esc_html_e('Send email invitation', 'appointments'); ?></label>
-            <label><input type="checkbox" id="koopo-appt-invite-sms" /> <?php esc_html_e('Send one text invitation', 'appointments'); ?></label>
+            <label><input type="checkbox" id="koopo-appt-invite-sms" <?php disabled(empty($koopo_sms_status['ready'])); ?> /> <?php esc_html_e('Send one text invitation', 'appointments'); ?><?php if(empty($koopo_sms_status['ready'])): ?> <span class="koopo-muted"><?php esc_html_e('(SMS is not configured by the site administrator)', 'appointments'); ?></span><?php endif; ?></label>
             <label class="koopo-appt-sms-consent" style="display:none"><input type="checkbox" id="koopo-appt-sms-consent" /> <?php esc_html_e('Customer agreed to receive this appointment invitation by text.', 'appointments'); ?></label>
             <label><?php esc_html_e('Hold the time for', 'appointments'); ?>
               <select class="koopo-input" id="koopo-appt-invite-hold">

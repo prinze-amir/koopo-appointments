@@ -2,18 +2,18 @@
 /**
  * Plugin Name: Koopo Appointments
  * Description: Appointments for Koopo professionals and GeoDirectory places with WooCommerce/Dokan integration.
- * Version: 0.10.0
+ * Version: 0.10.1
  * Author: Koopo
  */
 
 defined('ABSPATH') || exit;
 
-define('KOOPO_APPT_VERSION', '0.10.0');
+define('KOOPO_APPT_VERSION', '0.10.1');
 define('KOOPO_APPT_PATH', plugin_dir_path(__FILE__));
 define('KOOPO_APPT_URL', plugin_dir_url(__FILE__));
 
 final class Koopo_Appointments {
-  const VERSION = '0.10.0';
+  const VERSION = '0.10.1';
   const SLUG = 'koopo-geo-appointments-wc';
 
   private static $instance = null;
@@ -161,6 +161,7 @@ final class Koopo_Appointments {
     // Notifications
     require_once __DIR__ . '/includes/notifications/class-kgaw-notification-delivery.php';
     require_once __DIR__ . '/includes/notifications/class-kgaw-transactional-sms.php';
+    require_once __DIR__ . '/includes/notifications/class-kgaw-sms-provider.php';
     require_once __DIR__ . '/includes/notifications/class-kgaw-notifications.php';
     require_once __DIR__ . '/includes/notifications/class-kgaw-automated-reminders.php';
     require_once __DIR__ . '/includes/notifications/class-kgaw-appointment-messaging.php';
@@ -210,6 +211,7 @@ final class Koopo_Appointments {
     Koopo_Appointments\Order_Hooks::init();
     Koopo_Appointments\Order_Display::init();
     Koopo_Appointments\Notifications::init();
+    Koopo_Appointments\SMS_Provider::init();
     Koopo_Appointments\Appointment_Messaging::init();
     Koopo_Appointments\Booking_Invitations::init();
     // Admin settings dashboard.

@@ -127,6 +127,33 @@ class Admin_Settings {
         'default' => '',
       ]);
     }
+    register_setting('koopo_appt_settings', SMS_Provider::OPTION_ENABLED, [
+      'type'=>'boolean', 'sanitize_callback'=>static fn($value): int=>empty($value)?0:1, 'default'=>0,
+    ]);
+    register_setting('koopo_appt_settings', SMS_Provider::OPTION_PROVIDER, [
+      'type'=>'string', 'sanitize_callback'=>static fn($value): string=>in_array(sanitize_key((string)$value),['brevo','twilio'],true)?sanitize_key((string)$value):'brevo', 'default'=>'brevo',
+    ]);
+    register_setting('koopo_appt_settings', SMS_Provider::OPTION_BREVO_API_KEY, [
+      'type'=>'string', 'sanitize_callback'=>static fn($value): string=>SMS_Provider::sanitize_secret($value,SMS_Provider::OPTION_BREVO_API_KEY), 'default'=>'',
+    ]);
+    register_setting('koopo_appt_settings', SMS_Provider::OPTION_BREVO_SENDER, [
+      'type'=>'string', 'sanitize_callback'=>[SMS_Provider::class,'sanitize_brevo_sender'], 'default'=>'Koopo',
+    ]);
+    register_setting('koopo_appt_settings', SMS_Provider::OPTION_TWILIO_ACCOUNT_SID, [
+      'type'=>'string', 'sanitize_callback'=>[SMS_Provider::class,'sanitize_twilio_account_sid'], 'default'=>'',
+    ]);
+    register_setting('koopo_appt_settings', SMS_Provider::OPTION_TWILIO_API_KEY_SID, [
+      'type'=>'string', 'sanitize_callback'=>[SMS_Provider::class,'sanitize_twilio_api_key_sid'], 'default'=>'',
+    ]);
+    register_setting('koopo_appt_settings', SMS_Provider::OPTION_TWILIO_API_KEY_SECRET, [
+      'type'=>'string', 'sanitize_callback'=>static fn($value): string=>SMS_Provider::sanitize_secret($value,SMS_Provider::OPTION_TWILIO_API_KEY_SECRET), 'default'=>'',
+    ]);
+    register_setting('koopo_appt_settings', SMS_Provider::OPTION_TWILIO_MESSAGING_SERVICE_SID, [
+      'type'=>'string', 'sanitize_callback'=>[SMS_Provider::class,'sanitize_twilio_service_sid'], 'default'=>'',
+    ]);
+    register_setting('koopo_appt_settings', SMS_Provider::OPTION_TWILIO_FROM_NUMBER, [
+      'type'=>'string', 'sanitize_callback'=>[SMS_Provider::class,'sanitize_phone'], 'default'=>'',
+    ]);
 
     add_settings_section(
       'koopo_appt_general',
@@ -157,6 +184,20 @@ class Admin_Settings {
       [__CLASS__, 'field_email_logo'],
       'koopo-appointments-settings',
       'koopo_appt_general'
+    );
+
+    add_settings_section(
+      'koopo_appt_sms_delivery',
+      'SMS Delivery',
+      [__CLASS__, 'sms_delivery_description'],
+      'koopo-appointments-settings'
+    );
+    add_settings_field(
+      'koopo_appt_sms_credentials',
+      'Transactional SMS',
+      [__CLASS__, 'field_sms_delivery'],
+      'koopo-appointments-settings',
+      'koopo_appt_sms_delivery'
     );
 
     add_settings_section(
@@ -199,6 +240,47 @@ class Admin_Settings {
     ?>
     <p>Geocode service-profile locations and mobile coverage addresses on the server. Automatic mode uses configured free allowances first, caches successful results, and moves to the next healthy provider when a quota or provider fails.</p>
     <p><strong>Privacy:</strong> public Nominatim is never used for customer home addresses or private mobile-provider origins. API keys are encrypted and never returned to browsers.</p>
+    <?php
+  }
+
+  public static function sms_delivery_description(): void {
+    ?>
+    <span id="koopo-appt-sms-delivery"></span>
+    <p>Send a one-time appointment invitation only when a provider creates an appointment for an unregistered guest and records that guest's consent to receive the text.</p>
+    <p><strong>Privacy:</strong> credentials are encrypted at rest. Registered-customer updates continue through the Koopo inbox, push, and email rather than SMS.</p>
+    <?php
+  }
+
+  public static function field_sms_delivery(): void {
+    $status=SMS_Provider::status();$provider=$status['provider'];
+    $brevo_saved=SMS_Provider::secret(SMS_Provider::OPTION_BREVO_API_KEY)!=='';
+    $twilio_secret_saved=SMS_Provider::secret(SMS_Provider::OPTION_TWILIO_API_KEY_SECRET)!=='';
+    $notice=sanitize_key((string)($_GET['koopo_sms_test']??'')); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- display-only result.
+    $notice_code=sanitize_key((string)($_GET['koopo_sms_code']??'')); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- display-only result.
+    ?>
+    <fieldset style="max-width:780px">
+      <p><span style="display:inline-block;padding:4px 9px;border-radius:999px;background:<?php echo $status['ready']?'#def9eb':'#f0edf5'; ?>;color:<?php echo $status['ready']?'#1e6f5c':'#655d78'; ?>;font-weight:600"><?php echo esc_html($status['ready']?'Ready':'Not ready'); ?></span></p>
+      <?php if($notice==='sent'): ?><div class="notice notice-success inline"><p>Test SMS accepted by <?php echo esc_html(ucfirst($provider)); ?>.</p></div><?php elseif($notice==='failed'): ?><div class="notice notice-error inline"><p>Test SMS failed: <code><?php echo esc_html($notice_code?:'unknown_error'); ?></code></p></div><?php endif; ?>
+      <p><label><input type="checkbox" name="<?php echo esc_attr(SMS_Provider::OPTION_ENABLED); ?>" value="1" <?php checked($status['enabled']); ?> /> Enable consented guest-invitation SMS</label></p>
+      <p><label for="koopo-appt-sms-provider"><strong>Provider</strong></label><br /><select id="koopo-appt-sms-provider" name="<?php echo esc_attr(SMS_Provider::OPTION_PROVIDER); ?>"><option value="brevo" <?php selected($provider,'brevo'); ?>>Brevo</option><option value="twilio" <?php selected($provider,'twilio'); ?>>Twilio</option></select></p>
+      <div class="koopo-sms-provider-fields" data-provider="brevo">
+        <h4>Brevo</h4>
+        <p><label><strong>API key</strong><br /><input type="password" class="large-text" name="<?php echo esc_attr(SMS_Provider::OPTION_BREVO_API_KEY); ?>" value="" autocomplete="new-password" spellcheck="false" placeholder="<?php echo esc_attr($brevo_saved?'Saved securely — leave blank to keep current key':'Enter Brevo API key'); ?>" /></label><?php if($brevo_saved): ?><br /><label><input type="checkbox" name="<?php echo esc_attr(SMS_Provider::OPTION_BREVO_API_KEY.'_clear'); ?>" value="1" /> Remove saved key</label><?php endif; ?></p>
+        <p><label><strong>Sender ID</strong><br /><input type="text" class="regular-text" maxlength="15" name="<?php echo esc_attr(SMS_Provider::OPTION_BREVO_SENDER); ?>" value="<?php echo esc_attr(SMS_Provider::brevo_sender()); ?>" /></label><br /><span class="description">Letters and numbers only. Brevo may require sender registration for the destination country.</span></p>
+      </div>
+      <div class="koopo-sms-provider-fields" data-provider="twilio">
+        <h4>Twilio</h4>
+        <p><label><strong>Account SID</strong><br /><input type="text" class="large-text code" name="<?php echo esc_attr(SMS_Provider::OPTION_TWILIO_ACCOUNT_SID); ?>" value="<?php echo esc_attr(SMS_Provider::twilio_account_sid()); ?>" autocomplete="off" /></label></p>
+        <p><label><strong>API Key SID</strong><br /><input type="text" class="large-text code" name="<?php echo esc_attr(SMS_Provider::OPTION_TWILIO_API_KEY_SID); ?>" value="<?php echo esc_attr(SMS_Provider::twilio_api_key_sid()); ?>" autocomplete="off" /></label></p>
+        <p><label><strong>API Key secret</strong><br /><input type="password" class="large-text" name="<?php echo esc_attr(SMS_Provider::OPTION_TWILIO_API_KEY_SECRET); ?>" value="" autocomplete="new-password" spellcheck="false" placeholder="<?php echo esc_attr($twilio_secret_saved?'Saved securely — leave blank to keep current secret':'Enter Twilio API Key secret'); ?>" /></label><?php if($twilio_secret_saved): ?><br /><label><input type="checkbox" name="<?php echo esc_attr(SMS_Provider::OPTION_TWILIO_API_KEY_SECRET.'_clear'); ?>" value="1" /> Remove saved secret</label><?php endif; ?></p>
+        <p><label><strong>Messaging Service SID</strong><br /><input type="text" class="large-text code" name="<?php echo esc_attr(SMS_Provider::OPTION_TWILIO_MESSAGING_SERVICE_SID); ?>" value="<?php echo esc_attr(SMS_Provider::twilio_messaging_service_sid()); ?>" /></label><br /><span class="description">Preferred. Starts with <code>MG</code>. If supplied, it takes precedence over From number.</span></p>
+        <p><label><strong>From number</strong><br /><input type="tel" class="regular-text" name="<?php echo esc_attr(SMS_Provider::OPTION_TWILIO_FROM_NUMBER); ?>" value="<?php echo esc_attr(SMS_Provider::twilio_from_number()); ?>" placeholder="+13135550100" /></label></p>
+      </div>
+      <hr />
+      <p><label for="koopo-appt-sms-test-phone"><strong>Test recipient</strong></label><br /><input type="tel" id="koopo-appt-sms-test-phone" class="regular-text" placeholder="+13135550100" /> <button type="button" class="button" id="koopo-appt-sms-test-button">Send test SMS</button></p>
+      <p class="description">Save settings first. A test sends one real SMS and may incur provider charges.</p>
+    </fieldset>
+    <script>jQuery(function($){function fields(){var p=$('#koopo-appt-sms-provider').val();$('.koopo-sms-provider-fields').hide().filter('[data-provider="'+p+'"]').show();}$('#koopo-appt-sms-provider').on('change',fields);fields();$('#koopo-appt-sms-test-button').on('click',function(){var phone=$('#koopo-appt-sms-test-phone').val().trim();if(!phone){window.alert('Enter a test phone number including country code.');return;}var form=$('<form>',{method:'post',action:<?php echo wp_json_encode(admin_url('admin-post.php')); ?>}).append($('<input>',{type:'hidden',name:'action',value:'koopo_appt_sms_test'}),$('<input>',{type:'hidden',name:'test_phone',value:phone}),$('<input>',{type:'hidden',name:'_wpnonce',value:<?php echo wp_json_encode(wp_create_nonce('koopo_appt_sms_test')); ?>}));$('body').append(form);form.trigger('submit');});});</script>
     <?php
   }
 
