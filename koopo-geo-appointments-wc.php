@@ -2,13 +2,13 @@
 /**
  * Plugin Name: Koopo Appointments
  * Description: Appointments for Koopo professionals and GeoDirectory places with WooCommerce/Dokan integration.
- * Version: 0.11.0
+ * Version: 0.11.1
  * Author: Koopo
  */
 
 defined('ABSPATH') || exit;
 
-define('KOOPO_APPT_VERSION', '0.11.0');
+define('KOOPO_APPT_VERSION', '0.11.1');
 define('KOOPO_APPT_PATH', plugin_dir_path(__FILE__));
 define('KOOPO_APPT_URL', plugin_dir_url(__FILE__));
 
@@ -16,7 +16,7 @@ require_once KOOPO_APPT_PATH . 'includes/core/class-kgaw-logger.php';
 require_once KOOPO_APPT_PATH . 'includes/core/class-kgaw-module-loader.php';
 
 final class Koopo_Appointments {
-  const VERSION = '0.11.0';
+  const VERSION = '0.11.1';
   const SLUG = 'koopo-geo-appointments-wc';
 
   private static $instance = null;
@@ -70,11 +70,27 @@ final class Koopo_Appointments {
   }
 
   public function deactivate() {
-    wp_clear_scheduled_hook('koopo_appt_cleanup_pending');
-    wp_clear_scheduled_hook('koopo_appt_calendar_reconcile');
-    wp_clear_scheduled_hook('koopo_appt_calendar_refresh_busy');
-    wp_clear_scheduled_hook('koopo_appt_waitlist_expire_offers');
-    wp_clear_scheduled_hook('koopo_appt_send_intake_request');
+    $hooks = [
+      'koopo_appt_cleanup_pending',
+      'koopo_appt_calendar_reconcile',
+      'koopo_appt_calendar_refresh_busy',
+      'koopo_appt_calendar_sync_booking',
+      'koopo_appt_waitlist_expire_offers',
+      'koopo_appt_send_intake_request',
+      'koopo_appt_send_reminders',
+      'koopo_appt_send_review_invites',
+      'koopo_appt_pending_payment_notice',
+      'koopo_appt_rebuild_bookable_index',
+      'koopo_appt_sync_bookable_service',
+      'koopo_appt_sync_bookable_listing',
+    ];
+    foreach ($hooks as $hook) wp_clear_scheduled_hook($hook);
+    if (function_exists('as_unschedule_all_actions')) {
+      as_unschedule_all_actions('koopo_appt_calendar_sync_booking', [], 'koopo-appointments-calendar');
+      as_unschedule_all_actions('koopo_appt_rebuild_bookable_index', [], 'koopo-appointments-index');
+      as_unschedule_all_actions('koopo_appt_sync_bookable_service', [], 'koopo-appointments-index');
+      as_unschedule_all_actions('koopo_appt_sync_bookable_listing', [], 'koopo-appointments-index');
+    }
   }
 
   public function boot() {

@@ -340,12 +340,19 @@ final class Calendar_API {
   public static function disconnect(\WP_REST_Request $request) {
     $connection = Calendar_Repository::get_connection(absint($request['id']), get_current_user_id());
     if (!$connection) return new \WP_Error('not_found', 'Calendar connection was not found.', ['status' => 404]);
+    if (!Admin_Settings::calendar_provider_enabled((string) $connection->provider)) {
+      return new \WP_Error('calendar_provider_disabled', 'This calendar provider must be enabled before Koopo can safely remove its external events and disconnect it.', ['status' => 409]);
+    }
     foreach (Calendar_Repository::list_bindings_for_user(get_current_user_id()) as $binding) {
       if ((int) $binding->connection_id === (int) $connection->id) {
-        Calendar_Sync::remove_binding_events($binding, true);
+        try {
+          Calendar_Sync::remove_binding_events($binding, false);
+        } catch (\Throwable $error) {
+          Logger::warning('calendar_disconnect_cleanup_failed', ['connection_id'=>(int)$connection->id, 'binding_id'=>(int)$binding->id, 'provider'=>(string)$connection->provider, 'error'=>$error->getMessage()]);
+          return new \WP_Error('calendar_disconnect_cleanup_failed', 'Koopo could not remove its external calendar events. The connection was preserved so cleanup can be retried.', ['status' => 502]);
+        }
       }
     }
-    // Credential removal always wins even if the provider rejected event cleanup.
     Calendar_Repository::delete_connection((int) $connection->id, get_current_user_id());
     return new \WP_REST_Response(['deleted' => true], 200);
   }

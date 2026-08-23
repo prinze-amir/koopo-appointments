@@ -6,6 +6,8 @@ defined('ABSPATH') || exit;
 /** Provider-private client history and service-specific intake/consent forms. */
 final class Client_Records {
   const REQUEST_HOOK = 'koopo_appt_send_intake_request';
+  const CONSENT_VERSION = '2026-08-23.1';
+  const CONSENT_DISCLOSURE = 'I confirm that the information provided is accurate and I consent to this electronic submission and electronic signature.';
 
   public static function init(): void {
     add_action('rest_api_init', [__CLASS__, 'routes']);
@@ -39,7 +41,6 @@ final class Client_Records {
       'form_id'=>$id_arg,
       'answers'=>['type'=>'object','required'=>true,'maxProperties'=>50,'validate_callback'=>'rest_validate_request_arg'],
       'signature_name'=>['type'=>'string','maxLength'=>191,'validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'sanitize_text_field'],
-      'consent_text'=>['type'=>'string','maxLength'=>2000,'validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'sanitize_textarea_field'],
     ]]);
   }
 
@@ -98,7 +99,15 @@ final class Client_Records {
     if (!$client_id) return;
     $forms = self::required_forms($resource_id, (int)$booking->service_id);
     foreach ($forms as $form) {
-      $snapshot = wp_json_encode(['title'=>(string)$form->title,'description'=>(string)$form->description,'fields'=>(array)json_decode((string)$form->fields_json,true),'requires_signature'=>(bool)$form->requires_signature]);
+      $requires_signature = (bool) $form->requires_signature;
+      $snapshot = wp_json_encode([
+        'title'=>(string)$form->title,
+        'description'=>(string)$form->description,
+        'fields'=>(array)json_decode((string)$form->fields_json,true),
+        'requires_signature'=>$requires_signature,
+        'consent_version'=>$requires_signature ? self::CONSENT_VERSION : '',
+        'consent_text'=>$requires_signature ? self::CONSENT_DISCLOSURE : '',
+      ]);
       $wpdb->query($wpdb->prepare('INSERT IGNORE INTO '.DB::form_submissions_table().' (form_id,booking_id,client_id,customer_id,status,requested_at,answers_json,form_snapshot_json) VALUES (%d,%d,%d,%d,"pending",UTC_TIMESTAMP(),"{}",%s)',(int)$form->id,$booking_id,$client_id,(int)$booking->customer_id,$snapshot));
       try { $zone = new \DateTimeZone((string)($booking->timezone ?: 'UTC')); } catch (\Throwable $error) { $zone = new \DateTimeZone('UTC'); }
       $send_at = (new \DateTimeImmutable((string)$booking->start_datetime,$zone))->getTimestamp() - ((int)$form->send_hours_before * HOUR_IN_SECONDS);
@@ -158,14 +167,115 @@ final class Client_Records {
 
   public static function delete_form(\WP_REST_Request $request){global $wpdb;$form=$wpdb->get_row($wpdb->prepare('SELECT * FROM '.DB::client_forms_table().' WHERE id=%d',absint($request['id'])));if(!$form||!Resources::can_manage((int)$form->resource_id))return self::forbidden();$wpdb->update(DB::client_forms_table(),['enabled'=>0],['id'=>(int)$form->id]);return new \WP_REST_Response(null,204);}
 
-  public static function booking_forms(\WP_REST_Request $request){$booking=Bookings::get_booking(absint($request['booking_id']));if(!$booking||(int)$booking->customer_id!==get_current_user_id())return self::forbidden();global $wpdb;$rows=$wpdb->get_results($wpdb->prepare('SELECT f.*,s.status submission_status,s.completed_at FROM '.DB::client_forms_table().' f INNER JOIN '.DB::form_submissions_table().' s ON s.form_id=f.id WHERE s.booking_id=%d AND s.customer_id=%d ORDER BY f.title',(int)$booking->id,get_current_user_id()))?:[];return new \WP_REST_Response(array_map([__CLASS__,'format_form'],$rows),200);}
+  public static function booking_forms(\WP_REST_Request $request){$booking=Bookings::get_booking(absint($request['booking_id']));if(!$booking||(int)$booking->customer_id!==get_current_user_id())return self::forbidden();global $wpdb;$rows=$wpdb->get_results($wpdb->prepare('SELECT f.*,s.status submission_status,s.completed_at,s.form_snapshot_json FROM '.DB::client_forms_table().' f INNER JOIN '.DB::form_submissions_table().' s ON s.form_id=f.id WHERE s.booking_id=%d AND s.customer_id=%d ORDER BY f.title',(int)$booking->id,get_current_user_id()))?:[];return new \WP_REST_Response(array_map([__CLASS__,'format_form'],$rows),200);}
 
-  public static function submit_form(\WP_REST_Request $request){$booking=Bookings::get_booking(absint($request['booking_id']));if(!$booking||(int)$booking->customer_id!==get_current_user_id())return self::forbidden();global $wpdb;$form=$wpdb->get_row($wpdb->prepare('SELECT f.*,s.id submission_id,s.form_snapshot_json FROM '.DB::client_forms_table().' f INNER JOIN '.DB::form_submissions_table().' s ON s.form_id=f.id WHERE f.id=%d AND s.booking_id=%d AND s.customer_id=%d',absint($request['form_id']),(int)$booking->id,get_current_user_id()));if(!$form)return new \WP_Error('form_not_found','That form is not required for this appointment.',['status'=>404]);$snapshot=(array)json_decode((string)$form->form_snapshot_json,true);$fields=!empty($snapshot['fields'])?(array)$snapshot['fields']:(array)json_decode((string)$form->fields_json,true);$requires_signature=array_key_exists('requires_signature',$snapshot)?!empty($snapshot['requires_signature']):(bool)$form->requires_signature;$p=(array)$request->get_json_params();$answers=(array)($p['answers']??[]);if(count($answers)>50||strlen((string)wp_json_encode($answers))>65535)return new \WP_Error('answers_too_large','The form response is too large.',['status'=>413]);foreach($fields as $field)if(!empty($field['required'])&&trim((string)($answers[$field['id']]??''))==='')return new \WP_Error('required_answer',sprintf('Answer “%s”.',$field['label']),['status'=>422]);$signature=sanitize_text_field((string)($p['signature_name']??''));if($requires_signature&&!$signature)return new \WP_Error('signature_required','Type your full legal name to sign.',['status'=>422]);$clean=[];foreach($answers as $key=>$value)$clean[sanitize_key((string)$key)]=is_array($value)?array_map('sanitize_text_field',$value):sanitize_textarea_field((string)$value);$now=current_time('mysql',true);$answers_json=wp_json_encode($clean);$consent=$requires_signature?sanitize_textarea_field((string)($p['consent_text']??__('I confirm that the information provided is accurate and I consent to this electronic submission.','koopo-appointments'))):'';$evidence=implode('|',[$signature,$booking->id,$form->id,(string)$form->form_snapshot_json,$consent,$answers_json,$now]);$signature_hash=$signature?hash_hmac('sha256',$evidence,wp_salt('auth')):'';$ip_hash=$signature?hash_hmac('sha256',(string)($_SERVER['REMOTE_ADDR']??''),wp_salt('nonce')):'';$agent_hash=$signature?hash_hmac('sha256',(string)($_SERVER['HTTP_USER_AGENT']??''),wp_salt('nonce')):'';$wpdb->update(DB::form_submissions_table(),['answers_json'=>$answers_json,'consent_text'=>$consent,'signature_name'=>$signature,'signature_hash'=>$signature_hash,'signer_ip_hash'=>$ip_hash,'user_agent_hash'=>$agent_hash,'signed_at'=>$signature?$now:null,'status'=>'completed','completed_at'=>$now],['id'=>(int)$form->submission_id]);return new \WP_REST_Response(['completed'=>true,'completed_at'=>$now],200);}
+  public static function submit_form(\WP_REST_Request $request) {
+    $booking = Bookings::get_booking(absint($request['booking_id']));
+    if (!$booking || (int) $booking->customer_id !== get_current_user_id()) return self::forbidden();
+
+    global $wpdb;
+    $form = $wpdb->get_row($wpdb->prepare(
+      'SELECT f.*,s.id submission_id,s.status submission_status,s.form_snapshot_json FROM '.DB::client_forms_table().' f INNER JOIN '.DB::form_submissions_table().' s ON s.form_id=f.id WHERE f.id=%d AND s.booking_id=%d AND s.customer_id=%d',
+      absint($request['form_id']),
+      (int) $booking->id,
+      get_current_user_id()
+    ));
+    if (!$form) return new \WP_Error('form_not_found', 'That form is not required for this appointment.', ['status'=>404]);
+    if ((string) $form->submission_status === 'completed') return new \WP_Error('form_already_completed', 'That form has already been completed.', ['status'=>409]);
+
+    $snapshot = (array) json_decode((string) $form->form_snapshot_json, true);
+    $fields = !empty($snapshot['fields']) ? (array) $snapshot['fields'] : (array) json_decode((string) $form->fields_json, true);
+    $requires_signature = array_key_exists('requires_signature', $snapshot) ? !empty($snapshot['requires_signature']) : (bool) $form->requires_signature;
+    $payload = (array) $request->get_json_params();
+    $answers = (array) ($payload['answers'] ?? []);
+    if (count($answers) > 50 || strlen((string) wp_json_encode($answers)) > 65535) {
+      return new \WP_Error('answers_too_large', 'The form response is too large.', ['status'=>413]);
+    }
+
+    $clean = self::validate_submission_answers($fields, $answers);
+    if (is_wp_error($clean)) return $clean;
+
+    $signature = sanitize_text_field((string) ($payload['signature_name'] ?? ''));
+    if ($requires_signature && $signature === '') return new \WP_Error('signature_required', 'Type your full legal name to sign.', ['status'=>422]);
+    $consent = $requires_signature ? (string) ($snapshot['consent_text'] ?? self::CONSENT_DISCLOSURE) : '';
+    $consent_version = $requires_signature ? (string) ($snapshot['consent_version'] ?? self::CONSENT_VERSION) : '';
+    if ($requires_signature && ($consent === '' || $consent_version === '')) {
+      return new \WP_Error('consent_snapshot_invalid', 'This form is missing its consent disclosure. Contact the provider.', ['status'=>409]);
+    }
+
+    $now = current_time('mysql', true);
+    $answers_json = wp_json_encode($clean);
+    $evidence = implode('|', [$signature, $booking->id, $form->id, (string) $form->form_snapshot_json, $consent_version, $consent, $answers_json, $now]);
+    $signature_hash = $signature ? hash_hmac('sha256', $evidence, wp_salt('auth')) : '';
+    $ip_hash = $signature ? hash_hmac('sha256', (string) ($_SERVER['REMOTE_ADDR'] ?? ''), wp_salt('nonce')) : '';
+    $agent_hash = $signature ? hash_hmac('sha256', (string) ($_SERVER['HTTP_USER_AGENT'] ?? ''), wp_salt('nonce')) : '';
+    $updated = $wpdb->update(DB::form_submissions_table(), [
+      'answers_json'=>$answers_json,
+      'consent_text'=>$consent,
+      'signature_name'=>$signature,
+      'signature_hash'=>$signature_hash,
+      'signer_ip_hash'=>$ip_hash,
+      'user_agent_hash'=>$agent_hash,
+      'signed_at'=>$signature ? $now : null,
+      'status'=>'completed',
+      'completed_at'=>$now,
+    ], ['id'=>(int)$form->submission_id, 'status'=>'pending']);
+    if ($updated !== 1) return new \WP_Error('form_submission_conflict', 'The form could not be completed. Refresh and try again.', ['status'=>409]);
+
+    return new \WP_REST_Response(['completed'=>true, 'completed_at'=>$now], 200);
+  }
+
+  private static function validate_submission_answers(array $fields, array $answers) {
+    $definitions = [];
+    foreach ($fields as $field) {
+      if (!is_array($field)) continue;
+      $id = sanitize_key((string) ($field['id'] ?? ''));
+      if ($id !== '') $definitions[$id] = $field;
+    }
+    foreach ($answers as $key => $_value) {
+      $id = sanitize_key((string) $key);
+      if ($id === '' || !isset($definitions[$id]) || $id !== (string) $key) {
+        return new \WP_Error('unknown_form_answer', 'The form response contains an unknown question.', ['status'=>422]);
+      }
+    }
+
+    $clean = [];
+    foreach ($definitions as $id => $field) {
+      $type = sanitize_key((string) ($field['type'] ?? 'text'));
+      $value = $answers[$id] ?? null;
+      $empty = $value === null || $value === '' || (is_array($value) && !$value);
+      if (!empty($field['required']) && ($empty || ($type === 'checkbox' && !rest_sanitize_boolean($value)))) {
+        return new \WP_Error('required_answer', sprintf('Answer “%s”.', sanitize_text_field((string) ($field['label'] ?? $id))), ['status'=>422]);
+      }
+      if ($empty) { $clean[$id] = $type === 'checkbox' ? false : ''; continue; }
+      if ($type === 'checkbox') {
+        if (!is_bool($value) && !in_array($value, [0, 1, '0', '1', 'true', 'false'], true)) return new \WP_Error('invalid_form_answer', 'A checkbox answer is invalid.', ['status'=>422]);
+        $clean[$id] = rest_sanitize_boolean($value);
+      } elseif ($type === 'select') {
+        if (!is_scalar($value)) return new \WP_Error('invalid_form_answer', 'A selected answer is invalid.', ['status'=>422]);
+        $selected = sanitize_text_field((string) $value);
+        $options = array_values(array_map('sanitize_text_field', (array) ($field['options'] ?? [])));
+        if (!in_array($selected, $options, true)) return new \WP_Error('invalid_form_answer', 'A selected answer is not an available option.', ['status'=>422]);
+        $clean[$id] = $selected;
+      } elseif ($type === 'date') {
+        $date = sanitize_text_field((string) $value);
+        $parts = preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $date, $matches) ? $matches : [];
+        if (!$parts || !checkdate((int) $parts[2], (int) $parts[3], (int) $parts[1])) return new \WP_Error('invalid_form_answer', 'A date answer is invalid.', ['status'=>422]);
+        $clean[$id] = $date;
+      } else {
+        if (!is_scalar($value)) return new \WP_Error('invalid_form_answer', 'A text answer is invalid.', ['status'=>422]);
+        $text = $type === 'textarea' ? sanitize_textarea_field((string) $value) : sanitize_text_field((string) $value);
+        if (strlen($text) > 10000) return new \WP_Error('invalid_form_answer', 'A form answer is too long.', ['status'=>422]);
+        $clean[$id] = $text;
+      }
+    }
+    return $clean;
+  }
 
   public static function send_form_request(int $booking_id,int $form_id):void{$booking=Bookings::get_booking($booking_id);if(!$booking||(string)$booking->status!=='confirmed')return;global $wpdb;$form=$wpdb->get_row($wpdb->prepare('SELECT f.*,s.status submission_status FROM '.DB::client_forms_table().' f INNER JOIN '.DB::form_submissions_table().' s ON s.form_id=f.id WHERE f.id=%d AND s.booking_id=%d',$form_id,$booking_id));if(!$form||$form->submission_status==='completed')return;$email=(string)Bookings::extra_from_record($booking,'customer_email','');if(!$email&&$booking->customer_id){$user=get_userdata((int)$booking->customer_id);$email=$user?(string)$user->user_email:'';}if(!$email)return;$url=class_exists(MyAccount::class)?MyAccount::appointments_url():home_url('/');wp_mail($email,sprintf(__('Please complete %s before your appointment','koopo-appointments'),$form->title),sprintf("Your provider requires this private form before your appointment.\n\n%s",$url));}
 
   private static function required_forms(int $resource_id,int $service_id):array{global $wpdb;return $wpdb->get_results($wpdb->prepare('SELECT * FROM '.DB::client_forms_table().' WHERE resource_id=%d AND enabled=1 AND (service_id IS NULL OR service_id=0 OR service_id=%d)',$resource_id,$service_id))?:[];}
   private static function format_client(object $r):array{return ['id'=>(int)$r->id,'resource_id'=>(int)$r->resource_id,'wp_user_id'=>(int)$r->wp_user_id,'name'=>(string)$r->name,'email'=>(string)$r->email,'phone'=>(string)$r->phone,'birthday'=>$r->birthday,'preferences'=>(string)$r->preferences,'formulas'=>(string)$r->formulas,'private_notes'=>(string)$r->private_notes,'appointment_count'=>(int)($r->appointment_count??0),'last_appointment'=>$r->last_appointment??null,'created_at'=>$r->created_at];}
-  private static function format_form(object $r):array{return ['id'=>(int)$r->id,'resource_id'=>(int)$r->resource_id,'service_id'=>(int)$r->service_id,'title'=>(string)$r->title,'description'=>(string)$r->description,'fields'=>(array)json_decode((string)$r->fields_json,true),'requires_signature'=>(bool)$r->requires_signature,'send_hours_before'=>(int)$r->send_hours_before,'enabled'=>(bool)$r->enabled,'submission_status'=>(string)($r->submission_status??''),'completed_at'=>$r->completed_at??null];}
+  private static function format_form(object $r):array{$snapshot=!empty($r->form_snapshot_json)?(array)json_decode((string)$r->form_snapshot_json,true):[];$signed=array_key_exists('requires_signature',$snapshot)?!empty($snapshot['requires_signature']):(bool)$r->requires_signature;return ['id'=>(int)$r->id,'resource_id'=>(int)$r->resource_id,'service_id'=>(int)$r->service_id,'title'=>(string)($snapshot['title']??$r->title),'description'=>(string)($snapshot['description']??$r->description),'fields'=>!empty($snapshot['fields'])?(array)$snapshot['fields']:(array)json_decode((string)$r->fields_json,true),'requires_signature'=>$signed,'consent_version'=>$signed?(string)($snapshot['consent_version']??self::CONSENT_VERSION):'','consent_text'=>$signed?(string)($snapshot['consent_text']??self::CONSENT_DISCLOSURE):'','send_hours_before'=>(int)$r->send_hours_before,'enabled'=>(bool)$r->enabled,'submission_status'=>(string)($r->submission_status??''),'completed_at'=>$r->completed_at??null];}
   private static function forbidden():\WP_Error{return new \WP_Error('forbidden','You cannot access that private client record.',['status'=>403]);}
 }

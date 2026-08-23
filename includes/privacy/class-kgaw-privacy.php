@@ -119,12 +119,25 @@ final class Privacy {
 
     $client_where = $user_id > 0 ? '(wp_user_id = %d OR email = %s)' : 'email = %s';
     $client_args = $user_id > 0 ? [$user_id, $email] : [$email];
+    $client_query_args = array_merge($client_args, [self::PAGE_SIZE]);
     $client_ids = array_map('absint', $wpdb->get_col($wpdb->prepare(
-      'SELECT id FROM ' . DB::clients_table() . " WHERE {$client_where}",
-      $client_args
+      'SELECT id FROM ' . DB::clients_table() . " WHERE {$client_where} ORDER BY id ASC LIMIT %d",
+      $client_query_args
     )) ?: []);
     $retained_files = 0;
     foreach ($client_ids as $client_id) {
+      $files = $wpdb->get_results($wpdb->prepare('SELECT * FROM ' . DB::client_files_table() . ' WHERE client_id = %d ORDER BY id ASC', $client_id)) ?: [];
+      $client_release_failed = false;
+      foreach ($files as $file) {
+        $released = apply_filters('koopo_appt_privacy_release_client_file', null, $file);
+        if ($released === true) {
+          $wpdb->delete(DB::client_files_table(), ['id'=>(int)$file->id], ['%d']);
+          $removed = true;
+        } else {
+          $client_release_failed = true;
+          $retained_files++;
+        }
+      }
       $wpdb->update(DB::form_submissions_table(), [
         'answers_json' => '{}',
         'consent_text' => '',
@@ -134,7 +147,7 @@ final class Privacy {
         'user_agent_hash' => '',
         'signed_at' => null,
       ], ['client_id' => $client_id]);
-      $retained_files += (int) $wpdb->get_var($wpdb->prepare('SELECT COUNT(*) FROM ' . DB::client_files_table() . ' WHERE client_id = %d', $client_id));
+      if ($client_release_failed) continue;
       $wpdb->update(DB::clients_table(), [
         'wp_user_id' => null,
         'name' => __('Anonymous customer', 'koopo-appointments'),
@@ -150,7 +163,8 @@ final class Privacy {
 
     $waitlist_where = $user_id > 0 ? '(customer_id = %d OR customer_email = %s)' : 'customer_email = %s';
     $waitlist_args = $user_id > 0 ? [$user_id, $email] : [$email];
-    $waitlist_ids = array_map('absint', $wpdb->get_col($wpdb->prepare('SELECT id FROM ' . DB::waitlist_table() . " WHERE {$waitlist_where}", $waitlist_args)) ?: []);
+    $waitlist_query_args = array_merge($waitlist_args, [self::PAGE_SIZE]);
+    $waitlist_ids = array_map('absint', $wpdb->get_col($wpdb->prepare('SELECT id FROM ' . DB::waitlist_table() . " WHERE {$waitlist_where} ORDER BY id ASC LIMIT %d", $waitlist_query_args)) ?: []);
     if ($waitlist_ids) {
       $placeholders = implode(',', array_fill(0, count($waitlist_ids), '%d'));
       $wpdb->query($wpdb->prepare('DELETE FROM ' . DB::waitlist_offers_table() . " WHERE waitlist_id IN ({$placeholders})", $waitlist_ids));
@@ -160,20 +174,23 @@ final class Privacy {
 
     $messages = [];
     if ($retained_files > 0) {
-      $messages[] = __('Private provider-held attachments were retained. They require removal through the provider client-file workflow so the remote Media Gateway reference can also be released.', 'koopo-appointments');
+      $messages[] = __('Some private provider-held attachments could not be released through Media Gateway. Their client records were retained so erasure can be retried safely.', 'koopo-appointments');
     }
+    $bookings_remaining = (bool) $wpdb->get_var($wpdb->prepare('SELECT id FROM ' . DB::table() . " WHERE {$where} LIMIT 1", $user_id > 0 ? [$user_id, $email] : [$email]));
+    $clients_remaining = (bool) $wpdb->get_var($wpdb->prepare('SELECT id FROM ' . DB::clients_table() . " WHERE {$client_where} LIMIT 1", $client_args));
+    $waitlist_remaining = (bool) $wpdb->get_var($wpdb->prepare('SELECT id FROM ' . DB::waitlist_table() . " WHERE {$waitlist_where} LIMIT 1", $waitlist_args));
     return [
       'items_removed' => $removed,
       'items_retained' => $retained_files > 0,
       'messages' => $messages,
-      'done' => count($booking_ids) < self::PAGE_SIZE,
+      'done' => !$bookings_remaining && !$clients_remaining && !$waitlist_remaining && $retained_files === 0,
     ];
   }
 
   public static function privacy_policy_content(): void {
     if (!function_exists('wp_add_privacy_policy_content')) return;
     wp_add_privacy_policy_content('Koopo Appointments', wp_kses_post(
-      '<p>' . __('Koopo Appointments stores appointment contact details, delivery addresses for mobile services, service history, provider-private notes, intake answers, signatures, calendar identifiers, and references to remotely stored client files. Configure a documented retention period and Media Gateway erasure procedure before accepting production appointments.', 'koopo-appointments') . '</p>'
+      '<p>' . __('Koopo Appointments stores appointment contact details, delivery addresses for mobile services, service history, provider-private notes, intake answers, signatures, calendar identifiers, and references to remotely stored client files. WordPress erasure requests release eligible remote client-file references through Media Gateway before removing local records; site-specific legal retention holds may retain applicable records.', 'koopo-appointments') . '</p>'
     ));
   }
 

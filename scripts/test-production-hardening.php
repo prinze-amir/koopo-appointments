@@ -54,6 +54,14 @@ namespace Koopo_Appointments {
   expect(strpos($source('includes/privacy/class-kgaw-privacy.php'), 'wp_privacy_personal_data_erasers') !== false, 'WordPress privacy eraser is missing.');
   expect(strpos($source('includes/geocoding/class-kgaw-geocoding-router.php'), "privacy_class'] !== self::PUBLIC_PRIVACY_CLASS") !== false, 'Public geocoder privacy guard is missing.');
   expect(strpos($source('includes/core/class-kgaw-db.php'), 'form_snapshot_json') !== false, 'Immutable intake form snapshot schema is missing.');
+  $clients = $source('includes/clients/class-kgaw-client-records.php');
+  expect(strpos($clients, "const CONSENT_VERSION = '2026-08-23.1'") !== false, 'Versioned intake consent disclosure is missing.');
+  expect(strpos($clients, "\$payload['consent_text']") === false, 'Customer-supplied intake consent text is still trusted.');
+  expect(strpos($clients, "['id'=>(int)\$form->submission_id, 'status'=>'pending']") !== false, 'Intake completion is not concurrency guarded.');
+  expect(strpos($clients, 'unknown_form_answer') !== false && strpos($clients, 'validate_submission_answers') !== false, 'Intake answers are not validated against the immutable form snapshot.');
+  expect(strpos($source('includes/providers/class-kgaw-provider-profiles.php'), "Resources::for_subject('provider', \$provider_id)") !== false, 'Public provider formatting can still create booking resources.');
+  $privacy = $source('includes/privacy/class-kgaw-privacy.php');
+  expect(strpos($privacy, 'koopo_appt_privacy_release_client_file') !== false && strpos($privacy, "'done' => !\$bookings_remaining") !== false, 'Reference-aware paginated client-file erasure is missing.');
 
   echo "production hardening tests passed\n";
 }

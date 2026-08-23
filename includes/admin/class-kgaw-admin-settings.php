@@ -152,7 +152,7 @@ class Admin_Settings {
       'type'=>'boolean', 'sanitize_callback'=>static fn($value): int=>empty($value)?0:1, 'default'=>0,
     ]);
     register_setting('koopo_appt_settings', SMS_Provider::OPTION_PROVIDER, [
-      'type'=>'string', 'sanitize_callback'=>static fn($value): string=>in_array(sanitize_key((string)$value),['brevo','twilio'],true)?sanitize_key((string)$value):'brevo', 'default'=>'brevo',
+      'type'=>'string', 'sanitize_callback'=>static fn($value): string=>in_array(sanitize_key((string)$value),SMS_Provider::SUPPORTED_PROVIDERS,true)?sanitize_key((string)$value):'brevo', 'default'=>'brevo',
     ]);
     register_setting('koopo_appt_settings', SMS_Provider::OPTION_BREVO_API_KEY, [
       'type'=>'string', 'sanitize_callback'=>static fn($value): string=>SMS_Provider::sanitize_secret($value,SMS_Provider::OPTION_BREVO_API_KEY), 'default'=>'',
@@ -312,15 +312,16 @@ class Admin_Settings {
         <label style="display:inline-block;"><input type="checkbox" name="<?php echo esc_attr(SMS_Usage::OPTION_MONTHLY_LIMIT_ENABLED); ?>" value="1" <?php checked(SMS_Usage::limit_enabled('monthly')); ?> /> Enforce monthly limit<br /><input type="number" min="1" max="10000000" step="1" name="<?php echo esc_attr(SMS_Usage::OPTION_MONTHLY_LIMIT); ?>" value="<?php echo esc_attr(SMS_Usage::limit('monthly')); ?>" /></label>
       </p>
       <p class="description">Koopo reserves quota before contacting the provider, so concurrent requests cannot exceed these global caps. Accepted sends count as used; definitive failures release the reservation.</p>
-      <p><label for="koopo-appt-sms-provider"><strong>Provider</strong></label><br /><select id="koopo-appt-sms-provider" name="<?php echo esc_attr(SMS_Provider::OPTION_PROVIDER); ?>"><option value="brevo" <?php selected($provider,'brevo'); ?>>Brevo</option><option value="twilio" <?php selected($provider,'twilio'); ?>>Twilio</option></select></p>
+      <p><label for="koopo-appt-sms-provider"><strong>Provider</strong></label><br /><select id="koopo-appt-sms-provider" name="<?php echo esc_attr(SMS_Provider::OPTION_PROVIDER); ?>"><option value="brevo" <?php selected($provider,'brevo'); ?>>Brevo</option></select></p>
       <div class="koopo-sms-provider-fields" data-provider="brevo">
         <h4>Brevo</h4>
         <div class="notice notice-warning inline"><p><strong>US/Canada compliance:</strong> Brevo requires an approved toll-free number before transactional SMS can reliably reach US or Canadian recipients. API acceptance is not delivery confirmation. <a href="https://app.brevo.com/sms-compliance/client-details?country=USA%20%26%20Canada" target="_blank" rel="noopener noreferrer">Open Brevo registration</a>.</p></div>
         <p><label><strong>API key</strong><br /><input type="password" class="large-text" name="<?php echo esc_attr(SMS_Provider::OPTION_BREVO_API_KEY); ?>" value="" autocomplete="new-password" spellcheck="false" placeholder="<?php echo esc_attr($brevo_saved?'Saved securely — leave blank to keep current key':'Enter Brevo API key'); ?>" /></label><?php if($brevo_saved): ?><br /><label><input type="checkbox" name="<?php echo esc_attr(SMS_Provider::OPTION_BREVO_API_KEY.'_clear'); ?>" value="1" /> Remove saved key</label><?php endif; ?></p>
         <p><label><strong>Sender ID</strong><br /><input type="text" class="regular-text" maxlength="15" name="<?php echo esc_attr(SMS_Provider::OPTION_BREVO_SENDER); ?>" value="<?php echo esc_attr(SMS_Provider::brevo_sender()); ?>" /></label><br /><span class="description">Letters and numbers only. Brevo may require sender registration for the destination country.</span></p>
       </div>
-      <div class="koopo-sms-provider-fields" data-provider="twilio">
+      <div class="koopo-sms-provider-fields" data-provider="twilio" hidden>
         <h4>Twilio</h4>
+        <div class="notice notice-warning inline"><p>Twilio is unavailable until signed delivery, STOP, and HELP webhooks are implemented.</p></div>
         <p><label><strong>Account SID</strong><br /><input type="text" class="large-text code" name="<?php echo esc_attr(SMS_Provider::OPTION_TWILIO_ACCOUNT_SID); ?>" value="<?php echo esc_attr(SMS_Provider::twilio_account_sid()); ?>" autocomplete="off" /></label></p>
         <p><label><strong>API Key SID</strong><br /><input type="text" class="large-text code" name="<?php echo esc_attr(SMS_Provider::OPTION_TWILIO_API_KEY_SID); ?>" value="<?php echo esc_attr(SMS_Provider::twilio_api_key_sid()); ?>" autocomplete="off" /></label></p>
         <p><label><strong>API Key secret</strong><br /><input type="password" class="large-text" name="<?php echo esc_attr(SMS_Provider::OPTION_TWILIO_API_KEY_SECRET); ?>" value="" autocomplete="new-password" spellcheck="false" placeholder="<?php echo esc_attr($twilio_secret_saved?'Saved securely — leave blank to keep current secret':'Enter Twilio API Key secret'); ?>" /></label><?php if($twilio_secret_saved): ?><br /><label><input type="checkbox" name="<?php echo esc_attr(SMS_Provider::OPTION_TWILIO_API_KEY_SECRET.'_clear'); ?>" value="1" /> Remove saved secret</label><?php endif; ?></p>

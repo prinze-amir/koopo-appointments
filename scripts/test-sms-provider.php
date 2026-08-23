@@ -16,10 +16,10 @@ $compliance=$read('includes/notifications/class-kgaw-sms-compliance.php');
 $transactional=$read('includes/notifications/class-kgaw-transactional-sms.php');
 
 $receipts=$read('includes/notifications/class-kgaw-sms-delivery-receipts.php');
-$expect(strpos($plugin,"Version: 0.11.0")!==false&&strpos($loader,"[SMS_Provider::class, 'init']")!==false&&strpos($loader,"[SMS_Delivery_Receipts::class, 'init']")!==false,'SMS release or provider initialization is missing.');
+$expect(strpos($plugin,"Version: 0.11.1")!==false&&strpos($loader,"[SMS_Provider::class, 'init']")!==false&&strpos($loader,"[SMS_Delivery_Receipts::class, 'init']")!==false,'SMS release or provider initialization is missing.');
 $expect(strpos($provider,'https://api.brevo.com/v3/transactionalSMS/send')!==false&&strpos($provider,'/transactionalSMS/sms')===false,'Brevo does not use the current transactional SMS endpoint.');
 $expect(strpos($provider,'https://api.brevo.com/v3/account')!==false&&strpos($provider,"['type'] ?? '')) === 'sms'")!==false,'Brevo SMS credit lookup is missing.');
-$expect(strpos($provider,'https://api.twilio.com/2010-04-01/Accounts/')!==false&&strpos($provider,"'Authorization'=>'Basic '")!==false,'Twilio message transport or authentication is missing.');
+$expect(strpos($provider,"const SUPPORTED_PROVIDERS = ['brevo']")!==false&&strpos($admin,'<option value="twilio"')===false,'Incomplete Twilio support remains selectable in production.');
 $expect(strpos($provider,"Calendar_Crypto::encrypt(['secret'=>\$value])")!==false&&strpos($provider,"autocomplete=\"new-password\"")===false,'SMS secret encryption contract is missing.');
 $expect(strpos($provider,"\$status === 408 || \$status === 429 || \$status >= 500")!==false,'Retryable provider failures are not classified.');
 $expect(strpos($provider,"'accepted'=>true")!==false&&strpos($provider,"'provider_message_id'=>\$message_id")!==false,'Provider acceptance requires no message ID.');
@@ -34,6 +34,8 @@ $expect(strpos($receipts,"'unsubscribe'=>'unsubscribed'")!==false&&strpos($recei
 $expect(strpos($compliance,"hash_hmac('sha256'")!==false&&strpos($db,'phone_hash CHAR(64)')!==false&&strpos($db,'phone_number VARCHAR')===false,'Suppression storage is not privacy safe.');
 $expect(strpos($compliance,"const HELP_KEYWORDS = ['help', 'info']")!==false&&strpos($compliance,"const STOP_KEYWORDS")!==false,'STOP and HELP keywords are not classified.');
 $expect(strpos($transactional,'SMS_Compliance::is_suppressed')!==false&&strpos($transactional,'sms_recipient_suppressed')!==false,'Transactional SMS does not fail closed for suppressed phones.');
+$expect(strpos($provider,'SMS_Compliance::is_suppressed($phone)')!==false&&strpos($provider,"self::failure('sms_recipient_suppressed'")!==false,'SMS suppression is not enforced at the transport boundary.');
+$expect(strpos($receipts,'phone_has_consent_history')!==false&&strpos($receipts,'INSERT IGNORE INTO')===false,'Inbound SMS events are not correlated to Koopo consent or known receipts.');
 $expect(strpos($admin,'Remove saved key')!==false&&strpos($admin,'Remove saved secret')!==false,'Credential removal controls are missing.');
 $expect(strpos($admin,'Guest')===false||strpos($admin,"guest's consent")!==false,'SMS settings do not explain the consent boundary.');
 $expect(strpos($vendor_template,"SMS_Provider::status()")!==false&&strpos($vendor_template,"disabled(empty(\$koopo_sms_status['ready']))")!==false,'Vendors can select SMS while the transport is not ready.');

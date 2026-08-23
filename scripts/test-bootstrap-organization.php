@@ -42,6 +42,9 @@ $expect(strpos($main, 'Module_Loader::load_foundation()') !== false, 'Main boots
 $expect(strpos($main, 'Module_Loader::load_features()') !== false, 'Main bootstrap must use the feature module manifest.');
 $expect(strpos($main, 'Module_Loader::initialize()') !== false, 'Main bootstrap must use centralized initialization.');
 $expect(strpos($loader, "[Bookings::class, 'init_cleanup_cron']") !== false, 'Booking cleanup initialization must be preserved.');
+$plugin = $main;
+$expect(strpos($plugin, "'koopo_appt_send_reminders'") !== false && strpos($plugin, "'koopo_appt_send_review_invites'") !== false, 'Deactivation does not clear notification schedules.');
+$expect(strpos($plugin, 'as_unschedule_all_actions') !== false, 'Deactivation does not clear Action Scheduler jobs.');
 
 preg_match_all("/'(includes\/[a-z0-9_\-\/]+\.php)'/", $loader, $matches);
 foreach (array_unique($matches[1] ?? []) as $relative_path) {

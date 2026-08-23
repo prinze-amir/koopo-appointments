@@ -29,6 +29,7 @@ final class Service_Profile_Media_Adapter implements \Koopo_Media_Gateway_Adapte
     $this->projector->boot();
     add_action('rest_api_init', [$this, 'register_routes']);
     add_action('admin_post_koopo_appt_client_file', [$this, 'download_client_file']);
+    add_filter('koopo_appt_privacy_release_client_file', [$this, 'release_client_file_for_privacy'], 10, 2);
   }
 
   public function register_routes(): void {
@@ -195,6 +196,15 @@ final class Service_Profile_Media_Adapter implements \Koopo_Media_Gateway_Adapte
   }
 
   public function delete_client_file(\WP_REST_Request $request){global $wpdb;$file=$wpdb->get_row($wpdb->prepare('SELECT * FROM '.DB::client_files_table().' WHERE id=%d AND client_id=%d',absint($request['file_id']),absint($request['client_id'])));if(!$file||!Resources::can_manage((int)$file->resource_id))return new \WP_Error('koopo_appt_client_file_not_found',__('That private file was not found.','koopo-appointments'),['status'=>404]);$released=$this->coordinator->release_reference((int)$file->owner_user_id,(string)$file->asset_id,self::CLIENT_FILE_ROLE,(int)$file->id);if(is_wp_error($released))return $released;$wpdb->delete(DB::client_files_table(),['id'=>(int)$file->id]);return new \WP_REST_Response(null,204);}
+
+  public function release_client_file_for_privacy($result, object $file) {
+    if ($result === true || is_wp_error($result)) return $result;
+    if (!apply_filters('koopo_appt_privacy_can_erase_client_file', true, $file)) {
+      return new \WP_Error('koopo_appt_client_file_legal_hold', __('That private file is subject to a retention hold.', 'koopo-appointments'));
+    }
+    $released = $this->coordinator->release_reference((int)$file->owner_user_id, (string)$file->asset_id, self::CLIENT_FILE_ROLE, (int)$file->id);
+    return is_wp_error($released) ? $released : true;
+  }
 
   public function download_client_file():void{if(!is_user_logged_in())wp_die(__('Authentication is required.','koopo-appointments'),403);$file_id=absint($_GET['file_id']??0);check_admin_referer('koopo_appt_client_file_'.$file_id);global $wpdb;$file=$wpdb->get_row($wpdb->prepare('SELECT * FROM '.DB::client_files_table().' WHERE id=%d',$file_id));if(!$file||!Resources::can_manage((int)$file->resource_id))wp_die(__('You cannot access that private client file.','koopo-appointments'),403);if(!class_exists('Koopo_Media_Gateway_Plugin'))wp_die(__('Media Gateway is unavailable.','koopo-appointments'),503);$tmp=wp_tempnam((string)$file->filename);$download=\Koopo_Media_Gateway_Plugin::instance()->client()->download_private_asset((string)$file->asset_id,(int)$file->owner_user_id,$tmp,(int)apply_filters('koopo_appt_client_file_max_bytes',10*MB_IN_BYTES));if(is_wp_error($download)){@unlink($tmp);wp_die(esc_html($download->get_error_message()),502);}nocache_headers();header('Content-Type: '.sanitize_mime_type((string)$file->mime_type));header('Content-Disposition: attachment; filename="'.rawurlencode((string)$file->filename).'"');header('Content-Length: '.filesize($tmp));readfile($tmp);@unlink($tmp);exit;}
 

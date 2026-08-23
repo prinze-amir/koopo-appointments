@@ -5,6 +5,7 @@ defined('ABSPATH') || exit;
 
 /** Configured Brevo/Twilio transport for consented guest-invitation SMS. */
 final class SMS_Provider {
+  const SUPPORTED_PROVIDERS = ['brevo'];
   const OPTION_ENABLED = 'koopo_appt_sms_enabled';
   const OPTION_PROVIDER = 'koopo_appt_sms_provider';
   const OPTION_BREVO_API_KEY = 'koopo_appt_brevo_sms_api_key';
@@ -30,6 +31,7 @@ final class SMS_Provider {
     $phone = Booking_Invitations::normalize_phone($phone);
     $message = trim(wp_strip_all_tags($message));
     if ($phone === '' || $message === '') return self::failure('invalid_sms_request', false);
+    if (SMS_Compliance::is_suppressed($phone)) return self::failure('sms_recipient_suppressed', false);
     $max_length = sanitize_key((string) ($context['type'] ?? '')) === 'guest_appointment_invite' ? 160 : 1200;
     if (strlen($message) > $max_length) return self::failure('sms_message_too_long', false);
 
@@ -37,8 +39,7 @@ final class SMS_Provider {
     if (is_wp_error($reservation)) return self::failure($reservation->get_error_code(), false);
     $provider = self::provider();
     if ($provider === 'brevo') $result = self::send_brevo($phone, $message, $context);
-    elseif ($provider === 'twilio') $result = self::send_twilio($phone, $message, $context);
-    else $result = self::failure('sms_provider_not_configured', false);
+    else $result = self::failure('sms_provider_not_supported', false);
     SMS_Usage::finish($reservation, !empty($result['accepted']), !empty($result['uncertain']));
     if (!empty($result['accepted']) && !empty($result['provider_message_id'])) SMS_Delivery_Receipts::accepted($provider, (string) $result['provider_message_id'], $context);
     unset($result['uncertain']);
@@ -51,14 +52,12 @@ final class SMS_Provider {
 
   public static function provider(): string {
     $provider = sanitize_key((string) get_option(self::OPTION_PROVIDER, 'brevo'));
-    return in_array($provider, ['brevo', 'twilio'], true) ? $provider : 'brevo';
+    return in_array($provider, self::SUPPORTED_PROVIDERS, true) ? $provider : 'brevo';
   }
 
   public static function status(): array {
     $provider = self::provider();
-    $configured = $provider === 'brevo'
-      ? self::secret(self::OPTION_BREVO_API_KEY) !== '' && self::brevo_sender() !== ''
-      : self::twilio_account_sid() !== '' && self::twilio_api_key_sid() !== '' && self::secret(self::OPTION_TWILIO_API_KEY_SECRET) !== '' && (self::twilio_messaging_service_sid() !== '' || self::twilio_from_number() !== '');
+    $configured = $provider === 'brevo' && self::secret(self::OPTION_BREVO_API_KEY) !== '' && self::brevo_sender() !== '';
     $enabled = self::enabled();
     $paused = SMS_Usage::paused();
     $limit_error = '';

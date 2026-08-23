@@ -55,6 +55,8 @@ try{
   $credits=SMS_Provider::brevo_credits(true);sms_uat_expect($credits['status']==='available'&&$credits['credits']===73,'Brevo SMS credits were not parsed.');
 
   $reply_phone='+13135550998';
+  $wpdb->insert(DB::booking_invites_table(),['booking_id'=>999998,'created_by'=>1,'token_hash'=>hash('sha256','sms-uat-consent'),'channels'=>'sms','status'=>'pending','sms_consent_at'=>current_time('mysql',true),'sms_consent_by'=>1,'sms_consent_version'=>SMS_Compliance::DISCLOSURE_VERSION,'sms_consent_phone'=>$reply_phone,'sms_consent_method'=>SMS_Compliance::CONSENT_METHOD,'sms_consent_status'=>'active','sms_consent_disclosure'=>SMS_Compliance::DISCLOSURE,'expires_at'=>gmdate('Y-m-d H:i:s',time()+HOUR_IN_SECONDS)]);
+  $reply_invitation_id=(int)$wpdb->insert_id;sms_uat_expect($reply_invitation_id>0,'SMS reply consent fixture failed.');
   SMS_Delivery_Receipts::apply_event(['messageId'=>'uat-help-reply','event'=>'reply','to'=>$reply_phone,'reply'=>'HELP','ts_event'=>time()]);
   sms_uat_expect(!SMS_Compliance::is_suppressed($reply_phone),'HELP incorrectly suppressed the recipient.');
   SMS_Delivery_Receipts::apply_event(['messageId'=>'uat-stop-reply','event'=>'reply','to'=>$reply_phone,'reply'=>'STOP','ts_event'=>time()]);
@@ -65,21 +67,17 @@ try{
   sms_uat_expect(!$suppressed['accepted']&&$suppressed['error_code']==='sms_recipient_suppressed','Suppressed recipient did not fail closed before provider delivery.');
 
   update_option(SMS_Usage::OPTION_DAILY_LIMIT,10,false);
-  update_option(SMS_Provider::OPTION_PROVIDER,'twilio',false);update_option(SMS_Provider::OPTION_TWILIO_ACCOUNT_SID,'AC'.str_repeat('1',32),false);
-  update_option(SMS_Provider::OPTION_TWILIO_API_KEY_SID,'SK'.str_repeat('2',32),false);update_option(SMS_Provider::OPTION_TWILIO_API_KEY_SECRET,Calendar_Crypto::encrypt(['secret'=>'twilio-uat-secret']),false);
-  update_option(SMS_Provider::OPTION_TWILIO_MESSAGING_SERVICE_SID,'MG'.str_repeat('3',32),false);update_option(SMS_Provider::OPTION_TWILIO_FROM_NUMBER,'',false);
-  $twilio=SMS_Provider::send('+13135550199','Koopo UAT',['type'=>'admin_test']);sms_uat_expect($twilio['accepted']&&strpos($twilio['provider_message_id'],'SM')===0,'Twilio acceptance parsing failed.');
-  $twilio_request=$requests[count($requests)-1];sms_uat_expect(strpos($twilio_request['url'],'/2010-04-01/Accounts/AC')!==false,'Twilio used an unexpected endpoint.');
-  sms_uat_expect(($twilio_request['body']['MessagingServiceSid']??'')==='MG'.str_repeat('3',32)&&empty($twilio_request['body']['From']),'Twilio Messaging Service routing failed.');
-  sms_uat_expect(strpos((string)($twilio_request['headers']['Authorization']??''),'Basic ')===0,'Twilio Basic authentication header is missing.');
+  update_option(SMS_Provider::OPTION_PROVIDER,'twilio',false);
+  sms_uat_expect(SMS_Provider::provider()==='brevo','Unsupported Twilio selection did not fail closed to Brevo.');
   update_option(SMS_Usage::OPTION_PAUSED,1,false);$paused=SMS_Provider::send('+13135550199','Paused');sms_uat_expect(!$paused['accepted']&&$paused['error_code']==='sms_globally_paused','Emergency SMS pause was not enforced.');
 
-  echo wp_json_encode(['ok'=>true,'disabled'=>'failed_closed','brevo'=>'accepted','brevo_receipt'=>'delivered','brevo_credits'=>73,'daily_limit'=>'enforced','pause'=>'enforced','suppression'=>'stop_help_start_verified','twilio'=>'accepted','requests'=>count($requests)])."\n";
+  echo wp_json_encode(['ok'=>true,'disabled'=>'failed_closed','brevo'=>'accepted','brevo_receipt'=>'delivered','brevo_credits'=>73,'daily_limit'=>'enforced','pause'=>'enforced','suppression'=>'stop_help_start_verified','twilio'=>'disabled_until_webhooks','requests'=>count($requests)])."\n";
 }finally{
   remove_filter('pre_http_request',$mock,10);
   remove_filter('koopo_appt_sms_usage_timestamp',$usage_time);
   global $wpdb;$wpdb->query("DELETE FROM ".DB::sms_usage_table()." WHERE period_start>='2099-01-01 00:00:00'");
   $wpdb->query("DELETE FROM ".DB::sms_receipts_table()." WHERE provider_message_id IN ('1511882900176220','uat-help-reply','uat-stop-reply','uat-start-reply','SM".str_repeat('a',32)."')");
   $wpdb->delete(DB::sms_suppressions_table(),['phone_hash'=>SMS_Compliance::phone_hash('+13135550998')]);
+  $wpdb->delete(DB::booking_invites_table(),['booking_id'=>999998]);
   foreach($original as $option=>$state){if($state['exists'])update_option($option,$state['value'],false);else delete_option($option);}
 }

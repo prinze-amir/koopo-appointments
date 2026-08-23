@@ -87,5 +87,10 @@ namespace Koopo_Appointments {
   $folded = Calendar_Sync::fold_ics_line(str_repeat('A', 90));
   expect(strpos($folded, "\r\n ") !== false, 'iCalendar line folding failed.');
 
+  $calendar_api = (string) file_get_contents(dirname(__DIR__) . '/includes/calendar/class-kgaw-calendar-api.php');
+  expect(strpos($calendar_api, 'calendar_provider_disabled') !== false, 'Disconnect does not preserve disabled calendar connections for cleanup.');
+  expect(strpos($calendar_api, 'Calendar_Sync::remove_binding_events($binding, false)') !== false, 'Disconnect still uses best-effort external-event cleanup.');
+  expect(strpos($calendar_api, 'calendar_disconnect_cleanup_failed') !== false, 'Disconnect does not retain credentials when remote cleanup fails.');
+
   echo "calendar-sync tests passed\n";
 }

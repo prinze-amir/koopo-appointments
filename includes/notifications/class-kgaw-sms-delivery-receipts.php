@@ -93,7 +93,9 @@ final class SMS_Delivery_Receipts {
     $event_at = $timestamp > 946684800 && $timestamp < time() + DAY_IN_SECONDS ? gmdate('Y-m-d H:i:s', $timestamp) : current_time('mysql', true);
     $reason_source = (string) ($event['error_code'] ?? $event['reason'] ?? $event['description'] ?? '');
     $reason = substr(sanitize_key($reason_source), 0, 100);
-    $phone = (string) ($event['to'] ?? $event['phone_number'] ?? $event['from'] ?? '');
+    $phone = Booking_Invitations::normalize_phone((string) ($event['to'] ?? $event['phone_number'] ?? $event['from'] ?? ''));
+    $is_reply = in_array($status, ['unsubscribed', 'replied'], true);
+    if ($is_reply && !self::phone_has_consent_history($phone)) return false;
     if ($status === 'unsubscribed') {
       SMS_Compliance::suppress($phone, 'customer_opt_out', 'brevo_unsubscribe', 'stop', $event_at);
     } elseif ($status === 'replied') {
@@ -102,12 +104,11 @@ final class SMS_Delivery_Receipts {
     $table = DB::sms_receipts_table();
     $now = current_time('mysql', true);
     $wpdb->query('START TRANSACTION');
-    $wpdb->query($wpdb->prepare(
-      "INSERT IGNORE INTO {$table} (provider,provider_message_id,status,last_event_at,created_at,updated_at) VALUES ('brevo',%s,'accepted','1970-01-01 00:00:00',%s,%s)",
-      $message_id, $now, $now
-    ));
     $receipt = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$table} WHERE provider='brevo' AND provider_message_id=%s FOR UPDATE", $message_id));
-    if (!$receipt) { $wpdb->query('ROLLBACK'); return false; }
+    if (!$receipt) {
+      $wpdb->query('ROLLBACK');
+      return $is_reply;
+    }
     $current = sanitize_key((string) $receipt->status);
     $current_at = strtotime((string) $receipt->last_event_at . ' UTC') ?: 0;
     $incoming_at = strtotime($event_at . ' UTC') ?: time();
@@ -125,6 +126,15 @@ final class SMS_Delivery_Receipts {
     $wpdb->query('COMMIT');
     if ($receipt && (int) $receipt->delivery_id > 0) Notification_Delivery::update_sms_status((int) $receipt->delivery_id, $status, $reason);
     return true;
+  }
+
+  private static function phone_has_consent_history(string $phone): bool {
+    global $wpdb;
+    if ($phone === '') return false;
+    return (bool) $wpdb->get_var($wpdb->prepare(
+      'SELECT id FROM ' . DB::booking_invites_table() . " WHERE sms_consent_phone=%s AND sms_consent_status IN ('active','consumed','revoked') LIMIT 1",
+      $phone
+    ));
   }
 
   public static function summary(int $days = 30): array {

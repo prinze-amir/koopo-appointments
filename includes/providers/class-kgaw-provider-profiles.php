@@ -357,7 +357,8 @@ final class Provider_Profiles {
 
   public static function format(int $provider_id, bool $private = false): array {
     $post = get_post($provider_id);
-    $resource_id = Resources::ensure_for_provider($provider_id);
+    $resource = Resources::for_subject('provider', $provider_id);
+    $resource_id = $resource ? (int) $resource->id : 0;
     $owner_id = $post ? (int) $post->post_author : 0;
     $categories = self::categories($provider_id);
     $data = [
