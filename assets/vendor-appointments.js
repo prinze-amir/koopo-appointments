@@ -1174,6 +1174,11 @@
         payload.invite_channels = [emailInvite ? 'email' : '', smsInvite ? 'sms' : ''].filter(Boolean);
         payload.invite_hold_minutes = Number($('#koopo-appt-invite-hold').val() || 120);
         payload.sms_consent = smsConsent;
+        if (smsInvite) {
+          const consentBox = $('.koopo-appt-sms-consent').first();
+          payload.sms_consent_method = String(consentBox.data('method') || '');
+          payload.sms_consent_version = String(consentBox.data('version') || '');
+        }
       } else {
         const userId = parseInt($('#koopo-appt-user-id').val(), 10) || 0;
         const userEmail = $('#koopo-appt-user-email').val().trim();
@@ -1298,6 +1303,19 @@
       if (addonTotal) priceParts.push(`Add-ons: ${formatMoney(addonTotal, b.currency)}`);
       if (basePrice || addonTotal) priceParts.push(`Total: ${formatMoney(b.price, b.currency)}`);
       $('#koopo-appt-details-pricing').text(priceParts.length ? priceParts.join(' · ') : '—');
+      const evidence = b.sms_consent_evidence;
+      if (evidence) {
+        const recordedBy = evidence.recorded_by_name || (evidence.recorded_by_id ? `User #${evidence.recorded_by_id}` : 'Unknown');
+        const status = evidence.status || 'recorded';
+        const revoked = evidence.revoked_at_utc ? `<div><strong>Revoked:</strong> ${escapeHtml(evidence.revoked_at_utc)} UTC (${escapeHtml(evidence.revocation_source || 'opt out')})</div>` : '';
+        $('#koopo-appt-details-sms-evidence').html(
+          `<div class="koopo-sms-evidence"><div><strong>Status:</strong> ${escapeHtml(status)}</div><div><strong>Method:</strong> ${escapeHtml(evidence.method || '')}</div><div><strong>Phone:</strong> ${escapeHtml(evidence.phone_masked || '')}</div><div><strong>Recorded:</strong> ${escapeHtml(evidence.consented_at_utc || '')} UTC by ${escapeHtml(recordedBy)}</div><div><strong>Invitation:</strong> #${Number(evidence.invitation_id || 0)}</div><div><strong>Version:</strong> ${escapeHtml(evidence.version || '')}</div><div><strong>Scope:</strong> One transactional appointment invitation</div><blockquote>${escapeHtml(evidence.disclosure || '')}</blockquote>${revoked}</div>`
+        );
+        $('#koopo-appt-details-sms-evidence-row').show();
+      } else {
+        $('#koopo-appt-details-sms-evidence').empty();
+        $('#koopo-appt-details-sms-evidence-row').hide();
+      }
       $apptDetailsActions.html(actionsForBooking(b));
       $apptDetailsModal.show();
     }

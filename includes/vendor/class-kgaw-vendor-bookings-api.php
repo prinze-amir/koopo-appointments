@@ -22,15 +22,15 @@ class Vendor_Bookings_API {
       'callback' => [__CLASS__, 'list_bookings'],
       'permission_callback' => [__CLASS__, 'can_access'],
       'args' => [
-        'listing_id' => ['type' => 'integer', 'required' => false],
-        'status'     => ['type' => 'string',  'required' => false],
-        'search'     => ['type' => 'string',  'required' => false],
+        'listing_id' => ['type' => 'integer', 'required' => false, 'minimum' => 1, 'validate_callback'=>'rest_validate_request_arg', 'sanitize_callback' => 'absint'],
+        'status'     => ['type' => 'string',  'required' => false, 'validate_callback'=>'rest_validate_request_arg', 'sanitize_callback' => 'sanitize_key'],
+        'search'     => ['type' => 'string',  'required' => false, 'maxLength' => 100, 'validate_callback'=>'rest_validate_request_arg', 'sanitize_callback' => 'sanitize_text_field'],
         'month'      => ['type' => 'string',  'required' => false],
         'year'       => ['type' => 'string',  'required' => false],
         'range_start' => ['type' => 'string', 'required' => false],
         'range_end'   => ['type' => 'string', 'required' => false],
-        'page'       => ['type' => 'integer', 'required' => false, 'default' => 1],
-        'per_page'   => ['type' => 'integer', 'required' => false, 'default' => 20],
+        'page'       => ['type' => 'integer', 'required' => false, 'default' => 1, 'minimum' => 1, 'maximum' => 10000, 'validate_callback'=>'rest_validate_request_arg', 'sanitize_callback' => 'absint'],
+        'per_page'   => ['type' => 'integer', 'required' => false, 'default' => 20, 'minimum' => 1, 'maximum' => 100, 'validate_callback'=>'rest_validate_request_arg', 'sanitize_callback' => 'absint'],
       ],
     ]);
 
@@ -90,6 +90,8 @@ class Vendor_Bookings_API {
         'invite_channels' => ['type' => 'array', 'required' => false],
         'invite_hold_minutes' => ['type' => 'integer', 'required' => false],
         'sms_consent' => ['type' => 'boolean', 'required' => false],
+        'sms_consent_method' => ['type' => 'string', 'required' => false],
+        'sms_consent_version' => ['type' => 'string', 'required' => false],
       ],
     ]);
 
@@ -204,6 +206,7 @@ class Vendor_Bookings_API {
     $page = max(1, absint($req->get_param('page')));
     $max_per_page = (int) apply_filters('koopo_appt_vendor_per_page_max', 100, $vendor_id, $listing_id);
     if ($max_per_page < 1) $max_per_page = 100;
+    $max_per_page = min(500, $max_per_page);
     $per_page = min($max_per_page, max(1, absint($req->get_param('per_page'))));
     $range_start = sanitize_text_field((string) $req->get_param('range_start'));
     $range_end = sanitize_text_field((string) $req->get_param('range_end'));
@@ -304,7 +307,9 @@ class Vendor_Bookings_API {
     $service_ids = [];
     $listing_ids = [];
     $customer_ids = [];
+    $booking_ids = [];
     foreach ($rows as $r) {
+      $booking_ids[] = (int) $r['id'];
       if (!empty($r['service_id'])) $service_ids[] = (int) $r['service_id'];
       if (!empty($r['listing_id'])) $listing_ids[] = (int) $r['listing_id'];
       if (!empty($r['customer_id'])) $customer_ids[] = (int) $r['customer_id'];
@@ -312,6 +317,15 @@ class Vendor_Bookings_API {
     $service_ids = array_values(array_unique($service_ids));
     $listing_ids = array_values(array_unique($listing_ids));
     $customer_ids = array_values(array_unique($customer_ids));
+    $invites_by_booking = [];
+    if ($booking_ids) {
+      $placeholders = implode(',', array_fill(0, count($booking_ids), '%d'));
+      $invite_rows = $wpdb->get_results($wpdb->prepare(
+        'SELECT * FROM ' . DB::booking_invites_table() . " WHERE booking_id IN ({$placeholders})",
+        $booking_ids
+      ));
+      foreach ($invite_rows ?: [] as $invite_row) $invites_by_booking[(int) $invite_row->booking_id] = $invite_row;
+    }
 
     if (function_exists('_prime_post_caches')) {
       if ($listing_ids) _prime_post_caches($listing_ids, false, false);
@@ -433,6 +447,7 @@ class Vendor_Bookings_API {
         'virtual_provider' => $fulfillment_mode === 'virtual' ? (string) Bookings::extra_from_record($r, 'virtual_provider', '') : '',
         'virtual_join_url' => $fulfillment_mode === 'virtual' ? esc_url_raw((string) Bookings::extra_from_record($r, 'virtual_join_url', '')) : '',
         'virtual_instructions' => $fulfillment_mode === 'virtual' ? (string) Bookings::extra_from_record($r, 'virtual_instructions', '') : '',
+        'sms_consent_evidence' => isset($invites_by_booking[$booking_id]) ? Booking_Invitations::consent_evidence($invites_by_booking[$booking_id]) : null,
       ];
     }
 
@@ -695,13 +710,11 @@ class Vendor_Bookings_API {
       $result = Bookings::cancel_booking_safely($booking_id, 'refunded');
       
       if (!$result['ok']) {
-        // Refund was created but booking status didn't update - log this
-        error_log(sprintf(
-          'Koopo: WC refund #%d created for booking #%d, but booking status update failed: %s',
-          $refund_result['refund_id'],
-          $booking_id,
-          $result['reason'] ?? 'unknown'
-        ));
+        Logger::error('refund_booking_status_update_failed', [
+          'refund_id' => (int) $refund_result['refund_id'],
+          'booking_id' => $booking_id,
+          'reason' => sanitize_key((string) ($result['reason'] ?? 'unknown')),
+        ]);
       }
 
       // Step 6: Trigger notification hook
@@ -822,7 +835,11 @@ class Vendor_Bookings_API {
           get_current_user_id(),
           $channels,
           absint($request->get_param('invite_hold_minutes')) ?: Booking_Invitations::DEFAULT_HOLD_MINUTES,
-          (bool) $request->get_param('sms_consent')
+          (bool) $request->get_param('sms_consent'),
+          [
+            'method' => sanitize_key((string) $request->get_param('sms_consent_method')),
+            'version' => sanitize_key((string) $request->get_param('sms_consent_version')),
+          ]
         );
         if (is_wp_error($invitation)) {
           Bookings::delete_booking_data_by_id($booking_id);

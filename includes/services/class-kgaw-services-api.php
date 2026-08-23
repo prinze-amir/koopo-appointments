@@ -30,6 +30,7 @@ class Services_API {
       'methods' => 'POST',
       'callback' => [__CLASS__, 'create_service'],
       'permission_callback' => [__CLASS__, 'can_manage'],
+      'args' => self::service_args(true),
     ]);
 
     // Update service
@@ -37,6 +38,7 @@ class Services_API {
       'methods' => 'POST',
       'callback' => [__CLASS__, 'update_service'],
       'permission_callback' => [__CLASS__, 'can_manage'],
+      'args' => array_merge(['id'=>self::id_arg()],self::service_args(false)),
     ]);
 
     // Delete service
@@ -44,6 +46,7 @@ class Services_API {
       'methods' => 'DELETE',
       'callback' => [__CLASS__, 'delete_service'],
       'permission_callback' => [__CLASS__, 'can_manage'],
+      'args' => ['id'=>self::id_arg()],
     ]);
 
     // Get service categories
@@ -52,6 +55,29 @@ class Services_API {
       'callback' => [__CLASS__, 'get_categories'],
       'permission_callback' => [__CLASS__, 'can_manage'],
     ]);
+  }
+
+  private static function id_arg(): array {
+    return ['type'=>'integer','minimum'=>1,'validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'absint'];
+  }
+
+  private static function service_args(bool $creating): array {
+    return [
+      'title'=>['type'=>'string','required'=>$creating,'minLength'=>1,'maxLength'=>191,'validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'sanitize_text_field'],
+      'price'=>['type'=>'number','required'=>$creating,'minimum'=>0,'maximum'=>1000000,'validate_callback'=>'rest_validate_request_arg'],
+      'duration_minutes'=>['type'=>'integer','required'=>$creating,'minimum'=>5,'maximum'=>1440,'validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'absint'],
+      'listing_id'=>['type'=>'integer','minimum'=>0,'validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'absint'],
+      'provider_id'=>['type'=>'integer','minimum'=>0,'validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'absint'],
+      'resource_id'=>['type'=>'integer','minimum'=>0,'validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'absint'],
+      'description'=>['type'=>'string','maxLength'=>5000,'validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'sanitize_text_field'],
+      'color'=>['type'=>'string','pattern'=>'^#[A-Fa-f0-9]{6}$','validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'sanitize_hex_color'],
+      'status'=>['type'=>'string','enum'=>['active','inactive'],'validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'sanitize_key'],
+      'price_label'=>['type'=>'string','maxLength'=>100,'validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'sanitize_text_field'],
+      'buffer_before'=>['type'=>'integer','minimum'=>0,'maximum'=>1440,'validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'absint'],
+      'buffer_after'=>['type'=>'integer','minimum'=>0,'maximum'=>1440,'validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'absint'],
+      'instant'=>['type'=>'boolean','validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'rest_sanitize_boolean'],
+      'is_addon'=>['type'=>'boolean','validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'rest_sanitize_boolean'],
+    ];
   }
 
   public static function can_manage(): bool {

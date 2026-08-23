@@ -14,6 +14,13 @@ class Availability {
       'methods'  => 'GET',
       'callback' => [__CLASS__, 'get_slots'],
       'permission_callback' => '__return_true',
+      'args' => [
+        'id'=>['type'=>'integer','minimum'=>1,'validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'absint'],
+        'date'=>['type'=>'string','required'=>true,'pattern'=>'^\d{4}-\d{2}-\d{2}$','validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'sanitize_text_field'],
+        'duration_minutes'=>['type'=>'integer','required'=>false,'minimum'=>5,'maximum'=>1440,'validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'absint'],
+        'booking_id'=>['type'=>'integer','required'=>false,'minimum'=>1,'validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'absint'],
+        'fulfillment_mode'=>['type'=>'string','required'=>false,'enum'=>['at_location','mobile','virtual'],'validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'sanitize_key'],
+      ],
     ]);
   }
 

@@ -137,13 +137,17 @@ The vendor settings screen supports each business or professional booking calend
 
 Providers can use an expiring cancellation-fill waitlist in priority order, first-to-confirm batches, or manual mode. Registered customers choose a service, date range, preferred days, time range, and email/push channels. SMS is reserved for a provider's explicit, consented invitation to an unregistered guest; all messages after account claim use the Koopo inbox, push, and email.
 
-Providers can schedule an appointment for an unregistered person from the Dokan Appointments dashboard. The provider chooses email and/or a one-time SMS invitation, records SMS consent, and selects a 30-minute to 24-hour hold. Koopo stores only a SHA-256 token hash, rotates the link on resend, limits delivery attempts, and releases unclaimed times after expiration. The recipient signs in or registers, claims the appointment into the matching account, and continues directly to WooCommerce checkout. Customer-facing booking forms cannot change appointment ownership or book for another person.
+Providers can schedule an appointment for an unregistered person from the Dokan Appointments dashboard. The provider chooses email and/or a one-time SMS invitation, reads Koopo's versioned voice-consent disclosure, confirms the customer's express agreement, and selects a 30-minute to 24-hour hold. Koopo stores the exact disclosure snapshot, method, UTC timestamp, provider, masked-phone evidence, invitation linkage, status, and any later revocation. Consent covers one transactional SMS only; it is consumed after provider acceptance and is never reused for resends, reminders, or marketing. Koopo stores only a SHA-256 invitation token hash, rotates the link on resend, limits delivery attempts, and releases unclaimed times after expiration. The recipient signs in or registers, claims the appointment into the matching account, and continues directly to WooCommerce checkout. Customer-facing booking forms cannot change appointment ownership or book for another person.
 
 Registered-customer confirmations, reminders, and waitlist offers create real BuddyBoss messages for the Koopo app inbox, alongside BuddyBoss notifications and email. The existing private-message mobile hook provides the Expo push path. Delivery attempts are recorded by hashed recipient and idempotency key so retries cannot duplicate an already-sent message.
 
 An SMS adapter must subscribe to the `koopo_appt_send_transactional_sms_result` filter and return an array with `accepted` (boolean), `provider_message_id` (string), `error_code` (string), and `retryable` (boolean). Calls include `guest_only`, `consent_recorded`, `consent_version`, booking, invitation, and attempt metadata, and are made only for provider-created unregistered-guest invitations. The legacy `koopo_appt_send_transactional_sms` action remains an observer seam, but action-only callbacks are never recorded as successful because they cannot report provider acceptance.
 
 Koopo includes built-in Brevo and Twilio transports under **Settings → Koopo Appointments → SMS Delivery**. Brevo uses its current `/v3/transactionalSMS/send` endpoint. Twilio uses production API-key authentication and supports either a Messaging Service SID or a From number. Provider credentials are encrypted, masked after saving, and removable by an administrator. Save settings and use **Send test SMS** with a controlled recipient before enabling provider-created SMS invitations. Test messages are real and may incur provider charges.
+
+Administrators can pause all SMS and enforce global daily and monthly hard limits. Koopo reserves both UTC usage buckets atomically before contacting the provider, so concurrent sends cannot exceed either cap. The settings meter separates accepted, pending/uncertain, and failed requests and shows each reset time. When Brevo is selected, Koopo also reads the account's SMS plan credits from `GET /v3/account` and caches the informational balance for five minutes. Brevo credits are displayed separately and never replace Koopo's internal hard limits.
+
+Brevo sends include a secured, per-message receipt URL. Koopo stores only the provider message ID, appointment linkage, normalized lifecycle state, and timestamps—never inbound message content. `accepted`/`sent` remain distinct from `delivered`; skipped, rejected, blocked, blacklisted, invalid, and bounce events are recorded as terminal failures. Brevo automatically processes supported STOP and HELP keywords for its assigned numbers; the webhook must still be configured so Koopo can independently HMAC-hash and permanently suppress opted-out phone numbers before any future provider call. HELP/INFO requests are recorded without retaining the reply, and START does not silently erase Koopo's suppression record; a new scoped consent process is required. US/Canada delivery still requires Brevo toll-free-number approval. Register the use case as **Voice opt-in**, not Web Form, and use this product-matching sample: `Koopo: Appointment invitation from [Provider]. Review and checkout: [secure Koopo link]. Reply STOP to opt out or HELP for help.`
 
 Service-profile geocoding is configured under **Settings → Koopo Appointments → Service Profile Geocoding**. Koopo supports GeocodeFarm, Geoapify, Google Geocoding, and public OpenStreetMap/Nominatim. Automatic mode uses the configured daily free allowances in administrator-defined order, caches eligible provider/profile results for 30 days, and temporarily removes unhealthy or rate-limited providers. API keys are encrypted and used only by the WordPress server.
 
@@ -154,6 +158,8 @@ Confirmed bookings create provider-private client records with an appointment ti
 WordPress privacy export and erasure hooks cover appointment contact details, mobile addresses, waitlist entries, client notes, intake answers, and signature evidence. Financial appointment facts remain anonymized rather than deleted. Provider-held remote files are reported as retained until they are removed through the client-file workflow so the Media Gateway reference is released correctly. Administrators must publish an explicit retention policy before production use.
 
 Configure provider client IDs and secrets under **Settings → Koopo Appointments → Calendar Integrations**. Client secrets are encrypted before storage, masked after saving, and can be replaced or removed by an administrator. These dashboard settings are the provider clients' configuration source.
+
+Google Calendar also has a hard release switch in that section. It defaults to disabled. While disabled, credentials and existing connection data remain stored, but new OAuth connections, Google API calls, appointment mirroring, busy-event refreshes, and cached Google availability blocks are all fail-closed. Enable it only after Google approves the OAuth application.
 
 Register these exact OAuth redirect URIs with the providers:
 
@@ -181,6 +187,14 @@ https://YOUR-SITE/wp-json/koopo/v1/appointments/calendar/oauth/microsoft/callbac
 ---
 
 ## 6.1 Release Smoke Test
+
+### Engineering quality gate
+
+Run the complete dependency-free static gate from the plugin root:
+
+`bash scripts/run-static-tests.sh`
+
+The gate lints every PHP file, checks every JavaScript asset with Node, runs the plugin's static regression suites, verifies the centralized bootstrap manifest and privacy-safe logging boundary, and rejects whitespace errors. The GitHub Actions workflow at `.github/workflows/plugin-quality.yml` runs the same gate on PHP 8.1 and PHP 8.3. A passing static gate does not replace authenticated WordPress, WooCommerce checkout, provider OAuth, SMS-delivery, or device acceptance testing.
 
 For production verification, run the admin smoke test script before shipping:
 

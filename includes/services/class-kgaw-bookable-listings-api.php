@@ -5,12 +5,15 @@ defined('ABSPATH') || exit;
 
 class Bookable_Listings_API {
   const REBUILD_HOOK = 'koopo_appt_rebuild_bookable_index';
+  const SYNC_SERVICE_HOOK = 'koopo_appt_sync_bookable_service';
+  const SYNC_LISTING_HOOK = 'koopo_appt_sync_bookable_listing';
   private static bool $syncing = false;
+  private static array $queued = [];
 
   public static function init(): void {
     add_action('rest_api_init', [__CLASS__, 'routes']);
-    add_action('save_post_' . Services_CPT::POST_TYPE, [__CLASS__, 'sync_service'], 20, 1);
-    add_action('save_post_gd_place', [__CLASS__, 'sync_listing'], 20, 1);
+    add_action('save_post_' . Services_CPT::POST_TYPE, [__CLASS__, 'queue_service_sync'], 20, 1);
+    add_action('save_post_gd_place', [__CLASS__, 'queue_listing_sync'], 20, 1);
     add_action('trashed_post', [__CLASS__, 'handle_post_removed'], 20, 1);
     add_action('untrashed_post', [__CLASS__, 'handle_post_restored'], 20, 1);
     add_action('before_delete_post', [__CLASS__, 'handle_post_removed'], 20, 1);
@@ -19,6 +22,8 @@ class Bookable_Listings_API {
     add_action('deleted_post_meta', [__CLASS__, 'handle_post_meta_change'], 20, 4);
     add_action('set_object_terms', [__CLASS__, 'handle_terms_change'], 20, 6);
     add_action(self::REBUILD_HOOK, [__CLASS__, 'run_rebuild_batch'], 10, 1);
+    add_action(self::SYNC_SERVICE_HOOK, [__CLASS__, 'sync_service'], 10, 1);
+    add_action(self::SYNC_LISTING_HOOK, [__CLASS__, 'sync_listing'], 10, 1);
   }
 
   public static function routes(): void {
@@ -27,11 +32,19 @@ class Bookable_Listings_API {
       'callback' => [__CLASS__, 'get_bookable_listings'],
       'permission_callback' => '__return_true',
       'args' => [
-        'page' => ['type' => 'integer', 'required' => false, 'default' => 1],
-        'per_page' => ['type' => 'integer', 'required' => false, 'default' => 12],
-        'search' => ['type' => 'string', 'required' => false],
+        'page' => ['type' => 'integer', 'required' => false, 'default' => 1, 'minimum' => 1, 'maximum' => 10000, 'validate_callback'=>'rest_validate_request_arg', 'sanitize_callback' => 'absint'],
+        'per_page' => ['type' => 'integer', 'required' => false, 'default' => 12, 'minimum' => 1, 'maximum' => 24, 'validate_callback'=>'rest_validate_request_arg', 'sanitize_callback' => 'absint'],
+        'search' => ['type' => 'string', 'required' => false, 'maxLength' => 100, 'validate_callback'=>'rest_validate_request_arg', 'sanitize_callback' => 'sanitize_text_field'],
       ],
     ]);
+  }
+
+  public static function queue_service_sync(int $service_id): void {
+    self::queue_entity_sync(self::SYNC_SERVICE_HOOK, $service_id);
+  }
+
+  public static function queue_listing_sync(int $listing_id): void {
+    self::queue_entity_sync(self::SYNC_LISTING_HOOK, $listing_id);
   }
 
   public static function get_bookable_listings(\WP_REST_Request $req): \WP_REST_Response {
@@ -267,16 +280,16 @@ class Bookable_Listings_API {
       return;
     }
     if ($post->post_type === Services_CPT::POST_TYPE) {
-      self::sync_service($post_id);
+      self::queue_service_sync($post_id);
     } elseif ($post->post_type === 'gd_place') {
-      self::sync_listing($post_id);
+      self::queue_listing_sync($post_id);
     }
   }
 
   public static function handle_post_meta_change($meta_id, $object_id, $meta_key, $_meta_value): void {
     $key = (string) $meta_key;
     if ($key === '_koopo_appt_enabled') {
-      self::sync_listing((int) $object_id);
+      if (get_post_type((int) $object_id) === 'gd_place') self::queue_listing_sync((int) $object_id);
       return;
     }
 
@@ -300,13 +313,13 @@ class Bookable_Listings_API {
     ];
 
     if (in_array($key, $service_keys, true)) {
-      self::sync_service((int) $object_id);
+      if (get_post_type((int) $object_id) === Services_CPT::POST_TYPE) self::queue_service_sync((int) $object_id);
     }
   }
 
   public static function handle_terms_change($object_id, $terms, $tt_ids, $taxonomy, $append, $old_tt_ids): void {
     if ($taxonomy === Service_Categories::TAXONOMY) {
-      self::sync_service((int) $object_id);
+      if (get_post_type((int) $object_id) === Services_CPT::POST_TYPE) self::queue_service_sync((int) $object_id);
     }
   }
 
@@ -474,6 +487,23 @@ class Bookable_Listings_API {
     if (!wp_next_scheduled(self::REBUILD_HOOK, $args)) wp_schedule_single_event(time() + 5, self::REBUILD_HOOK, $args);
   }
 
+  private static function queue_entity_sync(string $hook, int $object_id): void {
+    if (self::$syncing) return;
+    $object_id = absint($object_id);
+    if (!$object_id) return;
+    $key = $hook . ':' . $object_id;
+    if (isset(self::$queued[$key])) return;
+    self::$queued[$key] = true;
+    $args = [$object_id];
+    if (function_exists('as_schedule_single_action')) {
+      if (!function_exists('as_has_scheduled_action') || !as_has_scheduled_action($hook, $args, 'koopo-appointments-index')) {
+        as_schedule_single_action(time() + 2, $hook, $args, 'koopo-appointments-index', true);
+      }
+      return;
+    }
+    if (!wp_next_scheduled($hook, $args)) wp_schedule_single_event(time() + 2, $hook, $args);
+  }
+
   private static function delete_service_index(int $service_id): void {
     global $wpdb;
     $wpdb->delete(DB::service_index_table(), ['service_id' => absint($service_id)], ['%d']);
@@ -605,8 +635,16 @@ class Bookable_Listings_API {
   }
 
   private static function listing_rating(int $listing_id): float {
+    if (function_exists('geodir_get_post_rating')) {
+      return (float) geodir_get_post_rating($listing_id);
+    }
+    global $wpdb;
     foreach (['overall_rating', 'rating', 'geodir_overallrating'] as $key) {
-      $value = get_post_meta($listing_id, $key, true);
+      $value = $wpdb->get_var($wpdb->prepare(
+        "SELECT meta_value FROM {$wpdb->postmeta} WHERE post_id=%d AND meta_key=%s LIMIT 1",
+        $listing_id,
+        $key
+      ));
       if (is_numeric($value)) {
         return (float) $value;
       }
@@ -615,8 +653,16 @@ class Bookable_Listings_API {
   }
 
   private static function listing_rating_count(int $listing_id): int {
+    if (function_exists('geodir_get_review_count_total')) {
+      return (int) geodir_get_review_count_total($listing_id);
+    }
+    global $wpdb;
     foreach (['rating_count', 'review_count', 'geodir_review_count'] as $key) {
-      $value = get_post_meta($listing_id, $key, true);
+      $value = $wpdb->get_var($wpdb->prepare(
+        "SELECT meta_value FROM {$wpdb->postmeta} WHERE post_id=%d AND meta_key=%s LIMIT 1",
+        $listing_id,
+        $key
+      ));
       if (is_numeric($value)) {
         return (int) $value;
       }

@@ -70,7 +70,8 @@ class Checkout_Cart {
       : ($created_ts && ($now_ts - $created_ts) > ($hold_minutes * 60));
     if (!$has_order && $expired) {
       Bookings::set_status($booking_id, 'expired');
-      if (apply_filters('koopo_appt_delete_expired_booking', true, $booking_id, $booking)) {
+      Bookings::archive_booking($booking_id, 'abandoned_hold');
+      if (apply_filters('koopo_appt_delete_expired_booking', false, $booking_id, $booking)) {
         Bookings::delete_booking_data_by_id($booking_id);
       }
       return new \WP_Error('koopo_hold_expired', 'Booking hold expired', ['status' => 409]);
@@ -207,6 +208,25 @@ class Checkout_Cart {
    * @return array<string,mixed>|\WP_Error
    */
   public static function prepare_order_for_booking(int $booking_id) {
+    if (!self::acquire_checkout_lock($booking_id, 5)) {
+      return new \WP_Error('koopo_checkout_busy', 'Checkout is already being prepared. Please try again.', ['status' => 409]);
+    }
+
+    try {
+      do_action('koopo_appt_checkout_lock_acquired', $booking_id);
+      return self::prepare_order_for_booking_locked($booking_id);
+    } finally {
+      self::release_checkout_lock($booking_id);
+    }
+  }
+
+  /**
+   * The caller must hold the booking-scoped checkout lock.
+   *
+   * @param int $booking_id
+   * @return array<string,mixed>|\WP_Error
+   */
+  private static function prepare_order_for_booking_locked(int $booking_id) {
     if (!function_exists('wc_create_order') || !function_exists('wc_get_order') || !function_exists('wc_get_product')) {
       return new \WP_Error('koopo_wc_unavailable', 'WooCommerce is not available', ['status' => 500]);
     }
@@ -311,9 +331,33 @@ class Checkout_Cart {
       }
     }
 
-    Bookings::set_order_id($booking_id, $current_order_id);
+    $assigned_order_id = Bookings::assign_order_id_if_empty($booking_id, $current_order_id);
+    if ($assigned_order_id !== $current_order_id) {
+      $order->delete(true);
+      if ($assigned_order_id > 0) {
+        $assigned_order = wc_get_order($assigned_order_id);
+        if ($assigned_order) {
+          return self::build_order_checkout_payload($assigned_order, $product_id, $booking_id, true);
+        }
+      }
+      return new \WP_Error('koopo_order_assignment_failed', 'The checkout order could not be assigned to this booking.', ['status' => 409]);
+    }
 
     return self::build_order_checkout_payload($order, $product_id, $booking_id, false);
+  }
+
+  private static function acquire_checkout_lock(int $booking_id, int $timeout_seconds): bool {
+    global $wpdb;
+    if ($booking_id < 1) return false;
+    $key = 'koopo_appt_checkout_' . $booking_id;
+    $result = $wpdb->get_var($wpdb->prepare('SELECT GET_LOCK(%s, %d)', $key, max(0, $timeout_seconds)));
+    return (string) $result === '1';
+  }
+
+  private static function release_checkout_lock(int $booking_id): void {
+    global $wpdb;
+    if ($booking_id < 1) return;
+    $wpdb->query($wpdb->prepare('SELECT RELEASE_LOCK(%s)', 'koopo_appt_checkout_' . $booking_id));
   }
 
   /**

@@ -61,7 +61,7 @@ final class Notification_Delivery {
 
     $row = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$table} WHERE event_key=%s", $event_key));
     if (!$row) return new \WP_Error('delivery_claim_failed', __('The notification could not be reserved.', 'koopo-appointments'));
-    if (in_array((string) $row->status, ['sent', 'suppressed'], true)) {
+    if (in_array((string) $row->status, ['accepted', 'sent', 'delivered', 'suppressed'], true)) {
       return new \WP_Error('delivery_already_handled', __('This notification was already handled.', 'koopo-appointments'));
     }
     $stale_before = gmdate('Y-m-d H:i:s', time() - self::STALE_PROCESSING_SECONDS);
@@ -94,7 +94,7 @@ final class Notification_Delivery {
       strtolower(trim((string) ($data['recipient'] ?? '')))
     );
     return (bool) $wpdb->get_var($wpdb->prepare(
-      'SELECT 1 FROM ' . DB::notification_deliveries_table() . " WHERE event_key=%s AND status IN ('sent','suppressed') LIMIT 1",
+      'SELECT 1 FROM ' . DB::notification_deliveries_table() . " WHERE event_key=%s AND status IN ('accepted','sent','delivered','suppressed') LIMIT 1",
       $event_key
     ));
   }
@@ -108,6 +108,28 @@ final class Notification_Delivery {
       'sent_at' => current_time('mysql', true),
       'updated_at' => current_time('mysql', true),
     ], ['id' => $delivery_id, 'status' => 'processing']);
+  }
+
+  public static function accept_sms(int $delivery_id, string $provider_message_id): void {
+    global $wpdb;
+    $wpdb->update(DB::notification_deliveries_table(), [
+      'status'=>'accepted',
+      'provider_message_id'=>sanitize_text_field($provider_message_id),
+      'last_error_code'=>'',
+      'sent_at'=>current_time('mysql', true),
+      'updated_at'=>current_time('mysql', true),
+    ], ['id'=>$delivery_id, 'status'=>'processing']);
+  }
+
+  public static function update_sms_status(int $delivery_id, string $status, string $reason = ''): void {
+    global $wpdb;
+    $status = sanitize_key($status);
+    $reason = sanitize_key($reason);
+    if ($status === 'delivered') {
+      $wpdb->query($wpdb->prepare("UPDATE " . DB::notification_deliveries_table() . " SET status='delivered',last_error_code='',updated_at=UTC_TIMESTAMP() WHERE id=%d AND channel='sms' AND status IN ('accepted','sent')", $delivery_id));
+    } elseif (in_array($status, SMS_Delivery_Receipts::FAILED_STATUSES, true)) {
+      $wpdb->query($wpdb->prepare("UPDATE " . DB::notification_deliveries_table() . " SET status='failed',last_error_code=%s,updated_at=UTC_TIMESTAMP() WHERE id=%d AND channel='sms' AND status IN ('accepted','sent')", $reason ?: 'sms_' . $status, $delivery_id));
+    }
   }
 
   public static function fail(int $delivery_id, string $error_code): void {

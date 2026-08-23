@@ -1,6 +1,9 @@
 <?php
 defined('ABSPATH') || exit;
-$koopo_sms_status = class_exists('\Koopo_Appointments\SMS_Provider') ? \Koopo_Appointments\SMS_Provider::status() : ['ready'=>false];
+$koopo_sms_status = class_exists('\Koopo_Appointments\SMS_Provider') ? \Koopo_Appointments\SMS_Provider::status() : ['ready'=>false,'unavailable_reason'=>'not_configured'];
+$koopo_sms_unavailable = in_array((string)($koopo_sms_status['unavailable_reason']??''), ['paused','sms_daily_limit_reached','sms_monthly_limit_reached'], true)
+  ? __('(SMS is temporarily unavailable)', 'appointments')
+  : __('(SMS is not configured by the site administrator)', 'appointments');
 ?>
 <div class="dokan-dashboard-wrap">
 <?php
@@ -239,8 +242,15 @@ $koopo_sms_status = class_exists('\Koopo_Appointments\SMS_Provider') ? \Koopo_Ap
             <strong><?php esc_html_e('Registration invitation', 'appointments'); ?></strong>
             <p class="koopo-muted"><?php esc_html_e('The appointment is held while this person creates a Koopo account. After registration, reminders move to their Koopo inbox, push notifications, and email.', 'appointments'); ?></p>
             <label><input type="checkbox" id="koopo-appt-invite-email" checked /> <?php esc_html_e('Send email invitation', 'appointments'); ?></label>
-            <label><input type="checkbox" id="koopo-appt-invite-sms" <?php disabled(empty($koopo_sms_status['ready'])); ?> /> <?php esc_html_e('Send one text invitation', 'appointments'); ?><?php if(empty($koopo_sms_status['ready'])): ?> <span class="koopo-muted"><?php esc_html_e('(SMS is not configured by the site administrator)', 'appointments'); ?></span><?php endif; ?></label>
-            <label class="koopo-appt-sms-consent" style="display:none"><input type="checkbox" id="koopo-appt-sms-consent" /> <?php esc_html_e('Customer agreed to receive this appointment invitation by text.', 'appointments'); ?></label>
+            <label><input type="checkbox" id="koopo-appt-invite-sms" <?php disabled(empty($koopo_sms_status['ready'])); ?> /> <?php esc_html_e('Send one text invitation', 'appointments'); ?><?php if(empty($koopo_sms_status['ready'])): ?> <span class="koopo-muted"><?php echo esc_html($koopo_sms_unavailable); ?></span><?php endif; ?></label>
+            <div class="koopo-appt-sms-consent" style="display:none" data-method="<?php echo esc_attr(\Koopo_Appointments\SMS_Compliance::CONSENT_METHOD); ?>" data-version="<?php echo esc_attr(\Koopo_Appointments\SMS_Compliance::DISCLOSURE_VERSION); ?>">
+              <div class="koopo-sms-disclosure">
+                <strong><?php esc_html_e('Read this disclosure to the customer', 'appointments'); ?></strong>
+                <p>&ldquo;<?php echo esc_html(\Koopo_Appointments\SMS_Compliance::DISCLOSURE); ?>&rdquo;</p>
+              </div>
+              <label><input type="checkbox" id="koopo-appt-sms-consent" /> <?php echo esc_html(\Koopo_Appointments\SMS_Compliance::CONFIRMATION); ?></label>
+              <p class="koopo-muted"><?php esc_html_e('This consent covers one transactional appointment invitation only.', 'appointments'); ?></p>
+            </div>
             <label><?php esc_html_e('Hold the time for', 'appointments'); ?>
               <select class="koopo-input" id="koopo-appt-invite-hold">
                 <option value="30"><?php esc_html_e('30 minutes', 'appointments'); ?></option>
@@ -336,6 +346,10 @@ $koopo_sms_status = class_exists('\Koopo_Appointments\SMS_Provider') ? \Koopo_Ap
         <div class="koopo-appt-details__row">
           <div class="koopo-appt-details__label"><?php esc_html_e('Price Breakdown', 'appointments'); ?></div>
           <div class="koopo-appt-details__value" id="koopo-appt-details-pricing"></div>
+        </div>
+        <div class="koopo-appt-details__row" id="koopo-appt-details-sms-evidence-row" style="display:none">
+          <div class="koopo-appt-details__label"><?php esc_html_e('SMS consent evidence', 'appointments'); ?></div>
+          <div class="koopo-appt-details__value" id="koopo-appt-details-sms-evidence"></div>
         </div>
       </div>
 

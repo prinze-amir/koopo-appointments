@@ -43,10 +43,18 @@
 .koopo-client-tabs button.is-active { background: #183e34; color: #fff; }
 .koopo-client-layout { display: grid; grid-template-columns: minmax(260px, .75fr) minmax(420px, 1.65fr); gap: 16px; align-items: start; }
 [data-client-list] { padding: 0; overflow: hidden; }
-.koopo-client-list-head { display: flex; align-items: end; justify-content: space-between; padding: 20px; border-bottom: 1px solid #e5ebe8; }
-[data-client-list] > button { display: grid; gap: 3px; width: 100%; padding: 15px 20px; border: 0; border-bottom: 1px solid #edf1ef; background: #fff; color: #24352f; cursor: pointer; text-align: left; }
-[data-client-list] > button:hover, [data-client-list] > button.is-active { background: #f2f8f5; box-shadow: inset 3px 0 #ba9340; }
-[data-client-list] > button span, [data-client-list] > button small { color: #77817d; }
+.koopo-client-list-head { display: grid; gap: 12px; padding: 20px; border-bottom: 1px solid #e5ebe8; }
+.koopo-client-list-head > div { display: flex; align-items: end; justify-content: space-between; }
+.koopo-client-list-head form { display: flex; gap: 7px; }
+.koopo-client-list-head input { min-width: 0; width: 100%; }
+.koopo-client-list-head button, .koopo-client-pagination button { border: 1px solid #d5ded9; border-radius: 8px; background: #fff; color: #29483f; cursor: pointer; font-weight: 700; padding: 8px 11px; }
+.koopo-client-results > button { display: grid; gap: 3px; width: 100%; padding: 15px 20px; border: 0; border-bottom: 1px solid #edf1ef; background: #fff; color: #24352f; cursor: pointer; text-align: left; }
+.koopo-client-results > button:hover, .koopo-client-results > button.is-active { background: #f2f8f5; box-shadow: inset 3px 0 #ba9340; }
+.koopo-client-results > button span, .koopo-client-results > button small { color: #77817d; }
+.koopo-client-results > p { padding: 20px; }
+.koopo-client-pagination { display: flex; align-items: center; justify-content: space-between; padding: 12px 20px; }
+.koopo-client-pagination span { color: #77817d; font-size: 12px; font-weight: 700; }
+.koopo-client-pagination button:disabled { cursor: default; opacity: .45; }
 .koopo-client-detail-head { display: flex; align-items: start; justify-content: space-between; border-bottom: 1px solid #e3e9e6; padding-bottom: 16px; }
 .koopo-client-detail-head h3 { margin: 5px 0; font-size: 25px; }
 .koopo-client-notes { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 20px 0; }
@@ -578,6 +586,40 @@ input#koopo-service-addon {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.koopo-sms-disclosure {
+  margin: 10px 0;
+  padding: 12px 14px;
+  border: 1px solid #c9dfd0;
+  border-left: 4px solid #2f6f44;
+  border-radius: 10px;
+  background: #f4faf6;
+  color: #203c2a;
+}
+
+.koopo-sms-disclosure p {
+  margin: 6px 0 0;
+  line-height: 1.55;
+}
+
+#koopo-appt-details-sms-evidence-row {
+  grid-column: 1 / -1;
+}
+
+.koopo-sms-evidence {
+  display: grid;
+  gap: 5px;
+  font-weight: 400;
+  line-height: 1.45;
+}
+
+.koopo-sms-evidence blockquote {
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  border-left: 3px solid #2f6f44;
+  background: #fff;
+  color: #38443c;
 }
 #koopo-appt-details-meta a {
   text-decoration: none;

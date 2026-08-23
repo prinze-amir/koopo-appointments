@@ -3,7 +3,7 @@
 
   const utils = window.KOOPO_VENDOR_UTILS || {};
 
-  async function api(path, opts = {}) {
+  async function apiResponse(path, opts = {}) {
     const base = String(KOOPO_APPT_VENDOR.rest || '').replace(/\/$/, '');
     const url = `${base}${path}`;
     const headers = Object.assign({
@@ -12,8 +12,22 @@
     }, opts.headers || {});
     const res = await fetch(url, Object.assign({}, opts, { headers, credentials: 'same-origin' }));
     const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || 'Request failed');
-    return data;
+    if (!res.ok) throw new Error(data.message || data.error || 'Request failed');
+    return { data, response: res };
+  }
+
+  async function api(path, opts = {}) {
+    return (await apiResponse(path, opts)).data;
+  }
+
+  async function apiWithMeta(path, opts = {}) {
+    const result = await apiResponse(path, opts);
+    const data = result.data;
+    return {
+      data,
+      total: Number(result.response.headers.get('X-WP-Total') || (Array.isArray(data) ? data.length : 0)),
+      totalPages: Number(result.response.headers.get('X-WP-TotalPages') || 1)
+    };
   }
 
   function cropServiceProfileImage(file) {
@@ -215,6 +229,7 @@
   }
 
   utils.api = api;
+  utils.apiWithMeta = apiWithMeta;
   utils.loadVendorListings = loadVendorListings;
   utils.loadBookingContexts = loadBookingContexts;
   utils.updateListingLink = updateListingLink;

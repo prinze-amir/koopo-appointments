@@ -30,12 +30,19 @@ final class SMS_Provider {
     $phone = Booking_Invitations::normalize_phone($phone);
     $message = trim(wp_strip_all_tags($message));
     if ($phone === '' || $message === '') return self::failure('invalid_sms_request', false);
-    if (strlen($message) > 1200) return self::failure('sms_message_too_long', false);
+    $max_length = sanitize_key((string) ($context['type'] ?? '')) === 'guest_appointment_invite' ? 160 : 1200;
+    if (strlen($message) > $max_length) return self::failure('sms_message_too_long', false);
 
+    $reservation = SMS_Usage::reserve();
+    if (is_wp_error($reservation)) return self::failure($reservation->get_error_code(), false);
     $provider = self::provider();
-    if ($provider === 'brevo') return self::send_brevo($phone, $message, $context);
-    if ($provider === 'twilio') return self::send_twilio($phone, $message, $context);
-    return self::failure('sms_provider_not_configured', false);
+    if ($provider === 'brevo') $result = self::send_brevo($phone, $message, $context);
+    elseif ($provider === 'twilio') $result = self::send_twilio($phone, $message, $context);
+    else $result = self::failure('sms_provider_not_configured', false);
+    SMS_Usage::finish($reservation, !empty($result['accepted']), !empty($result['uncertain']));
+    if (!empty($result['accepted']) && !empty($result['provider_message_id'])) SMS_Delivery_Receipts::accepted($provider, (string) $result['provider_message_id'], $context);
+    unset($result['uncertain']);
+    return $result;
   }
 
   public static function enabled(): bool {
@@ -52,7 +59,48 @@ final class SMS_Provider {
     $configured = $provider === 'brevo'
       ? self::secret(self::OPTION_BREVO_API_KEY) !== '' && self::brevo_sender() !== ''
       : self::twilio_account_sid() !== '' && self::twilio_api_key_sid() !== '' && self::secret(self::OPTION_TWILIO_API_KEY_SECRET) !== '' && (self::twilio_messaging_service_sid() !== '' || self::twilio_from_number() !== '');
-    return ['enabled'=>self::enabled(), 'provider'=>$provider, 'configured'=>$configured, 'ready'=>self::enabled() && $configured];
+    $enabled = self::enabled();
+    $paused = SMS_Usage::paused();
+    $limit_error = '';
+    foreach (SMS_Usage::usage() as $type=>$meter) {
+      if ($meter['enabled'] && $meter['used'] >= $meter['limit']) { $limit_error = 'sms_' . $type . '_limit_reached'; break; }
+    }
+    $ready = $enabled && $configured && !$paused && $limit_error === '';
+    $reason = !$configured ? 'not_configured' : (!$enabled ? 'disabled' : ($paused ? 'paused' : ($limit_error ?: '')));
+    return ['enabled'=>$enabled, 'provider'=>$provider, 'configured'=>$configured, 'ready'=>$ready, 'paused'=>$paused, 'limit_error'=>$limit_error, 'unavailable_reason'=>$ready?'':$reason];
+  }
+
+  /** Brevo-reported SMS credits from GET /v3/account, cached for five minutes. */
+  public static function brevo_credits(bool $force = false): array {
+    $api_key = self::secret(self::OPTION_BREVO_API_KEY);
+    if ($api_key === '') return ['status'=>'unavailable', 'credits'=>null, 'fetched_at'=>null, 'error_code'=>'brevo_not_configured'];
+    $cache_key = 'koopo_appt_brevo_sms_credits_' . substr(hash('sha256', $api_key), 0, 16);
+    if (!$force) {
+      $cached = get_transient($cache_key);
+      if (is_array($cached)) return $cached;
+    }
+    $response = wp_remote_get('https://api.brevo.com/v3/account', [
+      'timeout'=>10,
+      'headers'=>['accept'=>'application/json', 'api-key'=>$api_key],
+    ]);
+    if (is_wp_error($response)) $result = ['status'=>'error', 'credits'=>null, 'fetched_at'=>time(), 'error_code'=>'brevo_account_network_error'];
+    else {
+      $status = (int) wp_remote_retrieve_response_code($response);
+      $payload = json_decode((string) wp_remote_retrieve_body($response), true);
+      $credits = 0;
+      $found = false;
+      foreach ((array) ($payload['plan'] ?? []) as $plan) {
+        if (is_array($plan) && sanitize_key((string) ($plan['type'] ?? '')) === 'sms' && is_numeric($plan['credits'] ?? null)) {
+          $credits += max(0, (int) $plan['credits']);
+          $found = true;
+        }
+      }
+      $result = $status === 200 && $found
+        ? ['status'=>'available', 'credits'=>$credits, 'fetched_at'=>time(), 'error_code'=>'']
+        : ['status'=>'error', 'credits'=>null, 'fetched_at'=>time(), 'error_code'=>'brevo_account_http_' . ($status ?: 0)];
+    }
+    set_transient($cache_key, $result, 5 * MINUTE_IN_SECONDS);
+    return $result;
   }
 
   public static function sanitize_secret($value, string $option): string {
@@ -127,10 +175,13 @@ final class SMS_Provider {
     $api_key = self::secret(self::OPTION_BREVO_API_KEY);
     $sender = self::brevo_sender();
     if ($api_key === '' || $sender === '') return self::failure('brevo_not_configured', false);
+    $body = ['sender'=>$sender, 'recipient'=>$phone, 'content'=>$message, 'type'=>'transactional', 'tag'=>'koopo_' . sanitize_key((string) ($context['type'] ?? 'appointment'))];
+    $webhook_url = SMS_Delivery_Receipts::webhook_url();
+    if ($webhook_url !== '') $body['webUrl'] = $webhook_url;
     $response = wp_remote_post('https://api.brevo.com/v3/transactionalSMS/send', [
       'timeout'=>15,
       'headers'=>['accept'=>'application/json', 'api-key'=>$api_key, 'content-type'=>'application/json'],
-      'body'=>wp_json_encode(['sender'=>$sender, 'recipient'=>$phone, 'content'=>$message, 'type'=>'transactional', 'tag'=>'koopo_' . sanitize_key((string) ($context['type'] ?? 'appointment'))]),
+      'body'=>wp_json_encode($body),
       'data_format'=>'body',
     ]);
     return self::parse_response($response, 'brevo', 201, 'messageId');
@@ -156,16 +207,18 @@ final class SMS_Provider {
   }
 
   private static function parse_response($response, string $provider, int $success_code, string $id_key): array {
-    if (is_wp_error($response)) return self::failure($provider . '_network_error', true);
+    if (is_wp_error($response)) return self::failure($provider . '_network_error', true, true);
     $status = (int) wp_remote_retrieve_response_code($response);
     $payload = json_decode((string) wp_remote_retrieve_body($response), true);
     $message_id = is_array($payload) ? sanitize_text_field((string) ($payload[$id_key] ?? '')) : '';
     if ($status === $success_code && $message_id !== '') return ['accepted'=>true, 'provider_message_id'=>$message_id, 'error_code'=>'', 'retryable'=>false];
     $retryable = $status === 408 || $status === 429 || $status >= 500;
-    return self::failure($provider . '_http_' . ($status ?: 0), $retryable);
+    return self::failure($provider . '_http_' . ($status ?: 0), $retryable, $status === 408 || $status >= 500);
   }
 
-  private static function failure(string $code, bool $retryable): array {
-    return ['accepted'=>false, 'provider_message_id'=>'', 'error_code'=>sanitize_key($code), 'retryable'=>$retryable];
+  private static function failure(string $code, bool $retryable, bool $uncertain = false): array {
+    $result = ['accepted'=>false, 'provider_message_id'=>'', 'error_code'=>sanitize_key($code), 'retryable'=>$retryable];
+    if ($uncertain) $result['uncertain'] = true;
+    return $result;
   }
 }

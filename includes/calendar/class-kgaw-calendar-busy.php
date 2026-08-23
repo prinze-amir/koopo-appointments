@@ -14,18 +14,22 @@ final class Calendar_Busy {
   }
 
   public static function cron_schedules(array $schedules): array {
-    $schedules['koopo_five_minutes'] = ['interval'=>300,'display'=>__('Every five minutes','koopo-appointments')];
+    $schedules['koopo_five_minutes'] = ['interval'=>300,'display'=>did_action('init') ? __('Every five minutes','koopo-appointments') : 'Every five minutes'];
     return $schedules;
   }
 
   public static function refresh_due(): void {
-    foreach (Calendar_Repository::list_due_busy_sources(100) as $source) self::sync_source($source);
+    foreach (Calendar_Repository::list_due_busy_sources(100) as $source) {
+      if (!Admin_Settings::calendar_provider_enabled((string) $source->provider)) continue;
+      self::sync_source($source);
+    }
   }
 
   public static function sync_resource(int $resource_id): array {
     $result = ['sources'=>0,'blocks'=>0,'errors'=>[],'synced_at'=>current_time('mysql', true)];
     foreach (Calendar_Repository::list_busy_sources_for_resource($resource_id) as $source) {
       if (empty($source->enabled) || (string) $source->busy_mode === 'informational') continue;
+      if (!Admin_Settings::calendar_provider_enabled((string) $source->provider)) continue;
       try {
         $result['blocks'] += self::sync_source($source);
         $result['sources']++;
@@ -37,6 +41,9 @@ final class Calendar_Busy {
   }
 
   public static function sync_source(object $source): int {
+    if (!Admin_Settings::calendar_provider_enabled((string) $source->provider)) {
+      throw new \RuntimeException(ucfirst((string) $source->provider) . ' Calendar is disabled by the site administrator.');
+    }
     try {
       $connection = Calendar_Repository::get_connection((int) $source->connection_id, (int) $source->user_id);
       if (!$connection || (string) $connection->status === 'disconnected') throw new \RuntimeException('Calendar connection is unavailable.');
@@ -64,7 +71,7 @@ final class Calendar_Busy {
     $end_utc = $local_end->setTimezone($utc)->format('Y-m-d H:i:s');
     global $wpdb;
     $rows = $wpdb->get_results($wpdb->prepare(
-      'SELECT starts_at_utc, ends_at_utc FROM ' . Calendar_Repository::busy_blocks_table() . ' WHERE resource_id = %d AND starts_at_utc < %s AND ends_at_utc > %s ORDER BY starts_at_utc',
+      'SELECT blocks.starts_at_utc, blocks.ends_at_utc FROM ' . Calendar_Repository::busy_blocks_table() . ' blocks INNER JOIN ' . Calendar_Repository::busy_sources_table() . ' sources ON sources.id = blocks.source_id WHERE blocks.resource_id = %d AND blocks.starts_at_utc < %s AND blocks.ends_at_utc > %s' . self::enabled_provider_sql('sources') . ' ORDER BY blocks.starts_at_utc',
       $resource_id,
       $end_utc,
       $start_utc
@@ -86,10 +93,16 @@ final class Calendar_Busy {
     } catch (\Throwable $error) { return false; }
     global $wpdb;
     return (bool) $wpdb->get_var($wpdb->prepare(
-      'SELECT id FROM ' . Calendar_Repository::busy_blocks_table() . ' WHERE resource_id = %d AND starts_at_utc < %s AND ends_at_utc > %s LIMIT 1',
+      'SELECT blocks.id FROM ' . Calendar_Repository::busy_blocks_table() . ' blocks INNER JOIN ' . Calendar_Repository::busy_sources_table() . ' sources ON sources.id = blocks.source_id WHERE blocks.resource_id = %d AND blocks.starts_at_utc < %s AND blocks.ends_at_utc > %s' . self::enabled_provider_sql('sources') . ' LIMIT 1',
       $resource_id,
       $end_utc,
       $start_utc
     ));
+  }
+
+  private static function enabled_provider_sql(string $alias): string {
+    $disabled = array_values(array_filter(Calendar_Provider::supported(), static fn(string $provider): bool => !Admin_Settings::calendar_provider_enabled($provider)));
+    if (!$disabled) return '';
+    return " AND {$alias}.provider NOT IN ('" . implode("','", array_map('esc_sql', $disabled)) . "')";
   }
 }

@@ -14,11 +14,19 @@ class Services_List {
       'methods' => 'GET',
       'callback' => [__CLASS__, 'get_services_for_listing'],
       'permission_callback' => '__return_true', // public listing page; services are “public” in this context
+      'args' => [
+        'id'=>['type'=>'integer','minimum'=>1,'validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'absint'],
+        'include_inactive'=>['type'=>'boolean','validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'rest_sanitize_boolean'],
+      ],
     ]);
     register_rest_route('koopo/v1', '/services/by-provider/(?P<id>\d+)', [
       'methods' => 'GET',
       'callback' => [__CLASS__, 'get_services_for_provider'],
       'permission_callback' => '__return_true',
+      'args' => [
+        'id'=>['type'=>'integer','minimum'=>1,'validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'absint'],
+        'include_inactive'=>['type'=>'boolean','validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'rest_sanitize_boolean'],
+      ],
     ]);
   }
 
@@ -63,6 +71,7 @@ class Services_List {
       'posts_per_page' => 200,
       'orderby' => 'title',
       'order' => 'ASC',
+      'no_found_rows' => true,
       'meta_query' => [
         [
           'key' => $meta_key,

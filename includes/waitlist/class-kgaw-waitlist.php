@@ -16,29 +16,70 @@ final class Waitlist {
   }
 
   public static function routes(): void {
+    $id_arg=['type'=>'integer','minimum'=>1,'validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'absint'];
     register_rest_route('koopo/v1', '/waitlist', [
       ['methods'=>'GET','callback'=>[__CLASS__,'customer_entries'],'permission_callback'=>static fn():bool=>is_user_logged_in()],
-      ['methods'=>'POST','callback'=>[__CLASS__,'join'],'permission_callback'=>static fn():bool=>is_user_logged_in()],
+      ['methods'=>'POST','callback'=>[__CLASS__,'join'],'permission_callback'=>static fn():bool=>is_user_logged_in(),'args'=>self::join_args()],
     ]);
     register_rest_route('koopo/v1', '/waitlist/(?P<id>\d+)', [
-      'methods'=>'DELETE','callback'=>[__CLASS__,'leave'],'permission_callback'=>static fn():bool=>is_user_logged_in(),
+      'methods'=>'DELETE','callback'=>[__CLASS__,'leave'],'permission_callback'=>static fn():bool=>is_user_logged_in(),'args'=>['id'=>$id_arg],
     ]);
     register_rest_route('koopo/v1', '/waitlist/offers/(?P<token>[A-Za-z0-9_-]{32,128})/accept', [
-      'methods'=>'POST','callback'=>[__CLASS__,'accept_offer'],'permission_callback'=>static fn():bool=>is_user_logged_in(),
+      'methods'=>'POST','callback'=>[__CLASS__,'accept_offer'],'permission_callback'=>static fn():bool=>is_user_logged_in(),'args'=>['token'=>['type'=>'string','minLength'=>32,'maxLength'=>128,'pattern'=>'^[A-Za-z0-9_-]+$','validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'sanitize_text_field']],
     ]);
     register_rest_route('koopo/v1', '/vendor/waitlist', [
-      'methods'=>'GET','callback'=>[__CLASS__,'vendor_entries'],'permission_callback'=>static fn():bool=>is_user_logged_in(),
+      'methods'=>'GET','callback'=>[__CLASS__,'vendor_entries'],'permission_callback'=>static fn():bool=>is_user_logged_in(),'args'=>['resource_id'=>array_merge($id_arg,['required'=>true])],
     ]);
     register_rest_route('koopo/v1', '/vendor/waitlist/(?P<id>\d+)/offer', [
-      'methods'=>'POST','callback'=>[__CLASS__,'manual_offer'],'permission_callback'=>static fn():bool=>is_user_logged_in(),
+      'methods'=>'POST','callback'=>[__CLASS__,'manual_offer'],'permission_callback'=>static fn():bool=>is_user_logged_in(),'args'=>[
+        'id'=>$id_arg,
+        'opening_booking_id'=>$id_arg,
+        'start_datetime'=>['type'=>'string','required'=>true,'pattern'=>'^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$','validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'sanitize_text_field'],
+        'end_datetime'=>['type'=>'string','required'=>true,'pattern'=>'^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$','validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'sanitize_text_field'],
+        'timezone'=>['type'=>'string','maxLength'=>100,'validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'sanitize_text_field'],
+      ],
     ]);
     register_rest_route('koopo/v1', '/vendor/waitlist/(?P<id>\d+)', [
-      'methods'=>'PATCH,PUT,POST','callback'=>[__CLASS__,'update_entry'],'permission_callback'=>static fn():bool=>is_user_logged_in(),
+      'methods'=>'PATCH,PUT,POST','callback'=>[__CLASS__,'update_entry'],'permission_callback'=>static fn():bool=>is_user_logged_in(),'args'=>[
+        'id'=>$id_arg,
+        'priority'=>['type'=>'integer','minimum'=>1,'maximum'=>1000,'validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'absint'],
+        'provider_note'=>['type'=>'string','maxLength'=>5000,'validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'sanitize_textarea_field'],
+        'status'=>['type'=>'string','enum'=>['active','paused'],'validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'sanitize_key'],
+      ],
     ]);
     register_rest_route('koopo/v1', '/vendor/waitlist/settings/(?P<resource_id>\d+)', [
-      ['methods'=>'GET','callback'=>[__CLASS__,'get_settings'],'permission_callback'=>static fn():bool=>is_user_logged_in()],
-      ['methods'=>'PUT,POST','callback'=>[__CLASS__,'save_settings'],'permission_callback'=>static fn():bool=>is_user_logged_in()],
+      ['methods'=>'GET','callback'=>[__CLASS__,'get_settings'],'permission_callback'=>static fn():bool=>is_user_logged_in(),'args'=>['resource_id'=>$id_arg]],
+      ['methods'=>'PUT,POST','callback'=>[__CLASS__,'save_settings'],'permission_callback'=>static fn():bool=>is_user_logged_in(),'args'=>[
+        'resource_id'=>$id_arg,
+        'mode'=>['type'=>'string','enum'=>['sequential','first_to_confirm','manual'],'validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'sanitize_key'],
+        'offer_minutes'=>['type'=>'integer','minimum'=>5,'maximum'=>120,'validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'absint'],
+        'batch_size'=>['type'=>'integer','minimum'=>1,'maximum'=>20,'validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'absint'],
+      ]],
     ]);
+  }
+
+  private static function join_args(): array {
+    return [
+      'service_id'=>['type'=>'integer','required'=>true,'minimum'=>1,'validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'absint'],
+      'fulfillment_mode'=>['type'=>'string','enum'=>['at_location','mobile','virtual'],'validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'sanitize_key'],
+      'service_address'=>['type'=>'object','maxProperties'=>6,'properties'=>[
+        'address_1'=>['type'=>'string','maxLength'=>255],
+        'address_2'=>['type'=>'string','maxLength'=>255],
+        'city'=>['type'=>'string','maxLength'=>120],
+        'region'=>['type'=>'string','maxLength'=>120],
+        'postal_code'=>['type'=>'string','maxLength'=>32],
+        'country'=>['type'=>'string','maxLength'=>120],
+      ],'validate_callback'=>'rest_validate_request_arg'],
+      'preferred_days'=>['type'=>'array','maxItems'=>7,'items'=>['type'=>'string','enum'=>['sun','mon','tue','wed','thu','fri','sat']],'validate_callback'=>'rest_validate_request_arg'],
+      'date_from'=>['type'=>'string','pattern'=>'^\d{4}-\d{2}-\d{2}$','validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'sanitize_text_field'],
+      'date_to'=>['type'=>'string','pattern'=>'^\d{4}-\d{2}-\d{2}$','validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'sanitize_text_field'],
+      'earliest_time'=>['type'=>'string','pattern'=>'^\d{2}:\d{2}(?::\d{2})?$','validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'sanitize_text_field'],
+      'latest_time'=>['type'=>'string','pattern'=>'^\d{2}:\d{2}(?::\d{2})?$','validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'sanitize_text_field'],
+      'channels'=>['type'=>'array','maxItems'=>2,'items'=>['type'=>'string','enum'=>['email','push']],'validate_callback'=>'rest_validate_request_arg'],
+      'name'=>['type'=>'string','maxLength'=>191,'validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'sanitize_text_field'],
+      'email'=>['type'=>'string','maxLength'=>191,'validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'sanitize_email'],
+      'phone'=>['type'=>'string','maxLength'=>64,'validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'sanitize_text_field'],
+    ];
   }
 
   public static function join(\WP_REST_Request $request) {

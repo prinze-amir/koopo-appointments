@@ -26,9 +26,9 @@ class Customer_Bookings_API {
       'callback' => [__CLASS__, 'list_bookings'],
       'permission_callback' => [__CLASS__, 'is_customer_logged_in'],
       'args' => [
-        'status'   => ['type' => 'string', 'required' => false, 'default' => 'upcoming'],
-        'page'     => ['type' => 'integer', 'required' => false, 'default' => 1],
-        'per_page' => ['type' => 'integer', 'required' => false, 'default' => 10],
+        'status'   => ['type' => 'string', 'required' => false, 'default' => 'upcoming', 'validate_callback'=>'rest_validate_request_arg', 'sanitize_callback' => 'sanitize_key'],
+        'page'     => ['type' => 'integer', 'required' => false, 'default' => 1, 'minimum' => 1, 'maximum' => 10000, 'validate_callback'=>'rest_validate_request_arg', 'sanitize_callback' => 'absint'],
+        'per_page' => ['type' => 'integer', 'required' => false, 'default' => 10, 'minimum' => 1, 'maximum' => 20, 'validate_callback'=>'rest_validate_request_arg', 'sanitize_callback' => 'absint'],
       ],
     ]);
 
@@ -167,6 +167,7 @@ class Customer_Bookings_API {
     $page = max(1, absint($request->get_param('page')));
     $max_per_page = (int) apply_filters('koopo_appt_customer_per_page_max', 20, $customer_id);
     if ($max_per_page < 1) $max_per_page = 20;
+    $max_per_page = min(100, $max_per_page);
     $per_page = min($max_per_page, max(1, absint($request->get_param('per_page'))));
 
     // Build WHERE clause based on status filter

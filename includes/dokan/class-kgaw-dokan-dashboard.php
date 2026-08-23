@@ -5,6 +5,15 @@ defined('ABSPATH') || exit;
 
 class Dokan_Dashboard {
 
+  private const KOOPO_ENDPOINTS = [
+    'koopo-appointments',
+    'koopo-services',
+    'koopo-appointment-settings',
+    'koopo-professional-profile',
+    'koopo-waitlist',
+    'koopo-clients',
+  ];
+
   public static function init() {
     // Only run if Dokan is active
     if (!function_exists('dokan_get_navigation_url')) return;
@@ -108,17 +117,15 @@ public static function load_templates($query_vars) {
   }
 
   public static function enqueue_assets(): void {
-    if (!function_exists('dokan_is_seller_dashboard')) return;
-    if (!dokan_is_seller_dashboard()) return;
+    $endpoint = self::current_endpoint();
+    if (!$endpoint) return;
 
-    // Load only on our Koopo sub-pages
-    global $wp_query;
-    $is_appointments = isset($wp_query->query_vars['koopo-appointments']);
-    $is_services = isset($wp_query->query_vars['koopo-services']);
-    $is_settings = isset($wp_query->query_vars['koopo-appointment-settings']);
-    $is_provider = isset($wp_query->query_vars['koopo-professional-profile']);
-    $is_waitlist = isset($wp_query->query_vars['koopo-waitlist']);
-    $is_clients = isset($wp_query->query_vars['koopo-clients']);
+    $is_appointments = 'koopo-appointments' === $endpoint;
+    $is_services = 'koopo-services' === $endpoint;
+    $is_settings = 'koopo-appointment-settings' === $endpoint;
+    $is_provider = 'koopo-professional-profile' === $endpoint;
+    $is_waitlist = 'koopo-waitlist' === $endpoint;
+    $is_clients = 'koopo-clients' === $endpoint;
     $is_koopo = $is_appointments || $is_services || $is_settings || $is_provider || $is_waitlist || $is_clients;
 
     if (!$is_koopo) return;
@@ -164,6 +171,27 @@ public static function load_templates($query_vars) {
 
     // status badges reused (colors)
     wp_enqueue_style('koopo-appt-badges', KOOPO_APPT_URL . 'assets/badges.css', [], KOOPO_APPT_VERSION);
+  }
+
+  /**
+   * Resolve Koopo's active Dokan endpoint without depending solely on Dokan's
+   * dashboard page-ID check. Newer/custom dashboard shells can render Dokan's
+   * template while dokan_is_seller_dashboard() reports false.
+   */
+  public static function current_endpoint(): string {
+    global $wp;
+    $query_vars = is_object($wp) && is_array($wp->query_vars ?? null) ? $wp->query_vars : [];
+    foreach (self::KOOPO_ENDPOINTS as $endpoint) {
+      if (array_key_exists($endpoint, $query_vars)) return $endpoint;
+    }
+
+    $request_uri = isset($_SERVER['REQUEST_URI']) ? wp_unslash((string) $_SERVER['REQUEST_URI']) : '';
+    $path = (string) wp_parse_url($request_uri, PHP_URL_PATH);
+    $segments = array_values(array_filter(explode('/', trim(rawurldecode($path), '/')), 'strlen'));
+    foreach (self::KOOPO_ENDPOINTS as $endpoint) {
+      if (in_array($endpoint, $segments, true)) return $endpoint;
+    }
+    return '';
   }
 
   public static function vendor_has_appointments_access(int $vendor_id): bool {

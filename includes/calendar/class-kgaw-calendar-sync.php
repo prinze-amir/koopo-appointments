@@ -41,11 +41,13 @@ final class Calendar_Sync {
       : Calendar_Repository::list_active_bindings_for_listing((int) $booking->listing_id);
     foreach ($bindings as $binding) {
       if ((string) $binding->provider === 'ics') continue;
+      if (!Admin_Settings::calendar_provider_enabled((string) $binding->provider)) continue;
       self::sync_binding($booking, $binding);
     }
   }
 
   private static function sync_binding(object $booking, object $binding): void {
+    if (!Admin_Settings::calendar_provider_enabled((string) $binding->provider)) return;
     $mapping = Calendar_Repository::get_event((int) $booking->id, (int) $binding->id);
     $uid = self::uid((int) $booking->id);
     $terminal = in_array((string) $booking->status, ['cancelled', 'refunded', 'expired', 'conflict'], true);
@@ -120,6 +122,10 @@ final class Calendar_Sync {
   }
 
   public static function remove_binding_events(object $binding, bool $best_effort = false): void {
+    if (!Admin_Settings::calendar_provider_enabled((string) $binding->provider)) {
+      if ($best_effort) return;
+      throw new \RuntimeException(ucfirst((string) $binding->provider) . ' Calendar is disabled by the site administrator.');
+    }
     $connection = Calendar_Repository::get_connection((int) $binding->connection_id, (int) $binding->user_id);
     if (!$connection) {
       Calendar_Repository::delete_events_for_binding((int) $binding->id);

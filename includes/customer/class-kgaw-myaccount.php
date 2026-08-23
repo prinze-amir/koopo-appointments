@@ -115,9 +115,7 @@ class MyAccount {
    * Builds a signed “Pay now” link that prepares the cart and redirects to checkout.
    */
   public static function pay_now_url(int $booking_id): string {
-    $base = function_exists('wc_get_account_endpoint_url')
-      ? wc_get_account_endpoint_url('koopo-appointments')
-      : home_url('/my-account/koopo-appointments/');
+    $base = self::appointments_url();
 
     return add_query_arg([
       'koopo_pay_booking' => $booking_id,
@@ -127,8 +125,8 @@ class MyAccount {
 
   public static function appointments_url(): string {
     return function_exists('wc_get_account_endpoint_url')
-      ? wc_get_account_endpoint_url('koopo-appointments')
-      : home_url('/my-account/koopo-appointments/');
+      ? wc_get_account_endpoint_url('appointments')
+      : home_url('/my-account/appointments/');
   }
 
   public static function manage_appointment_url(int $booking_id): string {
@@ -141,9 +139,7 @@ class MyAccount {
  * Builds a signed “Cancel” link for a booking (customer-side).
  */
   public static function cancel_booking_url(int $booking_id): string {
-    $base = function_exists('wc_get_account_endpoint_url')
-      ? wc_get_account_endpoint_url('koopo-appointments')
-      : home_url('/my-account/koopo-appointments/');
+    $base = self::appointments_url();
 
     return add_query_arg([
       'koopo_cancel_booking' => $booking_id,
@@ -170,7 +166,7 @@ class MyAccount {
     if (is_wp_error($result)) {
       $msg = $result->get_error_message();
       wc_add_notice($msg, 'error');
-      wp_safe_redirect(wc_get_account_endpoint_url('koopo-appointments'));
+      wp_safe_redirect(self::appointments_url());
       exit;
     }
 
@@ -221,7 +217,7 @@ class MyAccount {
 
         // Redirect back to appointments page.
 
-    $url = wc_get_account_endpoint_url('koopo-appointments');
+    $url = self::appointments_url();
     wp_safe_redirect($url);
     exit;
   }
@@ -230,7 +226,7 @@ class MyAccount {
     if (!function_exists('is_account_page') || !is_account_page()) return;
     // Only load when our endpoint is being viewed.
     global $wp;
-    if (!isset($wp->query_vars['koopo-appointments']) && empty($_GET['koopo_pay_booking']) && empty($_GET['koopo_cancel_booking'])) {
+    if (!isset($wp->query_vars['appointments']) && empty($_GET['koopo_pay_booking']) && empty($_GET['koopo_cancel_booking'])) {
       return;
     }
 

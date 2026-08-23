@@ -13,6 +13,9 @@ final class Transactional_SMS {
     if (!$phone || !$booking_id || !$invitation_id || empty($context['guest_only']) || empty($context['consent_recorded'])) {
       return ['accepted'=>false,'provider_message_id'=>'','error_code'=>'invalid_sms_request','retryable'=>false];
     }
+    if (SMS_Compliance::is_suppressed($phone)) {
+      return ['accepted'=>false,'provider_message_id'=>'','error_code'=>'sms_recipient_suppressed','retryable'=>false];
+    }
 
     $delivery_id = Notification_Delivery::claim([
       'booking_id' => $booking_id,
@@ -30,6 +33,7 @@ final class Transactional_SMS {
       ];
     }
 
+    $context['delivery_id'] = (int) $delivery_id;
     $result = apply_filters('koopo_appt_send_transactional_sms_result', null, $phone, $message, $context);
     if (!is_array($result)) {
       // Preserve the original notification seam for observers, but do not call an
@@ -48,7 +52,7 @@ final class Transactional_SMS {
     $provider_message_id = sanitize_text_field((string) ($result['provider_message_id'] ?? ''));
     $error_code = sanitize_key((string) ($result['error_code'] ?? ''));
     $retryable = !empty($result['retryable']);
-    if ($accepted) Notification_Delivery::complete((int) $delivery_id, $provider_message_id);
+    if ($accepted) Notification_Delivery::accept_sms((int) $delivery_id, $provider_message_id);
     else Notification_Delivery::fail((int) $delivery_id, $error_code ?: 'sms_provider_rejected');
     return [
       'accepted' => $accepted,

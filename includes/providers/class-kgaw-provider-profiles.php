@@ -89,6 +89,11 @@ final class Provider_Profiles {
         'methods' => 'GET',
         'callback' => [__CLASS__, 'list_public'],
         'permission_callback' => '__return_true',
+        'args' => [
+          'page' => ['type'=>'integer','default'=>1,'minimum'=>1,'maximum'=>10000,'validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'absint'],
+          'per_page' => ['type'=>'integer','default'=>20,'minimum'=>1,'maximum'=>50,'validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'absint'],
+          'search' => ['type'=>'string','maxLength'=>100,'validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'sanitize_text_field'],
+        ],
       ],
       [
         'methods' => 'POST',
@@ -97,9 +102,18 @@ final class Provider_Profiles {
       ],
     ]);
     register_rest_route('koopo/v1', '/providers/(?P<id>\d+)', [
-      'methods' => ['GET', 'POST'],
-      'callback' => [__CLASS__, 'read_or_update'],
-      'permission_callback' => '__return_true',
+      [
+        'methods' => 'GET',
+        'callback' => [__CLASS__, 'read_or_update'],
+        'permission_callback' => '__return_true',
+        'args' => ['id'=>['type'=>'integer','minimum'=>1,'validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'absint']],
+      ],
+      [
+        'methods' => 'POST',
+        'callback' => [__CLASS__, 'read_or_update'],
+        'permission_callback' => static fn(\WP_REST_Request $request): bool => self::can_manage(absint($request['id'])),
+        'args' => ['id'=>['type'=>'integer','minimum'=>1,'validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'absint']],
+      ],
     ]);
     register_rest_route('koopo/v1', '/providers/(?P<id>\d+)/gallery', [
       'methods' => 'POST',
@@ -176,13 +190,19 @@ final class Provider_Profiles {
   }
 
   public static function list_public(\WP_REST_Request $request): \WP_REST_Response {
+    $page = max(1, absint($request->get_param('page')) ?: 1);
+    $per_page = min(50, max(1, absint($request->get_param('per_page')) ?: 20));
     $query = new \WP_Query([
       'post_type' => self::POST_TYPE,
       'post_status' => 'publish',
-      'posts_per_page' => min(50, max(1, absint($request->get_param('per_page')) ?: 20)),
+      'posts_per_page' => $per_page,
+      'paged' => $page,
       's' => sanitize_text_field((string) $request->get_param('search')),
     ]);
-    return new \WP_REST_Response(array_map(fn($post) => self::format((int) $post->ID, false), $query->posts), 200);
+    $response = new \WP_REST_Response(array_map(fn($post) => self::format((int) $post->ID, false), $query->posts), 200);
+    $response->header('X-WP-Total', (string) $query->found_posts);
+    $response->header('X-WP-TotalPages', (string) $query->max_num_pages);
+    return $response;
   }
 
   public static function booking_contexts(): \WP_REST_Response {
@@ -190,8 +210,6 @@ final class Provider_Profiles {
     foreach (Vendor_Listings_API::get_listings_for_user($user_id) as $listing) {
       Resources::ensure_for_listing((int) $listing['id']);
     }
-    $providers = get_posts(['post_type' => self::POST_TYPE, 'post_status' => 'publish', 'author' => $user_id, 'fields' => 'ids', 'posts_per_page' => 100]);
-    foreach ($providers as $provider_id) Resources::ensure_for_provider((int) $provider_id);
     return new \WP_REST_Response(Resources::contexts_for_user($user_id), 200);
   }
 
@@ -278,8 +296,7 @@ final class Provider_Profiles {
       $valid = $category_id ? get_term($category_id, Service_Categories::TAXONOMY) : null;
       wp_set_object_terms($provider_id, $valid && !is_wp_error($valid) ? [$category_id] : [], Service_Categories::TAXONOMY, false);
       if (class_exists(Bookable_Listings_API::class)) {
-        $service_ids = get_posts(['post_type'=>Services_CPT::POST_TYPE,'post_status'=>'any','posts_per_page'=>-1,'fields'=>'ids','meta_key'=>Services_API::META_PROVIDER_ID,'meta_value'=>$provider_id]);
-        foreach ($service_ids as $service_id) Bookable_Listings_API::sync_service((int) $service_id);
+        self::queue_service_index_updates($provider_id);
       }
     }
     update_post_meta($provider_id, self::META_STATUS, 'active');
@@ -290,6 +307,27 @@ final class Provider_Profiles {
     if ('' === trim((string) $value) || !is_numeric($value)) return '';
     $number = (float) $value;
     return $number >= $min && $number <= $max ? (string) round($number, 7) : '';
+  }
+
+  private static function queue_service_index_updates(int $provider_id): void {
+    $page = 1;
+    $batch_size = 200;
+    do {
+      $service_ids = get_posts([
+        'post_type'=>Services_CPT::POST_TYPE,
+        'post_status'=>'any',
+        'posts_per_page'=>$batch_size,
+        'paged'=>$page,
+        'fields'=>'ids',
+        'orderby'=>'ID',
+        'order'=>'ASC',
+        'no_found_rows'=>true,
+        'meta_key'=>Services_API::META_PROVIDER_ID,
+        'meta_value'=>$provider_id,
+      ]);
+      foreach ($service_ids as $service_id) Bookable_Listings_API::queue_service_sync((int) $service_id);
+      $page++;
+    } while (count($service_ids) === $batch_size);
   }
 
   public static function direct_location(int $provider_id, bool $include_private = false): ?array {

@@ -1184,7 +1184,7 @@ public static function init_cleanup_cron() {
     if (!isset($schedules['koopo_appt_five_minutes'])) {
       $schedules['koopo_appt_five_minutes'] = [
         'interval' => 5 * 60,
-        'display'  => __('Every 5 Minutes (Koopo Appointments)', 'koopo-appointments'),
+        'display'  => did_action('init') ? __('Every 5 Minutes (Koopo Appointments)', 'koopo-appointments') : 'Every 5 Minutes (Koopo Appointments)',
       ];
     }
     return $schedules;
@@ -1220,7 +1220,8 @@ public static function init_cleanup_cron() {
       continue;
     }
     self::set_status($id, 'expired');
-    if (apply_filters('koopo_appt_delete_expired_booking', true, $id, $booking)) {
+    self::archive_booking($id, 'abandoned_hold');
+    if (apply_filters('koopo_appt_delete_expired_booking', false, $id, $booking)) {
       self::delete_booking_data($id);
     }
   }
@@ -1235,7 +1236,8 @@ public static function init_cleanup_cron() {
     $ids = $wpdb->get_col(
       "SELECT id FROM {$table}
        WHERE status = 'cancelled'
-         AND end_datetime < NOW()
+         AND end_datetime < UTC_TIMESTAMP()
+         AND archived_at IS NULL
        LIMIT 200"
     );
 
@@ -1245,9 +1247,30 @@ public static function init_cleanup_cron() {
       if (!$booking) {
         continue;
       }
-      self::record_cancelled_archive($booking);
-      self::delete_booking_data($id);
+      $archived = $wpdb->query($wpdb->prepare(
+        "UPDATE {$table}
+         SET archived_at = UTC_TIMESTAMP(), retention_class = 'business_record', updated_at = UTC_TIMESTAMP()
+         WHERE id = %d AND archived_at IS NULL",
+        $id
+      ));
+      if ($archived === 1) self::record_cancelled_archive($booking);
     }
+  }
+
+  /** Archive a booking without destroying its financial, consent, or client history. */
+  public static function archive_booking(int $booking_id, string $retention_class = 'business_record'): bool {
+    global $wpdb;
+    $retention_class = sanitize_key($retention_class);
+    if (!in_array($retention_class, ['business_record', 'abandoned_hold'], true)) {
+      $retention_class = 'business_record';
+    }
+    return false !== $wpdb->query($wpdb->prepare(
+      'UPDATE ' . DB::table() . '
+       SET archived_at = COALESCE(archived_at, UTC_TIMESTAMP()), retention_class = %s, updated_at = UTC_TIMESTAMP()
+       WHERE id = %d',
+      $retention_class,
+      $booking_id
+    ));
   }
 
   private static function record_cancelled_archive(object $booking): void {
@@ -1432,6 +1455,31 @@ public static function init_cleanup_cron() {
     global $wpdb;
     $table = DB::table();
     $wpdb->update($table, ['wc_order_id' => (int)$order_id], ['id' => (int)$booking_id], ['%d'], ['%d']);
+  }
+
+  /**
+   * Assign an order without overwriting an order created by another request.
+   *
+   * @return int The order currently assigned to the booking, or zero when the
+   *             booking no longer exists.
+   */
+  public static function assign_order_id_if_empty(int $booking_id, int $order_id): int {
+    global $wpdb;
+    if ($booking_id < 1 || $order_id < 1) return 0;
+
+    $table = DB::table();
+    $wpdb->query($wpdb->prepare(
+      "UPDATE {$table}
+       SET wc_order_id = %d, updated_at = UTC_TIMESTAMP()
+       WHERE id = %d AND (wc_order_id IS NULL OR wc_order_id = 0)",
+      $order_id,
+      $booking_id
+    ));
+
+    return (int) $wpdb->get_var($wpdb->prepare(
+      "SELECT wc_order_id FROM {$table} WHERE id = %d",
+      $booking_id
+    ));
   }
 
   public static function set_hold_expires_at(int $booking_id, ?string $expires_at): bool {

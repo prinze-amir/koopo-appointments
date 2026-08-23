@@ -132,15 +132,24 @@ final class Resources {
   public static function contexts_for_user(int $user_id): array {
     global $wpdb;
     if (!$user_id) return [];
-    $subjects = get_posts([
-      'post_type' => ['gd_place', Provider_Profiles::POST_TYPE],
-      'post_status' => 'publish',
-      'author' => $user_id,
-      'posts_per_page' => 300,
-    ]);
-    foreach ($subjects as $subject) {
-      self::ensure($subject->post_type === Provider_Profiles::POST_TYPE ? 'provider' : 'listing', (int) $subject->ID, $user_id, $user_id);
-    }
+    $page = 1;
+    $batch_size = 200;
+    do {
+      $subjects = get_posts([
+        'post_type' => ['gd_place', Provider_Profiles::POST_TYPE],
+        'post_status' => 'publish',
+        'author' => $user_id,
+        'posts_per_page' => $batch_size,
+        'paged' => $page,
+        'orderby' => 'ID',
+        'order' => 'ASC',
+        'no_found_rows' => true,
+      ]);
+      foreach ($subjects as $subject) {
+        self::ensure($subject->post_type === Provider_Profiles::POST_TYPE ? 'provider' : 'listing', (int) $subject->ID, $user_id, $user_id);
+      }
+      $page++;
+    } while (count($subjects) === $batch_size);
     $rows = $wpdb->get_results($wpdb->prepare(
       'SELECT * FROM ' . DB::resources_table() . " WHERE owner_user_id = %d AND status = 'active' ORDER BY subject_type, id",
       $user_id

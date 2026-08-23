@@ -14,6 +14,10 @@ namespace {
   function get_the_title($id) { return (int) $id === 22 ? 'Studio' : 'Consultation'; }
   function home_url($path = '') { return 'https://beta.example.test' . $path; }
   function wp_parse_url($url, $component = -1) { return parse_url($url, $component); }
+  function esc_url_raw($url, $protocols = null) { return filter_var($url, FILTER_SANITIZE_URL); }
+  function sanitize_key($key) { return strtolower((string) preg_replace('/[^a-z0-9_\-]/i', '', (string) $key)); }
+  function apply_filters($hook, $value) { return $value; }
+  function do_action($hook, ...$args) {}
 }
 
 namespace Koopo_Appointments {
@@ -23,6 +27,7 @@ namespace Koopo_Appointments {
     }
   }
 
+  require_once dirname(__DIR__) . '/includes/core/class-kgaw-logger.php';
   require_once dirname(__DIR__) . '/includes/calendar/class-kgaw-calendar-crypto.php';
   require_once dirname(__DIR__) . '/includes/admin/class-kgaw-admin-settings.php';
   require_once dirname(__DIR__) . '/includes/calendar/providers/class-kgaw-calendar-provider.php';
@@ -43,9 +48,25 @@ namespace Koopo_Appointments {
   expect(Admin_Settings::calendar_client_secret('google') === 'dashboard-secret', 'Admin calendar secret could not be decrypted.');
   expect(Admin_Settings::sanitize_google_calendar_secret('') === $saved_secret, 'Blank admin secret did not preserve the saved value.');
   expect((new Calendar_Provider('google'))->is_configured(), 'Provider did not read dashboard OAuth settings.');
+  expect(!Admin_Settings::calendar_provider_enabled('google'), 'Google Calendar must fail closed when its release toggle is absent.');
+  $GLOBALS['calendar_test_options'][Admin_Settings::OPTION_GOOGLE_CALENDAR_ENABLED] = 1;
+  expect(Admin_Settings::calendar_provider_enabled('google'), 'Google Calendar release toggle could not enable the provider.');
+  expect(Admin_Settings::calendar_provider_enabled('microsoft'), 'Google release control unexpectedly disabled Microsoft Calendar.');
   $_POST[Admin_Settings::OPTION_GOOGLE_CALENDAR_CLIENT_SECRET . '_clear'] = '1';
   expect(Admin_Settings::sanitize_google_calendar_secret('') === '', 'Explicit admin secret removal failed.');
   unset($_POST[Admin_Settings::OPTION_GOOGLE_CALENDAR_CLIENT_SECRET . '_clear']);
+
+  $microsoft = new Calendar_Provider('microsoft');
+  $next_link = new \ReflectionMethod(Calendar_Provider::class, 'microsoft_next_link');
+  expect($next_link->invoke($microsoft, ['@odata.nextLink'=>'https://graph.microsoft.com/v1.0/me/events?$skiptoken=safe']) !== '', 'Valid Microsoft continuation was rejected.');
+  try {
+    $next_link->invoke($microsoft, ['@odata.nextLink'=>'https://attacker.example/v1.0/me/events']);
+    throw new \RuntimeException('Untrusted Microsoft continuation host was accepted.');
+  } catch (\ReflectionException $error) {
+    throw $error;
+  } catch (\Throwable $error) {
+    expect(strpos($error->getMessage(), 'invalid continuation URL') !== false, 'Unexpected continuation validation error.');
+  }
 
   $booking = (object) [
     'id' => 8273,

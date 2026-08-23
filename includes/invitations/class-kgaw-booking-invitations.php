@@ -7,8 +7,8 @@ defined('ABSPATH') || exit;
 final class Booking_Invitations {
   const STATUS = 'pending_invitation';
   const DEFAULT_HOLD_MINUTES = 120;
-  const REWRITE_VERSION = '1';
-  const SMS_CONSENT_VERSION = 'guest-invite-v1';
+  const REWRITE_VERSION = '2';
+  const SMS_CONSENT_VERSION = SMS_Compliance::DISCLOSURE_VERSION;
 
   public static function init(): void {
     add_action('rest_api_init', [__CLASS__, 'routes']);
@@ -20,6 +20,8 @@ final class Booking_Invitations {
   }
 
   public static function rewrite(): void {
+    add_rewrite_rule('^i/([A-Za-z0-9_-]+)/?$', 'index.php?koopo_appointment_invite=$matches[1]', 'top');
+    // Keep the original route so invitations issued before the shorter SMS URL remain valid.
     add_rewrite_rule('^appointment-invite/([A-Za-z0-9_-]+)/?$', 'index.php?koopo_appointment_invite=$matches[1]', 'top');
   }
 
@@ -70,7 +72,7 @@ final class Booking_Invitations {
     return (int) apply_filters('koopo_appt_resolve_user_by_phone', 0, $normalized, $phone);
   }
 
-  public static function create(int $booking_id, int $created_by, array $channels, int $hold_minutes, bool $sms_consent) {
+  public static function create(int $booking_id, int $created_by, array $channels, int $hold_minutes, bool $sms_consent, array $sms_evidence = []) {
     global $wpdb;
     $booking = Bookings::get_booking($booking_id);
     if (!$booking || (int) $booking->customer_id > 0 || (string) $booking->status !== self::STATUS) {
@@ -79,8 +81,20 @@ final class Booking_Invitations {
     $email = sanitize_email((string) $booking->customer_email);
     $phone = self::normalize_phone((string) $booking->customer_phone);
     $channels = array_values(array_intersect(['email','sms'], array_map('sanitize_key', $channels)));
+    $sms_requested = in_array('sms', $channels, true);
     if (!$email) $channels = array_values(array_diff($channels, ['email']));
-    if (!$phone || !$sms_consent) $channels = array_values(array_diff($channels, ['sms']));
+    if ($sms_requested) {
+      if (!$phone) return new \WP_Error('sms_phone_required', __('Enter a valid mobile number before sending a text invitation.', 'koopo-appointments'));
+      $valid_consent = SMS_Compliance::validate_evidence(
+        $sms_consent,
+        (string) ($sms_evidence['method'] ?? ''),
+        (string) ($sms_evidence['version'] ?? '')
+      );
+      if (is_wp_error($valid_consent)) return $valid_consent;
+      if (SMS_Compliance::is_suppressed($phone)) {
+        return new \WP_Error('sms_recipient_suppressed', __('This phone number has opted out of Koopo text messages. Use email or copy the invitation link instead.', 'koopo-appointments'));
+      }
+    }
     if (!$channels) return new \WP_Error('invitation_channel_required', __('Choose an available email or text invitation channel.', 'koopo-appointments'));
 
     $hold_minutes = min(1440, max(30, $hold_minutes ?: self::DEFAULT_HOLD_MINUTES));
@@ -98,6 +112,11 @@ final class Booking_Invitations {
       'sms_consent_by'=>in_array('sms', $channels, true) ? $created_by : null,
       'sms_consent_version'=>in_array('sms', $channels, true) ? self::SMS_CONSENT_VERSION : '',
       'sms_consent_phone'=>in_array('sms', $channels, true) ? $phone : '',
+      'sms_consent_method'=>in_array('sms', $channels, true) ? SMS_Compliance::CONSENT_METHOD : '',
+      'sms_consent_status'=>in_array('sms', $channels, true) ? 'active' : '',
+      'sms_consent_disclosure'=>in_array('sms', $channels, true) ? SMS_Compliance::DISCLOSURE : null,
+      'sms_consent_revoked_at'=>null,
+      'sms_consent_revocation_source'=>'',
       'expires_at'=>gmdate('Y-m-d H:i:s', $expires_ts), 'created_at'=>$now, 'updated_at'=>$now,
     ];
     $table = DB::booking_invites_table();
@@ -140,7 +159,23 @@ final class Booking_Invitations {
       else $result['warnings'][] = 'email_not_sent';
     }
     if (in_array('sms', $channels, true) && $sms_consent) {
-      $message = sprintf('Koopo invite: %s on %s. Register and checkout: %s', wp_html_excerpt($service, 32, ''), Date_Formatter::format((string)$booking->start_datetime, (string)$booking->timezone, 'date'), $url);
+      // GSM-7-safe copy keeps the Brevo invitation within one 160-character segment.
+      $message = self::sms_message($provider, $url);
+      if (strlen($message) > 160) {
+        $result['warnings'][] = 'sms_message_too_long';
+        $wpdb->update($table, $update, ['booking_id'=>(int)$booking->id]);
+        return $result;
+      }
+      $reserved = $wpdb->update(
+        $table,
+        ['sms_consent_status'=>'sending', 'updated_at'=>$now],
+        ['id'=>$invitation_id, 'sms_consent_status'=>'active', 'sms_sent_at'=>null]
+      );
+      if (1 !== $reserved) {
+        $result['warnings'][] = 'sms_consent_scope_exhausted';
+        $wpdb->update($table, $update, ['booking_id'=>(int)$booking->id]);
+        return $result;
+      }
       $sms = Transactional_SMS::send(self::normalize_phone((string)$booking->customer_phone), $message, [
         'type'=>'guest_appointment_invite',
         'booking_id'=>(int)$booking->id,
@@ -149,13 +184,57 @@ final class Booking_Invitations {
         'guest_only'=>true,
         'consent_recorded'=>true,
         'consent_version'=>self::SMS_CONSENT_VERSION,
+        'consent_method'=>SMS_Compliance::CONSENT_METHOD,
+        'consent_scope'=>'single_guest_invitation',
       ]);
       $result['sms'] = !empty($sms['accepted']);
-      if ($result['sms']) $update['sms_sent_at'] = $now;
-      else $result['warnings'][] = (string) ($sms['error_code'] ?? 'sms_not_sent');
+      if ($result['sms']) {
+        $update['sms_sent_at'] = $now;
+        $update['sms_consent_status'] = 'consumed';
+      } else {
+        // No provider acceptance means no scoped invitation was delivered. Make
+        // the same consent available for a bounded retry, unless a STOP event
+        // already changed the record to revoked.
+        $wpdb->update($table, ['sms_consent_status'=>'active', 'updated_at'=>$now], ['id'=>$invitation_id, 'sms_consent_status'=>'sending']);
+        $result['warnings'][] = (string) ($sms['error_code'] ?? 'sms_not_sent');
+      }
     }
     $wpdb->update($table, $update, ['booking_id'=>(int)$booking->id]);
     return $result;
+  }
+
+  public static function sms_message(string $provider, string $url): string {
+    $prefix = 'Koopo: Appointment invitation from ';
+    $suffix = '. Review and checkout: ' . $url . '. Reply STOP to opt out or HELP for help.';
+    $available = 160 - strlen($prefix . $suffix);
+    $provider = trim((string) preg_replace('/[^\x20-\x7E]/', '', remove_accents(wp_strip_all_tags($provider))));
+    if ($provider === '') $provider = 'Your provider';
+    if ($available < 1) return $prefix . $suffix;
+    if (strlen($provider) > $available) {
+      $provider = function_exists('mb_strcut') ? mb_strcut($provider, 0, $available, 'UTF-8') : substr($provider, 0, $available);
+      $provider = rtrim($provider, " .,-");
+    }
+    return $prefix . $provider . $suffix;
+  }
+
+  public static function consent_evidence(object $invite): ?array {
+    if (empty($invite->sms_consent_at)) return null;
+    $recorded_by = absint($invite->sms_consent_by ?? 0);
+    $user = $recorded_by ? get_userdata($recorded_by) : null;
+    return [
+      'invitation_id'=>(int) $invite->id,
+      'method'=>sanitize_key((string) ($invite->sms_consent_method ?? '')),
+      'status'=>sanitize_key((string) ($invite->sms_consent_status ?? '')),
+      'version'=>sanitize_key((string) ($invite->sms_consent_version ?? '')),
+      'disclosure'=>(string) ($invite->sms_consent_disclosure ?? ''),
+      'phone_masked'=>SMS_Compliance::mask_phone((string) ($invite->sms_consent_phone ?? '')),
+      'consented_at_utc'=>(string) $invite->sms_consent_at,
+      'recorded_by_id'=>$recorded_by,
+      'recorded_by_name'=>$user ? (string) $user->display_name : '',
+      'revoked_at_utc'=>(string) ($invite->sms_consent_revoked_at ?? ''),
+      'revocation_source'=>sanitize_key((string) ($invite->sms_consent_revocation_source ?? '')),
+      'scope'=>'single_transactional_invitation',
+    ];
   }
 
   public static function preview_route(\WP_REST_Request $request) {
@@ -241,7 +320,13 @@ final class Booking_Invitations {
     if (!$invite || $invite->status !== 'pending') return new \WP_Error('invitation_unavailable', __('No pending invitation was found.', 'koopo-appointments'), ['status'=>404]);
     if ((int)$invite->send_attempts >= 3) return new \WP_Error('invitation_rate_limited', __('This invitation has reached its resend limit.', 'koopo-appointments'), ['status'=>429]);
     $channels = array_filter(explode(',', (string) $invite->channels));
-    // SMS could only have been stored after explicit consent at creation.
+    // A recorded voice consent authorizes exactly one transactional invitation.
+    // Resends remain available by email/link but never reuse consumed consent.
+    $sms_allowed = in_array('sms', $channels, true)
+      && (string) ($invite->sms_consent_status ?? '') === 'active'
+      && empty($invite->sms_sent_at)
+      && !SMS_Compliance::is_suppressed((string) $invite->sms_consent_phone);
+    if (!$sms_allowed) $channels = array_values(array_diff($channels, ['sms']));
     $token = self::token();
     $updated = $wpdb->update(DB::booking_invites_table(), [
       'token_hash'=>hash('sha256', $token),
@@ -249,7 +334,8 @@ final class Booking_Invitations {
     ], ['id'=>(int)$invite->id, 'status'=>'pending']);
     if (1 !== $updated) return new \WP_Error('invitation_resend_conflict', __('This invitation changed before it could be resent.', 'koopo-appointments'), ['status'=>409]);
     $booking = Bookings::get_booking($booking_id);
-    $delivery = self::deliver($booking, (int)$invite->id, $token, $channels, !empty($invite->sms_consent_at) && !empty($invite->sms_consent_phone));
+    $delivery = self::deliver($booking, (int)$invite->id, $token, $channels, $sms_allowed);
+    if (!$sms_allowed && !empty($invite->sms_consent_at)) $delivery['warnings'][] = 'sms_consent_scope_exhausted';
     return ['link'=>self::url($token), 'expires_at'=>(string)$invite->expires_at, 'channels'=>array_values($channels), 'delivery'=>$delivery];
   }
 
@@ -328,6 +414,9 @@ final class Booking_Invitations {
     return true;
   }
 
-  private static function token(): string { return rtrim(strtr(base64_encode(random_bytes(32)), '+/', '-_'), '='); }
-  private static function url(string $token): string { return home_url('/appointment-invite/' . rawurlencode($token) . '/'); }
+  // A 128-bit bearer token is cryptographically strong and keeps the registered
+  // transactional copy within one GSM-7 segment on the production short route.
+  // Lookup accepts both this format and the earlier 256-bit tokens.
+  private static function token(): string { return rtrim(strtr(base64_encode(random_bytes(16)), '+/', '-_'), '='); }
+  private static function url(string $token): string { return home_url('/i/' . rawurlencode($token) . '/'); }
 }

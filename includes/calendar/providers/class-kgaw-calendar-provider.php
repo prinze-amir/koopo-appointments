@@ -4,6 +4,7 @@ namespace Koopo_Appointments;
 defined('ABSPATH') || exit;
 
 final class Calendar_Provider {
+  private const DEFAULT_MAX_PAGES = 50;
   private string $provider;
 
   public function __construct(string $provider) {
@@ -21,11 +22,16 @@ final class Calendar_Provider {
     return $this->client_id() !== '' && $this->client_secret() !== '';
   }
 
+  public function is_enabled(): bool {
+    return Admin_Settings::calendar_provider_enabled($this->provider);
+  }
+
   public function callback_url(): string {
     return rest_url('koopo/v1/appointments/calendar/oauth/' . $this->provider . '/callback');
   }
 
   public function authorization_url(string $state): string {
+    $this->require_enabled();
     $this->require_configuration();
     if ($this->provider === 'google') {
       return add_query_arg([
@@ -137,7 +143,15 @@ final class Calendar_Provider {
     $tokens = $this->ensure_access_token($connection);
     $headers = ['Authorization' => 'Bearer ' . $tokens['access_token']];
     if ($this->provider === 'google') {
-      $payload = $this->request_json('https://www.googleapis.com/calendar/v3/users/me/calendarList?showHidden=false', ['headers' => $headers]);
+      $items = [];
+      $query = ['showHidden' => 'false', 'maxResults' => 250];
+      $page = 0;
+      do {
+        $payload = $this->request_json(add_query_arg($query, 'https://www.googleapis.com/calendar/v3/users/me/calendarList'), ['headers' => $headers]);
+        $items = array_merge($items, is_array($payload['items'] ?? null) ? $payload['items'] : []);
+        $query['pageToken'] = sanitize_text_field((string) ($payload['nextPageToken'] ?? ''));
+        $page++;
+      } while ($query['pageToken'] !== '' && $page < $this->max_pages());
       return array_values(array_map(static function(array $calendar): array {
         $access = sanitize_key((string) ($calendar['accessRole'] ?? 'reader'));
         return [
@@ -147,10 +161,17 @@ final class Calendar_Provider {
           'read_only' => !in_array($access, ['writer', 'owner'], true),
           'timezone' => (string) ($calendar['timeZone'] ?? 'UTC'),
         ];
-      }, is_array($payload['items'] ?? null) ? $payload['items'] : []));
+      }, $items));
     }
-    $payload = $this->request_json('https://graph.microsoft.com/v1.0/me/calendars?$select=id,name,canEdit,isDefaultCalendar', ['headers' => $headers]);
-    $items = is_array($payload['value'] ?? null) ? $payload['value'] : [];
+    $items = [];
+    $url = 'https://graph.microsoft.com/v1.0/me/calendars?$select=id,name,canEdit,isDefaultCalendar&$top=250';
+    $page = 0;
+    while ($url !== '' && $page < $this->max_pages()) {
+      $payload = $this->request_json($url, ['headers' => $headers]);
+      $items = array_merge($items, is_array($payload['value'] ?? null) ? $payload['value'] : []);
+      $url = $this->microsoft_next_link($payload);
+      $page++;
+    }
     return array_values(array_map(static function(array $calendar): array {
       return [
         'id' => (string) ($calendar['id'] ?? ''),
@@ -200,7 +221,8 @@ final class Calendar_Provider {
     ];
     $url = add_query_arg($query, 'https://graph.microsoft.com/v1.0/me/calendars/' . rawurlencode($calendar_id) . '/calendarView');
     $headers['Prefer'] = 'outlook.timezone="UTC"';
-    while ($url) {
+    $page = 0;
+    while ($url !== '' && $page < $this->max_pages()) {
       $payload = $this->request_json($url, ['headers'=>$headers]);
       foreach ((array) ($payload['value'] ?? []) as $event) {
         if (!empty($event['isCancelled'])) continue;
@@ -209,9 +231,35 @@ final class Calendar_Provider {
         $end = $this->utc_mysql((string) ($event['end']['dateTime'] ?? ''), (string) ($event['end']['timeZone'] ?? 'UTC'));
         if ($start && $end) $blocks[] = ['event_key'=>(string)($event['id']??'') . '|' . $start,'start_utc'=>$start,'end_utc'=>$end,'all_day'=>false];
       }
-      $url = esc_url_raw((string) ($payload['@odata.nextLink'] ?? ''));
+      $url = $this->microsoft_next_link($payload);
+      $page++;
     }
     return $blocks;
+  }
+
+  private function max_pages(): int {
+    return min(100, max(1, (int) apply_filters('koopo_appt_calendar_max_pages', self::DEFAULT_MAX_PAGES, $this->provider)));
+  }
+
+  /** Only follow opaque Microsoft continuations back to the Graph API. */
+  private function microsoft_next_link(array $payload): string {
+    $url = trim((string) ($payload['@odata.nextLink'] ?? ''));
+    if ($url === '') return '';
+    $parts = wp_parse_url($url);
+    $scheme = strtolower((string) ($parts['scheme'] ?? ''));
+    $host = strtolower(rtrim((string) ($parts['host'] ?? ''), '.'));
+    $port = isset($parts['port']) ? (int) $parts['port'] : 443;
+    $path = (string) ($parts['path'] ?? '');
+    if ($scheme !== 'https' || $host !== 'graph.microsoft.com' || $port !== 443 || !str_starts_with($path, '/v1.0/')) {
+      Logger::warning('calendar_continuation_rejected', [
+        'provider' => $this->provider,
+        'scheme' => $scheme,
+        'host' => $host,
+        'port' => $port,
+      ]);
+      throw new \RuntimeException('Microsoft Calendar returned an invalid continuation URL.');
+    }
+    return esc_url_raw($url, ['https']);
   }
 
   private function normalize_google_busy_event(array $event, string $calendar_timezone = 'UTC'): ?array {
@@ -298,6 +346,7 @@ final class Calendar_Provider {
 
   public function delete_event(object $connection, string $calendar_id, string $external_event_id): void {
     if ($external_event_id === '') return;
+    $this->require_enabled();
     $tokens = $this->ensure_access_token($connection);
     $url = $this->provider === 'google'
       ? 'https://www.googleapis.com/calendar/v3/calendars/' . rawurlencode($calendar_id) . '/events/' . rawurlencode($external_event_id)
@@ -321,6 +370,7 @@ final class Calendar_Provider {
   }
 
   private function request_json(string $url, array $args = [], bool $allow_not_found = false, bool $allow_conflict = false): array {
+    $this->require_enabled();
     $args = wp_parse_args($args, ['method' => 'GET', 'timeout' => 20]);
     $response = wp_remote_request($url, $args);
     if (is_wp_error($response)) throw new \RuntimeException($response->get_error_message());
@@ -348,6 +398,12 @@ final class Calendar_Provider {
   private function require_configuration(): void {
     if (!$this->is_configured()) {
       throw new \RuntimeException(ucfirst($this->provider) . ' Calendar is not configured by the site administrator.');
+    }
+  }
+
+  private function require_enabled(): void {
+    if (!$this->is_enabled()) {
+      throw new \RuntimeException(ucfirst($this->provider) . ' Calendar is disabled by the site administrator.');
     }
   }
 

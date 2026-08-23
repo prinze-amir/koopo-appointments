@@ -94,7 +94,11 @@ final class Calendar_API {
     $providers = [];
     foreach (Calendar_Provider::supported() as $provider) {
       $client = new Calendar_Provider($provider);
-      $providers[$provider] = ['configured' => $client->is_configured(), 'callback_url' => $client->callback_url()];
+      $providers[$provider] = [
+        'configured' => $client->is_configured(),
+        'enabled' => $client->is_enabled(),
+        'callback_url' => $client->callback_url(),
+      ];
     }
     return new \WP_REST_Response([
       'source_of_truth' => 'koopo',
@@ -112,6 +116,9 @@ final class Calendar_API {
     if (!self::can_manage_resource($resource_id)) return new \WP_Error('forbidden', 'You cannot manage this booking calendar.', ['status' => 403]);
     $resource = Resources::get($resource_id);
     $provider_name = sanitize_key((string) $request['provider']);
+    if (!Admin_Settings::calendar_provider_enabled($provider_name)) {
+      return self::provider_disabled_error($provider_name);
+    }
     try {
       $provider = new Calendar_Provider($provider_name);
       $state = rtrim(strtr(base64_encode(random_bytes(32)), '+/', '-_'), '=');
@@ -137,6 +144,9 @@ final class Calendar_API {
     delete_transient($key);
     if (!is_array($pending) || ($pending['provider'] ?? '') !== $provider_name) {
       return new \WP_Error('invalid_oauth_state', 'The calendar connection request expired or is invalid.', ['status' => 400]);
+    }
+    if (!Admin_Settings::calendar_provider_enabled($provider_name)) {
+      return self::oauth_redirect((string) $pending['redirect_url'], 'error', ucfirst($provider_name) . ' Calendar is temporarily unavailable.');
     }
     if ($request->get_param('error')) {
       return self::oauth_redirect((string) $pending['redirect_url'], 'error', sanitize_text_field((string) $request->get_param('error')));
@@ -175,6 +185,7 @@ final class Calendar_API {
   public static function calendars(\WP_REST_Request $request) {
     $connection = Calendar_Repository::get_connection(absint($request['id']), get_current_user_id());
     if (!$connection) return new \WP_Error('not_found', 'Calendar connection was not found.', ['status' => 404]);
+    if (!Admin_Settings::calendar_provider_enabled((string) $connection->provider)) return self::provider_disabled_error((string) $connection->provider);
     try {
       $provider = new Calendar_Provider((string) $connection->provider);
       return new \WP_REST_Response(['items' => $provider->list_calendars($connection)], 200);
@@ -186,6 +197,7 @@ final class Calendar_API {
   public static function availability_calendars(\WP_REST_Request $request) {
     $connection = Calendar_Repository::get_connection(absint($request['id']), get_current_user_id());
     if (!$connection) return new \WP_Error('not_found', 'Calendar connection was not found.', ['status' => 404]);
+    if (!Admin_Settings::calendar_provider_enabled((string) $connection->provider)) return self::provider_disabled_error((string) $connection->provider);
     $resource_id = absint($request->get_param('resource_id'));
     if (!self::can_manage_resource($resource_id)) return new \WP_Error('forbidden', 'You cannot manage this booking calendar.', ['status'=>403]);
     try {
@@ -218,6 +230,7 @@ final class Calendar_API {
     $connection_id = absint($payload['connection_id'] ?? 0);
     $connection = Calendar_Repository::get_connection($connection_id, get_current_user_id());
     if (!$connection) return new \WP_Error('invalid_connection', 'Calendar connection was not found.', ['status'=>404]);
+    if (!Admin_Settings::calendar_provider_enabled((string) $connection->provider)) return self::provider_disabled_error((string) $connection->provider);
     $calendars = [];
     try { $calendars = (new Calendar_Provider((string)$connection->provider))->list_availability_calendars($connection); }
     catch (\Throwable $error) { return new \WP_Error('calendar_list_failed', $error->getMessage(), ['status'=>502]); }
@@ -257,6 +270,7 @@ final class Calendar_API {
     $payload = $request->get_json_params();
     $provider_name = sanitize_key((string) ($payload['provider'] ?? ''));
     if (!in_array($provider_name, Calendar_Provider::supported(), true)) return new \WP_Error('invalid_provider', 'Select a supported calendar provider.', ['status' => 400]);
+    if (!Admin_Settings::calendar_provider_enabled($provider_name)) return self::provider_disabled_error($provider_name);
     $connection_id = absint($payload['connection_id'] ?? 0);
     $connection = Calendar_Repository::get_connection($connection_id, get_current_user_id());
     if (!$connection || (string) $connection->provider !== $provider_name) return new \WP_Error('invalid_connection', 'Calendar connection was not found.', ['status' => 404]);
@@ -371,6 +385,14 @@ final class Calendar_API {
       'last_synced_at' => $connection->last_synced_at,
       'last_error' => (string) ($connection->last_error ?? ''),
     ];
+  }
+
+  private static function provider_disabled_error(string $provider): \WP_Error {
+    return new \WP_Error(
+      'calendar_provider_disabled',
+      ucfirst(sanitize_key($provider)) . ' Calendar is temporarily unavailable.',
+      ['status' => 503]
+    );
   }
 
   private static function binding_payload(object $binding): array {

@@ -27,12 +27,8 @@ class Settings_Assets {
   }
 
   public static function enqueue_dokan_dashboard() {
-    // Dokan dashboard pages
-    if (!function_exists('dokan_is_seller_dashboard') || !dokan_is_seller_dashboard()) return;
-
-    // Only load on our custom route (URL contains /koopo-appointments or /koopo-appointment-settings)
-    $uri = isset($_SERVER['REQUEST_URI']) ? sanitize_text_field($_SERVER['REQUEST_URI']) : '';
-    if (strpos($uri, 'koopo-appointments') === false && strpos($uri, 'koopo-appointment-settings') === false) return;
+    $endpoint = class_exists(Dokan_Dashboard::class) ? Dokan_Dashboard::current_endpoint() : '';
+    if (!in_array($endpoint, ['koopo-appointments', 'koopo-appointment-settings'], true)) return;
 
     self::enqueue_common(0);
   }

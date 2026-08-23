@@ -28,11 +28,21 @@ final class Provider_Reviews {
         'methods' => 'GET',
         'callback' => [__CLASS__, 'list_reviews'],
         'permission_callback' => '__return_true',
+        'args' => [
+          'id'=>['type'=>'integer','minimum'=>1,'validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'absint'],
+          'page'=>['type'=>'integer','default'=>1,'minimum'=>1,'maximum'=>10000,'validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'absint'],
+          'per_page'=>['type'=>'integer','default'=>10,'minimum'=>1,'maximum'=>20,'validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'absint'],
+        ],
       ],
       [
         'methods' => 'POST',
         'callback' => [__CLASS__, 'create_review'],
-        'permission_callback' => '__return_true',
+        'permission_callback' => static fn(): bool => is_user_logged_in(),
+        'args' => [
+          'id'=>['type'=>'integer','minimum'=>1,'validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'absint'],
+          'rating'=>['type'=>'integer','required'=>true,'minimum'=>1,'maximum'=>5,'validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'absint'],
+          'content'=>['type'=>'string','required'=>true,'minLength'=>10,'maxLength'=>3000,'validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'sanitize_textarea_field'],
+        ],
       ],
     ]);
   }
@@ -49,16 +59,20 @@ final class Provider_Reviews {
   }
 
   public static function recalculate(int $provider_id): array {
-    $reviews = get_comments([
-      'post_id' => $provider_id,
-      'type' => self::COMMENT_TYPE,
-      'status' => 'approve',
-      'number' => 0,
-    ]);
-    $ratings = array_values(array_filter(array_map(static fn($review) => (int) get_comment_meta($review->comment_ID, self::META_RATING, true), $reviews)));
+    global $wpdb;
+    $row = $wpdb->get_row($wpdb->prepare(
+      "SELECT COUNT(*) review_count, AVG(CAST(cm.meta_value AS DECIMAL(10,2))) review_average
+       FROM {$wpdb->comments} c
+       INNER JOIN {$wpdb->commentmeta} cm ON cm.comment_id=c.comment_ID AND cm.meta_key=%s
+       WHERE c.comment_post_ID=%d AND c.comment_type=%s AND c.comment_approved='1'
+         AND CAST(cm.meta_value AS UNSIGNED) BETWEEN 1 AND 5",
+      self::META_RATING,
+      $provider_id,
+      self::COMMENT_TYPE
+    ));
     $summary = [
-      'average' => $ratings ? round(array_sum($ratings) / count($ratings), 1) : 0.0,
-      'count' => count($ratings),
+      'average' => $row && (int) $row->review_count > 0 ? round((float) $row->review_average, 1) : 0.0,
+      'count' => $row ? (int) $row->review_count : 0,
     ];
     update_post_meta($provider_id, self::PROVIDER_META_AVERAGE, $summary['average']);
     update_post_meta($provider_id, self::PROVIDER_META_COUNT, $summary['count']);
@@ -114,43 +128,51 @@ final class Provider_Reviews {
     $provider = get_post($provider_id);
     if (!$provider || Provider_Profiles::POST_TYPE !== $provider->post_type || 'publish' !== $provider->post_status) return new \WP_REST_Response(['error' => 'Service profile not found.'], 404);
     if ((int) $provider->post_author === $user_id && !current_user_can('moderate_comments')) return new \WP_REST_Response(['error' => 'You cannot review your own service profile.'], 403);
-    global $wpdb;
-    $eligible_booking_id = (int) $wpdb->get_var($wpdb->prepare(
-      'SELECT id FROM ' . DB::table() . " WHERE provider_id = %d AND customer_id = %d AND status = 'confirmed' AND end_datetime <= %s ORDER BY end_datetime DESC LIMIT 1",
-      $provider_id,
-      $user_id,
-      current_time('mysql')
-    ));
-    if (!$eligible_booking_id && !current_user_can('moderate_comments')) {
-      return new \WP_REST_Response(['error' => 'Reviews are available after a completed appointment with this service provider.'], 403);
-    }
-    $existing = get_comments(['post_id'=>$provider_id,'type'=>self::COMMENT_TYPE,'user_id'=>$user_id,'status'=>'all','number'=>1,'fields'=>'ids']);
-    if ($existing) return new \WP_REST_Response(['error' => 'You have already reviewed this service profile.'], 409);
     $payload = (array) $request->get_json_params();
     $rating = absint($payload['rating'] ?? 0);
     $content = sanitize_textarea_field((string) ($payload['content'] ?? ''));
     if ($rating < 1 || $rating > 5) return new \WP_REST_Response(['error' => 'Choose a rating from 1 to 5.'], 422);
     if (mb_strlen($content) < 10 || mb_strlen($content) > 3000) return new \WP_REST_Response(['error' => 'Write a review between 10 and 3,000 characters.'], 422);
-    $user = get_userdata($user_id);
-    $comment_id = wp_new_comment([
-      'comment_post_ID' => $provider_id,
-      'comment_content' => $content,
-      'comment_type' => self::COMMENT_TYPE,
-      'user_id' => $user_id,
-      'comment_author' => $user ? $user->display_name : '',
-      'comment_author_email' => $user ? $user->user_email : '',
-      'comment_author_url' => '',
-    ], true);
-    if (is_wp_error($comment_id)) return new \WP_REST_Response(['error' => $comment_id->get_error_message()], 400);
-    if (!$comment_id) return new \WP_REST_Response(['error' => 'The review could not be saved.'], 500);
-    update_comment_meta((int) $comment_id, self::META_RATING, $rating);
-    update_comment_meta((int) $comment_id, '_koopo_verified_booking_id', $eligible_booking_id);
-    $comment = get_comment((int) $comment_id);
-    return new \WP_REST_Response([
-      'review' => self::format($comment),
-      'status' => '1' === (string) $comment->comment_approved ? 'approved' : 'pending',
-      'message' => '1' === (string) $comment->comment_approved ? __('Your review is live.', 'koopo-appointments') : __('Thanks. Your review is awaiting moderation.', 'koopo-appointments'),
-    ], 201);
+
+    global $wpdb;
+    $lock_name = 'koopo_review_' . $provider_id . '_' . $user_id;
+    $locked = (int) $wpdb->get_var($wpdb->prepare('SELECT GET_LOCK(%s, %d)', $lock_name, 2)) === 1;
+    if (!$locked) return new \WP_REST_Response(['error'=>'Another review request is being processed. Please try again.','code'=>'review_busy'],409);
+    try {
+      $eligible_booking_id = (int) $wpdb->get_var($wpdb->prepare(
+        'SELECT id FROM ' . DB::table() . " WHERE provider_id = %d AND customer_id = %d AND status = 'confirmed' AND end_datetime <= %s ORDER BY end_datetime DESC LIMIT 1",
+        $provider_id,
+        $user_id,
+        current_time('mysql')
+      ));
+      if (!$eligible_booking_id && !current_user_can('moderate_comments')) {
+        return new \WP_REST_Response(['error' => 'Reviews are available after a completed appointment with this service provider.'], 403);
+      }
+      $existing = get_comments(['post_id'=>$provider_id,'type'=>self::COMMENT_TYPE,'user_id'=>$user_id,'status'=>'all','number'=>1,'fields'=>'ids']);
+      if ($existing) return new \WP_REST_Response(['error' => 'You have already reviewed this service profile.'], 409);
+      $user = get_userdata($user_id);
+      $comment_id = wp_new_comment([
+        'comment_post_ID' => $provider_id,
+        'comment_content' => $content,
+        'comment_type' => self::COMMENT_TYPE,
+        'user_id' => $user_id,
+        'comment_author' => $user ? $user->display_name : '',
+        'comment_author_email' => $user ? $user->user_email : '',
+        'comment_author_url' => '',
+      ], true);
+      if (is_wp_error($comment_id)) return new \WP_REST_Response(['error' => $comment_id->get_error_message()], 400);
+      if (!$comment_id) return new \WP_REST_Response(['error' => 'The review could not be saved.'], 500);
+      update_comment_meta((int) $comment_id, self::META_RATING, $rating);
+      update_comment_meta((int) $comment_id, '_koopo_verified_booking_id', $eligible_booking_id);
+      $comment = get_comment((int) $comment_id);
+      return new \WP_REST_Response([
+        'review' => self::format($comment),
+        'status' => '1' === (string) $comment->comment_approved ? 'approved' : 'pending',
+        'message' => '1' === (string) $comment->comment_approved ? __('Your review is live.', 'koopo-appointments') : __('Thanks. Your review is awaiting moderation.', 'koopo-appointments'),
+      ], 201);
+    } finally {
+      $wpdb->get_var($wpdb->prepare('SELECT RELEASE_LOCK(%s)', $lock_name));
+    }
   }
 
   public static function format(\WP_Comment $comment): array {

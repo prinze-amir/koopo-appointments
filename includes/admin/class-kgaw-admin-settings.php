@@ -19,6 +19,7 @@ class Admin_Settings {
   const OPTION_EMAIL_LOGO_SCHEMA_VERSION = 'koopo_appt_email_logo_schema_version';
   const OPTION_GOOGLE_CALENDAR_CLIENT_ID = 'koopo_appt_google_calendar_client_id';
   const OPTION_GOOGLE_CALENDAR_CLIENT_SECRET = 'koopo_appt_google_calendar_client_secret';
+  const OPTION_GOOGLE_CALENDAR_ENABLED = 'koopo_appt_google_calendar_enabled';
   const OPTION_MICROSOFT_CALENDAR_CLIENT_ID = 'koopo_appt_microsoft_calendar_client_id';
   const OPTION_MICROSOFT_CALENDAR_CLIENT_SECRET = 'koopo_appt_microsoft_calendar_client_secret';
   const OPTION_MICROSOFT_CALENDAR_TENANT = 'koopo_appt_microsoft_calendar_tenant';
@@ -85,6 +86,11 @@ class Admin_Settings {
       'sanitize_callback' => [__CLASS__, 'sanitize_google_calendar_secret'],
       'default' => '',
     ]);
+    register_setting('koopo_appt_settings', self::OPTION_GOOGLE_CALENDAR_ENABLED, [
+      'type' => 'boolean',
+      'sanitize_callback' => static fn($value): int => empty($value) ? 0 : 1,
+      'default' => 0,
+    ]);
     register_setting('koopo_appt_settings', self::OPTION_MICROSOFT_CALENDAR_CLIENT_ID, [
       'type' => 'string',
       'sanitize_callback' => 'sanitize_text_field',
@@ -127,6 +133,21 @@ class Admin_Settings {
         'default' => '',
       ]);
     }
+    register_setting('koopo_appt_settings', SMS_Usage::OPTION_PAUSED, [
+      'type'=>'boolean', 'sanitize_callback'=>static fn($value): int=>empty($value)?0:1, 'default'=>0,
+    ]);
+    register_setting('koopo_appt_settings', SMS_Usage::OPTION_DAILY_LIMIT_ENABLED, [
+      'type'=>'boolean', 'sanitize_callback'=>static fn($value): int=>empty($value)?0:1, 'default'=>1,
+    ]);
+    register_setting('koopo_appt_settings', SMS_Usage::OPTION_DAILY_LIMIT, [
+      'type'=>'integer', 'sanitize_callback'=>static fn($value): int=>max(1,min(10000000,absint($value))), 'default'=>SMS_Usage::DEFAULT_DAILY_LIMIT,
+    ]);
+    register_setting('koopo_appt_settings', SMS_Usage::OPTION_MONTHLY_LIMIT_ENABLED, [
+      'type'=>'boolean', 'sanitize_callback'=>static fn($value): int=>empty($value)?0:1, 'default'=>1,
+    ]);
+    register_setting('koopo_appt_settings', SMS_Usage::OPTION_MONTHLY_LIMIT, [
+      'type'=>'integer', 'sanitize_callback'=>static fn($value): int=>max(1,min(10000000,absint($value))), 'default'=>SMS_Usage::DEFAULT_MONTHLY_LIMIT,
+    ]);
     register_setting('koopo_appt_settings', SMS_Provider::OPTION_ENABLED, [
       'type'=>'boolean', 'sanitize_callback'=>static fn($value): int=>empty($value)?0:1, 'default'=>0,
     ]);
@@ -255,6 +276,9 @@ class Admin_Settings {
     $status=SMS_Provider::status();$provider=$status['provider'];
     $brevo_saved=SMS_Provider::secret(SMS_Provider::OPTION_BREVO_API_KEY)!=='';
     $twilio_secret_saved=SMS_Provider::secret(SMS_Provider::OPTION_TWILIO_API_KEY_SECRET)!=='';
+    $usage=SMS_Usage::usage();
+    $receipt_summary=SMS_Delivery_Receipts::summary(30);
+    $brevo_credits=$provider==='brevo'&&$brevo_saved?SMS_Provider::brevo_credits():['status'=>'unavailable','credits'=>null,'fetched_at'=>null,'error_code'=>''];
     $notice=sanitize_key((string)($_GET['koopo_sms_test']??'')); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- display-only result.
     $notice_code=sanitize_key((string)($_GET['koopo_sms_code']??'')); // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- display-only result.
     ?>
@@ -262,9 +286,36 @@ class Admin_Settings {
       <p><span style="display:inline-block;padding:4px 9px;border-radius:999px;background:<?php echo $status['ready']?'#def9eb':'#f0edf5'; ?>;color:<?php echo $status['ready']?'#1e6f5c':'#655d78'; ?>;font-weight:600"><?php echo esc_html($status['ready']?'Ready':'Not ready'); ?></span></p>
       <?php if($notice==='sent'): ?><div class="notice notice-success inline"><p>Test SMS accepted by <?php echo esc_html(ucfirst($provider)); ?>.</p></div><?php elseif($notice==='failed'): ?><div class="notice notice-error inline"><p>Test SMS failed: <code><?php echo esc_html($notice_code?:'unknown_error'); ?></code></p></div><?php endif; ?>
       <p><label><input type="checkbox" name="<?php echo esc_attr(SMS_Provider::OPTION_ENABLED); ?>" value="1" <?php checked($status['enabled']); ?> /> Enable consented guest-invitation SMS</label></p>
+      <p><label><input type="checkbox" name="<?php echo esc_attr(SMS_Usage::OPTION_PAUSED); ?>" value="1" <?php checked(SMS_Usage::paused()); ?> /> <strong>Emergency pause all SMS</strong></label></p>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px;margin:16px 0;">
+        <?php foreach(['daily'=>'Today','monthly'=>'This month'] as $period=>$label): $meter=$usage[$period];$percent=$meter['enabled']?min(100,(int)round(($meter['used']/max(1,$meter['limit']))*100)):0; ?>
+          <div style="border:1px solid #dcdcde;border-radius:8px;padding:14px;background:#fff;">
+            <strong><?php echo esc_html($label); ?></strong>
+            <div style="font-size:20px;margin:5px 0;"><?php echo esc_html(number_format_i18n($meter['used'])); ?> <?php echo $meter['enabled']?'/ '.esc_html(number_format_i18n($meter['limit'])):esc_html__('used (limit off)','koopo-appointments'); ?></div>
+            <div style="height:8px;background:#e8e8ea;border-radius:999px;overflow:hidden;"><span style="display:block;height:100%;width:<?php echo esc_attr($percent); ?>%;background:<?php echo $percent>=100?'#b32d2e':($percent>=90?'#dba617':'#2271b1'); ?>;"></span></div>
+            <small><?php echo esc_html(sprintf('%d accepted, %d pending, %d failed before acceptance. Resets %s UTC.', $meter['sent'], $meter['reserved'], $meter['failed'], gmdate('M j, Y H:i', strtotime($meter['period_end'].' UTC')))); ?></small>
+          </div>
+        <?php endforeach; ?>
+        <div style="border:1px solid #dcdcde;border-radius:8px;padding:14px;background:#fff;">
+          <strong>Brevo SMS credits</strong>
+          <div style="font-size:20px;margin:5px 0;"><?php echo $brevo_credits['status']==='available'?esc_html(number_format_i18n((int)$brevo_credits['credits'])):esc_html__('Unavailable','koopo-appointments'); ?></div>
+          <small><?php echo $brevo_credits['status']==='available'?esc_html__('Reported by Brevo; cached for five minutes.','koopo-appointments'):esc_html__('Shown when Brevo is selected and its account API returns an SMS plan balance.','koopo-appointments'); ?></small>
+        </div>
+        <div style="border:1px solid #dcdcde;border-radius:8px;padding:14px;background:#fff;">
+          <strong>Delivery receipts (30 days)</strong>
+          <div style="font-size:20px;margin:5px 0;"><?php echo esc_html(number_format_i18n($receipt_summary['delivered'])); ?> delivered</div>
+          <small><?php echo esc_html(sprintf('%d accepted, %d sent to carrier, %d skipped, rejected, or bounced.', $receipt_summary['accepted'], $receipt_summary['sent'], $receipt_summary['failed'])); ?></small>
+        </div>
+      </div>
+      <p>
+        <label style="display:inline-block;margin-right:24px;"><input type="checkbox" name="<?php echo esc_attr(SMS_Usage::OPTION_DAILY_LIMIT_ENABLED); ?>" value="1" <?php checked(SMS_Usage::limit_enabled('daily')); ?> /> Enforce daily limit<br /><input type="number" min="1" max="10000000" step="1" name="<?php echo esc_attr(SMS_Usage::OPTION_DAILY_LIMIT); ?>" value="<?php echo esc_attr(SMS_Usage::limit('daily')); ?>" /></label>
+        <label style="display:inline-block;"><input type="checkbox" name="<?php echo esc_attr(SMS_Usage::OPTION_MONTHLY_LIMIT_ENABLED); ?>" value="1" <?php checked(SMS_Usage::limit_enabled('monthly')); ?> /> Enforce monthly limit<br /><input type="number" min="1" max="10000000" step="1" name="<?php echo esc_attr(SMS_Usage::OPTION_MONTHLY_LIMIT); ?>" value="<?php echo esc_attr(SMS_Usage::limit('monthly')); ?>" /></label>
+      </p>
+      <p class="description">Koopo reserves quota before contacting the provider, so concurrent requests cannot exceed these global caps. Accepted sends count as used; definitive failures release the reservation.</p>
       <p><label for="koopo-appt-sms-provider"><strong>Provider</strong></label><br /><select id="koopo-appt-sms-provider" name="<?php echo esc_attr(SMS_Provider::OPTION_PROVIDER); ?>"><option value="brevo" <?php selected($provider,'brevo'); ?>>Brevo</option><option value="twilio" <?php selected($provider,'twilio'); ?>>Twilio</option></select></p>
       <div class="koopo-sms-provider-fields" data-provider="brevo">
         <h4>Brevo</h4>
+        <div class="notice notice-warning inline"><p><strong>US/Canada compliance:</strong> Brevo requires an approved toll-free number before transactional SMS can reliably reach US or Canadian recipients. API acceptance is not delivery confirmation. <a href="https://app.brevo.com/sms-compliance/client-details?country=USA%20%26%20Canada" target="_blank" rel="noopener noreferrer">Open Brevo registration</a>.</p></div>
         <p><label><strong>API key</strong><br /><input type="password" class="large-text" name="<?php echo esc_attr(SMS_Provider::OPTION_BREVO_API_KEY); ?>" value="" autocomplete="new-password" spellcheck="false" placeholder="<?php echo esc_attr($brevo_saved?'Saved securely — leave blank to keep current key':'Enter Brevo API key'); ?>" /></label><?php if($brevo_saved): ?><br /><label><input type="checkbox" name="<?php echo esc_attr(SMS_Provider::OPTION_BREVO_API_KEY.'_clear'); ?>" value="1" /> Remove saved key</label><?php endif; ?></p>
         <p><label><strong>Sender ID</strong><br /><input type="text" class="regular-text" maxlength="15" name="<?php echo esc_attr(SMS_Provider::OPTION_BREVO_SENDER); ?>" value="<?php echo esc_attr(SMS_Provider::brevo_sender()); ?>" /></label><br /><span class="description">Letters and numbers only. Brevo may require sender registration for the destination country.</span></p>
       </div>
@@ -278,7 +329,7 @@ class Admin_Settings {
       </div>
       <hr />
       <p><label for="koopo-appt-sms-test-phone"><strong>Test recipient</strong></label><br /><input type="tel" id="koopo-appt-sms-test-phone" class="regular-text" placeholder="+13135550100" /> <button type="button" class="button" id="koopo-appt-sms-test-button">Send test SMS</button></p>
-      <p class="description">Save settings first. A test sends one real SMS and may incur provider charges.</p>
+      <p class="description">Save settings first. A test sends one real SMS and may incur provider charges. “Accepted” means the provider accepted the API request; delivery is confirmed separately by the receipt meter.</p>
     </fieldset>
     <script>jQuery(function($){function fields(){var p=$('#koopo-appt-sms-provider').val();$('.koopo-sms-provider-fields').hide().filter('[data-provider="'+p+'"]').show();}$('#koopo-appt-sms-provider').on('change',fields);fields();$('#koopo-appt-sms-test-button').on('click',function(){var phone=$('#koopo-appt-sms-test-phone').val().trim();if(!phone){window.alert('Enter a test phone number including country code.');return;}var form=$('<form>',{method:'post',action:<?php echo wp_json_encode(admin_url('admin-post.php')); ?>}).append($('<input>',{type:'hidden',name:'action',value:'koopo_appt_sms_test'}),$('<input>',{type:'hidden',name:'test_phone',value:phone}),$('<input>',{type:'hidden',name:'_wpnonce',value:<?php echo wp_json_encode(wp_create_nonce('koopo_appt_sms_test')); ?>}));$('body').append(form);form.trigger('submit');});});</script>
     <?php
@@ -347,9 +398,21 @@ class Admin_Settings {
     $client_id = (string) get_option($client_id_option, '');
     $has_secret = self::calendar_client_secret($provider) !== '';
     $configured = $client_id !== '' && $has_secret;
+    $enabled = self::calendar_provider_enabled($provider);
     $callback = rest_url('koopo/v1/appointments/calendar/oauth/' . $provider . '/callback');
     ?>
     <fieldset style="max-width:760px;">
+      <?php if ($is_google): ?>
+        <p>
+          <label>
+            <input type="checkbox" name="<?php echo esc_attr(self::OPTION_GOOGLE_CALENDAR_ENABLED); ?>" value="1" <?php checked($enabled); ?> />
+            <strong>Enable Google Calendar connections and synchronization</strong>
+          </label>
+        </p>
+        <p class="description">
+          Keep this off while Google's OAuth verification is pending. When off, Koopo preserves the implementation and saved data but blocks new connections, provider API calls, appointment mirroring, and Google-based availability blocking.
+        </p>
+      <?php endif; ?>
       <p>
         <span style="display:inline-block;padding:4px 9px;border-radius:999px;background:<?php echo $configured ? '#def9eb' : '#f0edf5'; ?>;color:<?php echo $configured ? '#1e6f5c' : '#655d78'; ?>;font-weight:600;">
           <?php echo esc_html($configured ? 'Configured' : 'Not configured'); ?>
@@ -449,6 +512,15 @@ class Admin_Settings {
   public static function calendar_client_id(string $provider): string {
     $option = $provider === 'google' ? self::OPTION_GOOGLE_CALENDAR_CLIENT_ID : self::OPTION_MICROSOFT_CALENDAR_CLIENT_ID;
     return trim((string) get_option($option, ''));
+  }
+
+  /** A fail-closed release control for OAuth providers awaiting public approval. */
+  public static function calendar_provider_enabled(string $provider): bool {
+    $provider = sanitize_key($provider);
+    if ($provider === 'google') {
+      return (bool) get_option(self::OPTION_GOOGLE_CALENDAR_ENABLED, 0);
+    }
+    return $provider === 'microsoft';
   }
 
   public static function calendar_client_secret(string $provider): string {

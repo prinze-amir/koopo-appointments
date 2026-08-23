@@ -80,6 +80,13 @@
       const connection = connectionFor(state, provider);
       const binding = bindingFor(state, provider, context);
       const configured = !!(state.providers && state.providers[provider] && state.providers[provider].configured);
+      const enabled = !!(state.providers && state.providers[provider] && state.providers[provider].enabled);
+      if (!enabled) {
+        return `<article class="kcal__card kcal__card--disabled">
+          <div><h5>${providerLabel(provider)}</h5><p>Temporarily unavailable while the site administrator completes provider approval.</p></div>
+          <span class="kcal__status">Disabled</span>
+        </article>`;
+      }
       if (!configured) {
         return `<article class="kcal__card">
           <div><h5>${providerLabel(provider)}</h5><p>Waiting for the site administrator to configure OAuth credentials.</p></div>
@@ -137,6 +144,7 @@
     $panel.find('.kcal__providers').html(cards.join(''));
 
     ['google', 'microsoft'].forEach(provider => {
+      if (!(state.providers && state.providers[provider] && state.providers[provider].enabled)) return;
       const connection = connectionFor(state, provider);
       if (!connection) return;
       api(`/appointments/calendar/connections/${connection.id}/calendars`)

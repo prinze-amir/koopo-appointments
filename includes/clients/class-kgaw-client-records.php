@@ -14,21 +14,68 @@ final class Client_Records {
   }
 
   public static function routes(): void {
-    register_rest_route('koopo/v1', '/vendor/clients', ['methods'=>'GET','callback'=>[__CLASS__,'list_clients'],'permission_callback'=>static fn():bool=>is_user_logged_in()]);
+    $id_arg=['type'=>'integer','minimum'=>1,'validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'absint'];
+    register_rest_route('koopo/v1', '/vendor/clients', ['methods'=>'GET','callback'=>[__CLASS__,'list_clients'],'permission_callback'=>static fn():bool=>is_user_logged_in(),'args'=>[
+      'resource_id'=>array_merge($id_arg,['required'=>true]),
+      'page'=>['type'=>'integer','default'=>1,'minimum'=>1,'maximum'=>10000,'validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'absint'],
+      'per_page'=>['type'=>'integer','default'=>25,'minimum'=>1,'maximum'=>100,'validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'absint'],
+      'search'=>['type'=>'string','maxLength'=>100,'validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'sanitize_text_field'],
+    ]]);
     register_rest_route('koopo/v1', '/vendor/clients/(?P<id>\d+)', [
-      ['methods'=>'GET','callback'=>[__CLASS__,'get_client'],'permission_callback'=>static fn():bool=>is_user_logged_in()],
-      ['methods'=>'PUT,POST','callback'=>[__CLASS__,'update_client'],'permission_callback'=>static fn():bool=>is_user_logged_in()],
+      ['methods'=>'GET','callback'=>[__CLASS__,'get_client'],'permission_callback'=>static fn():bool=>is_user_logged_in(),'args'=>['id'=>$id_arg]],
+      ['methods'=>'PUT,POST','callback'=>[__CLASS__,'update_client'],'permission_callback'=>static fn():bool=>is_user_logged_in(),'args'=>array_merge(['id'=>$id_arg],self::client_update_args())],
     ]);
     register_rest_route('koopo/v1', '/vendor/client-forms', [
-      ['methods'=>'GET','callback'=>[__CLASS__,'list_forms'],'permission_callback'=>static fn():bool=>is_user_logged_in()],
-      ['methods'=>'POST','callback'=>[__CLASS__,'save_form'],'permission_callback'=>static fn():bool=>is_user_logged_in()],
+      ['methods'=>'GET','callback'=>[__CLASS__,'list_forms'],'permission_callback'=>static fn():bool=>is_user_logged_in(),'args'=>['resource_id'=>array_merge($id_arg,['required'=>true])]],
+      ['methods'=>'POST','callback'=>[__CLASS__,'save_form'],'permission_callback'=>static fn():bool=>is_user_logged_in(),'args'=>self::form_args(true)],
     ]);
     register_rest_route('koopo/v1', '/vendor/client-forms/(?P<id>\d+)', [
-      ['methods'=>'PUT,POST','callback'=>[__CLASS__,'save_form'],'permission_callback'=>static fn():bool=>is_user_logged_in()],
-      ['methods'=>'DELETE','callback'=>[__CLASS__,'delete_form'],'permission_callback'=>static fn():bool=>is_user_logged_in()],
+      ['methods'=>'PUT,POST','callback'=>[__CLASS__,'save_form'],'permission_callback'=>static fn():bool=>is_user_logged_in(),'args'=>array_merge(['id'=>$id_arg],self::form_args(false))],
+      ['methods'=>'DELETE','callback'=>[__CLASS__,'delete_form'],'permission_callback'=>static fn():bool=>is_user_logged_in(),'args'=>['id'=>$id_arg]],
     ]);
-    register_rest_route('koopo/v1', '/customer/bookings/(?P<booking_id>\d+)/forms', ['methods'=>'GET','callback'=>[__CLASS__,'booking_forms'],'permission_callback'=>static fn():bool=>is_user_logged_in()]);
-    register_rest_route('koopo/v1', '/customer/bookings/(?P<booking_id>\d+)/forms/(?P<form_id>\d+)', ['methods'=>'POST','callback'=>[__CLASS__,'submit_form'],'permission_callback'=>static fn():bool=>is_user_logged_in()]);
+    register_rest_route('koopo/v1', '/customer/bookings/(?P<booking_id>\d+)/forms', ['methods'=>'GET','callback'=>[__CLASS__,'booking_forms'],'permission_callback'=>static fn():bool=>is_user_logged_in(),'args'=>['booking_id'=>$id_arg]]);
+    register_rest_route('koopo/v1', '/customer/bookings/(?P<booking_id>\d+)/forms/(?P<form_id>\d+)', ['methods'=>'POST','callback'=>[__CLASS__,'submit_form'],'permission_callback'=>static fn():bool=>is_user_logged_in(),'args'=>[
+      'booking_id'=>$id_arg,
+      'form_id'=>$id_arg,
+      'answers'=>['type'=>'object','required'=>true,'maxProperties'=>50,'validate_callback'=>'rest_validate_request_arg'],
+      'signature_name'=>['type'=>'string','maxLength'=>191,'validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'sanitize_text_field'],
+      'consent_text'=>['type'=>'string','maxLength'=>2000,'validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'sanitize_textarea_field'],
+    ]]);
+  }
+
+  private static function client_update_args(): array {
+    return [
+      'name'=>['type'=>'string','maxLength'=>191,'validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'sanitize_text_field'],
+      'email'=>['type'=>'string','format'=>'email','maxLength'=>191,'validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'sanitize_email'],
+      'phone'=>['type'=>'string','maxLength'=>64,'validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'sanitize_text_field'],
+      'birthday'=>['type'=>'string','pattern'=>'^\d{4}-\d{2}-\d{2}$','validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'sanitize_text_field'],
+      'preferences'=>['type'=>'string','maxLength'=>10000,'validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'sanitize_textarea_field'],
+      'formulas'=>['type'=>'string','maxLength'=>10000,'validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'sanitize_textarea_field'],
+      'private_notes'=>['type'=>'string','maxLength'=>50000,'validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'sanitize_textarea_field'],
+    ];
+  }
+
+  private static function form_args(bool $creating): array {
+    $args=[
+      'resource_id'=>['type'=>'integer','minimum'=>1,'validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'absint'],
+      'service_id'=>['type'=>'integer','minimum'=>0,'validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'absint'],
+      'title'=>['type'=>'string','required'=>true,'minLength'=>1,'maxLength'=>191,'validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'sanitize_text_field'],
+      'description'=>['type'=>'string','maxLength'=>5000,'validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'sanitize_textarea_field'],
+      'fields'=>['type'=>'array','required'=>true,'minItems'=>1,'maxItems'=>50,'items'=>[
+        'type'=>'object','maxProperties'=>6,'properties'=>[
+          'id'=>['type'=>'string','maxLength'=>100],
+          'label'=>['type'=>'string','minLength'=>1,'maxLength'=>300],
+          'type'=>['type'=>'string','enum'=>['text','textarea','checkbox','select','date']],
+          'required'=>['type'=>'boolean'],
+          'options'=>['type'=>'array','maxItems'=>50,'items'=>['type'=>'string','maxLength'=>191]],
+        ],
+      ],'validate_callback'=>'rest_validate_request_arg'],
+      'requires_signature'=>['type'=>'boolean','validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'rest_sanitize_boolean'],
+      'send_hours_before'=>['type'=>'integer','minimum'=>0,'maximum'=>720,'validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'absint'],
+      'enabled'=>['type'=>'boolean','validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'rest_sanitize_boolean'],
+    ];
+    if($creating)$args['resource_id']['required']=true;
+    return $args;
   }
 
   public static function capture_booking(int $booking_id, $booking): void {
@@ -63,8 +110,13 @@ final class Client_Records {
   public static function list_clients(\WP_REST_Request $request) {
     $resource_id=absint($request->get_param('resource_id')); if(!Resources::can_manage($resource_id))return self::forbidden();
     global $wpdb;
-    $rows=$wpdb->get_results($wpdb->prepare('SELECT c.*,COUNT(b.id) appointment_count,MAX(b.start_datetime) last_appointment FROM '.DB::clients_table().' c LEFT JOIN '.DB::table().' b ON b.resource_id=c.resource_id AND (b.customer_id=c.wp_user_id OR (c.wp_user_id IS NULL AND b.customer_email=c.email)) WHERE c.resource_id=%d GROUP BY c.id ORDER BY COALESCE(MAX(b.start_datetime),c.created_at) DESC LIMIT 500',$resource_id))?:[];
-    return new \WP_REST_Response(array_map([__CLASS__,'format_client'],$rows),200);
+    $page=max(1,absint($request->get_param('page'))?:1);$per_page=min(100,max(1,absint($request->get_param('per_page'))?:25));$offset=($page-1)*$per_page;$search=sanitize_text_field((string)$request->get_param('search'));
+    $where='c.resource_id=%d';$params=[$resource_id];
+    if($search!==''){$like='%'.$wpdb->esc_like($search).'%';$where.=' AND (c.name LIKE %s OR c.email LIKE %s OR c.phone LIKE %s)';array_push($params,$like,$like,$like);}
+    $total=(int)$wpdb->get_var($wpdb->prepare('SELECT COUNT(*) FROM '.DB::clients_table().' c WHERE '.$where,$params));
+    $sql='SELECT c.*,COUNT(b.id) appointment_count,MAX(b.start_datetime) last_appointment FROM '.DB::clients_table().' c LEFT JOIN '.DB::table().' b ON b.resource_id=c.resource_id AND (b.customer_id=c.wp_user_id OR (c.wp_user_id IS NULL AND b.customer_email=c.email)) WHERE '.$where.' GROUP BY c.id ORDER BY COALESCE(MAX(b.start_datetime),c.created_at) DESC LIMIT %d OFFSET %d';
+    $rows=$wpdb->get_results($wpdb->prepare($sql,array_merge($params,[$per_page,$offset])))?:[];
+    $response=new \WP_REST_Response(array_map([__CLASS__,'format_client'],$rows),200);$response->header('X-WP-Total',(string)$total);$response->header('X-WP-TotalPages',(string)(int)ceil($total/$per_page));return $response;
   }
 
   private static function owned_client(int $id) {
@@ -76,8 +128,8 @@ final class Client_Records {
     $client=self::owned_client(absint($request['id'])); if(!$client)return self::forbidden();
     global $wpdb;
     $timeline=$wpdb->get_results($wpdb->prepare('SELECT b.id,b.service_id,b.start_datetime,b.end_datetime,b.timezone,b.status,b.price,b.customer_notes,p.post_title service_title FROM '.DB::table().' b LEFT JOIN '.$wpdb->posts.' p ON p.ID=b.service_id WHERE b.resource_id=%d AND (b.customer_id=%d OR (b.customer_id=0 AND b.customer_email=%s)) ORDER BY b.start_datetime DESC LIMIT 200',(int)$client->resource_id,(int)$client->wp_user_id,(string)$client->email),ARRAY_A)?:[];
-    $submissions=$wpdb->get_results($wpdb->prepare('SELECT s.*,f.title FROM '.DB::form_submissions_table().' s INNER JOIN '.DB::client_forms_table().' f ON f.id=s.form_id WHERE s.client_id=%d ORDER BY s.created_at DESC',(int)$client->id),ARRAY_A)?:[];
-    $files=$wpdb->get_results($wpdb->prepare('SELECT id,booking_id,filename,mime_type,size_bytes,created_at FROM '.DB::client_files_table().' WHERE client_id=%d ORDER BY created_at DESC',(int)$client->id),ARRAY_A)?:[];
+    $submissions=$wpdb->get_results($wpdb->prepare('SELECT s.*,f.title FROM '.DB::form_submissions_table().' s INNER JOIN '.DB::client_forms_table().' f ON f.id=s.form_id WHERE s.client_id=%d ORDER BY s.created_at DESC LIMIT 200',(int)$client->id),ARRAY_A)?:[];
+    $files=$wpdb->get_results($wpdb->prepare('SELECT id,booking_id,filename,mime_type,size_bytes,created_at FROM '.DB::client_files_table().' WHERE client_id=%d ORDER BY created_at DESC LIMIT 200',(int)$client->id),ARRAY_A)?:[];
     foreach($files as &$file)$file['download_url']=wp_nonce_url(admin_url('admin-post.php?action=koopo_appt_client_file&file_id='.(int)$file['id']),'koopo_appt_client_file_'.(int)$file['id']);unset($file);
     $data=self::format_client($client);$data['timeline']=$timeline;$data['submissions']=$submissions;$data['files']=$files;
     return new \WP_REST_Response($data,200);
@@ -108,7 +160,7 @@ final class Client_Records {
 
   public static function booking_forms(\WP_REST_Request $request){$booking=Bookings::get_booking(absint($request['booking_id']));if(!$booking||(int)$booking->customer_id!==get_current_user_id())return self::forbidden();global $wpdb;$rows=$wpdb->get_results($wpdb->prepare('SELECT f.*,s.status submission_status,s.completed_at FROM '.DB::client_forms_table().' f INNER JOIN '.DB::form_submissions_table().' s ON s.form_id=f.id WHERE s.booking_id=%d AND s.customer_id=%d ORDER BY f.title',(int)$booking->id,get_current_user_id()))?:[];return new \WP_REST_Response(array_map([__CLASS__,'format_form'],$rows),200);}
 
-  public static function submit_form(\WP_REST_Request $request){$booking=Bookings::get_booking(absint($request['booking_id']));if(!$booking||(int)$booking->customer_id!==get_current_user_id())return self::forbidden();global $wpdb;$form=$wpdb->get_row($wpdb->prepare('SELECT f.*,s.id submission_id,s.form_snapshot_json FROM '.DB::client_forms_table().' f INNER JOIN '.DB::form_submissions_table().' s ON s.form_id=f.id WHERE f.id=%d AND s.booking_id=%d AND s.customer_id=%d',absint($request['form_id']),(int)$booking->id,get_current_user_id()));if(!$form)return new \WP_Error('form_not_found','That form is not required for this appointment.',['status'=>404]);$snapshot=(array)json_decode((string)$form->form_snapshot_json,true);$fields=!empty($snapshot['fields'])?(array)$snapshot['fields']:(array)json_decode((string)$form->fields_json,true);$requires_signature=array_key_exists('requires_signature',$snapshot)?!empty($snapshot['requires_signature']):(bool)$form->requires_signature;$p=(array)$request->get_json_params();$answers=(array)($p['answers']??[]);foreach($fields as $field)if(!empty($field['required'])&&trim((string)($answers[$field['id']]??''))==='')return new \WP_Error('required_answer',sprintf('Answer “%s”.',$field['label']),['status'=>422]);$signature=sanitize_text_field((string)($p['signature_name']??''));if($requires_signature&&!$signature)return new \WP_Error('signature_required','Type your full legal name to sign.',['status'=>422]);$clean=[];foreach($answers as $key=>$value)$clean[sanitize_key((string)$key)]=is_array($value)?array_map('sanitize_text_field',$value):sanitize_textarea_field((string)$value);$now=current_time('mysql',true);$answers_json=wp_json_encode($clean);$consent=$requires_signature?sanitize_textarea_field((string)($p['consent_text']??__('I confirm that the information provided is accurate and I consent to this electronic submission.','koopo-appointments'))):'';$evidence=implode('|',[$signature,$booking->id,$form->id,(string)$form->form_snapshot_json,$consent,$answers_json,$now]);$signature_hash=$signature?hash_hmac('sha256',$evidence,wp_salt('auth')):'';$ip_hash=$signature?hash_hmac('sha256',(string)($_SERVER['REMOTE_ADDR']??''),wp_salt('nonce')):'';$agent_hash=$signature?hash_hmac('sha256',(string)($_SERVER['HTTP_USER_AGENT']??''),wp_salt('nonce')):'';$wpdb->update(DB::form_submissions_table(),['answers_json'=>$answers_json,'consent_text'=>$consent,'signature_name'=>$signature,'signature_hash'=>$signature_hash,'signer_ip_hash'=>$ip_hash,'user_agent_hash'=>$agent_hash,'signed_at'=>$signature?$now:null,'status'=>'completed','completed_at'=>$now],['id'=>(int)$form->submission_id]);return new \WP_REST_Response(['completed'=>true,'completed_at'=>$now],200);}
+  public static function submit_form(\WP_REST_Request $request){$booking=Bookings::get_booking(absint($request['booking_id']));if(!$booking||(int)$booking->customer_id!==get_current_user_id())return self::forbidden();global $wpdb;$form=$wpdb->get_row($wpdb->prepare('SELECT f.*,s.id submission_id,s.form_snapshot_json FROM '.DB::client_forms_table().' f INNER JOIN '.DB::form_submissions_table().' s ON s.form_id=f.id WHERE f.id=%d AND s.booking_id=%d AND s.customer_id=%d',absint($request['form_id']),(int)$booking->id,get_current_user_id()));if(!$form)return new \WP_Error('form_not_found','That form is not required for this appointment.',['status'=>404]);$snapshot=(array)json_decode((string)$form->form_snapshot_json,true);$fields=!empty($snapshot['fields'])?(array)$snapshot['fields']:(array)json_decode((string)$form->fields_json,true);$requires_signature=array_key_exists('requires_signature',$snapshot)?!empty($snapshot['requires_signature']):(bool)$form->requires_signature;$p=(array)$request->get_json_params();$answers=(array)($p['answers']??[]);if(count($answers)>50||strlen((string)wp_json_encode($answers))>65535)return new \WP_Error('answers_too_large','The form response is too large.',['status'=>413]);foreach($fields as $field)if(!empty($field['required'])&&trim((string)($answers[$field['id']]??''))==='')return new \WP_Error('required_answer',sprintf('Answer “%s”.',$field['label']),['status'=>422]);$signature=sanitize_text_field((string)($p['signature_name']??''));if($requires_signature&&!$signature)return new \WP_Error('signature_required','Type your full legal name to sign.',['status'=>422]);$clean=[];foreach($answers as $key=>$value)$clean[sanitize_key((string)$key)]=is_array($value)?array_map('sanitize_text_field',$value):sanitize_textarea_field((string)$value);$now=current_time('mysql',true);$answers_json=wp_json_encode($clean);$consent=$requires_signature?sanitize_textarea_field((string)($p['consent_text']??__('I confirm that the information provided is accurate and I consent to this electronic submission.','koopo-appointments'))):'';$evidence=implode('|',[$signature,$booking->id,$form->id,(string)$form->form_snapshot_json,$consent,$answers_json,$now]);$signature_hash=$signature?hash_hmac('sha256',$evidence,wp_salt('auth')):'';$ip_hash=$signature?hash_hmac('sha256',(string)($_SERVER['REMOTE_ADDR']??''),wp_salt('nonce')):'';$agent_hash=$signature?hash_hmac('sha256',(string)($_SERVER['HTTP_USER_AGENT']??''),wp_salt('nonce')):'';$wpdb->update(DB::form_submissions_table(),['answers_json'=>$answers_json,'consent_text'=>$consent,'signature_name'=>$signature,'signature_hash'=>$signature_hash,'signer_ip_hash'=>$ip_hash,'user_agent_hash'=>$agent_hash,'signed_at'=>$signature?$now:null,'status'=>'completed','completed_at'=>$now],['id'=>(int)$form->submission_id]);return new \WP_REST_Response(['completed'=>true,'completed_at'=>$now],200);}
 
   public static function send_form_request(int $booking_id,int $form_id):void{$booking=Bookings::get_booking($booking_id);if(!$booking||(string)$booking->status!=='confirmed')return;global $wpdb;$form=$wpdb->get_row($wpdb->prepare('SELECT f.*,s.status submission_status FROM '.DB::client_forms_table().' f INNER JOIN '.DB::form_submissions_table().' s ON s.form_id=f.id WHERE f.id=%d AND s.booking_id=%d',$form_id,$booking_id));if(!$form||$form->submission_status==='completed')return;$email=(string)Bookings::extra_from_record($booking,'customer_email','');if(!$email&&$booking->customer_id){$user=get_userdata((int)$booking->customer_id);$email=$user?(string)$user->user_email:'';}if(!$email)return;$url=class_exists(MyAccount::class)?MyAccount::appointments_url():home_url('/');wp_mail($email,sprintf(__('Please complete %s before your appointment','koopo-appointments'),$form->title),sprintf("Your provider requires this private form before your appointment.\n\n%s",$url));}
 

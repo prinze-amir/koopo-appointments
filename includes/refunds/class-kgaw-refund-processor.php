@@ -32,15 +32,53 @@ class Refund_Processor {
    * @return array ['success' => bool, 'refund_id' => int, 'automatic' => bool, 'message' => string]
    */
   public static function process_refund(int $order_id, float $amount, string $reason = '', int $booking_id = 0): array {
-    
+    $operation_key = self::idempotency_key($order_id, $amount, $reason, $booking_id);
+    if (!self::acquire_order_lock($order_id, 5)) {
+      return self::error_result('Another refund is already being processed for this order.', 'refund_busy');
+    }
+
+    try {
+      do_action('koopo_appt_refund_lock_acquired', $order_id, $booking_id);
+      $existing = self::existing_operation($operation_key);
+      if ($existing && (string) $existing->status === 'succeeded' && (int) $existing->refund_id > 0) {
+        return [
+          'success' => true,
+          'refund_id' => (int) $existing->refund_id,
+          'automatic' => (bool) $existing->automatic,
+          'amount' => (float) $existing->processed_amount,
+          'idempotent' => true,
+          'message' => 'This refund was already processed.',
+        ];
+      }
+      $existing_refund = self::existing_woocommerce_refund($order_id, $operation_key, $booking_id);
+      if ($existing_refund) {
+        $was_automatic = $existing ? (bool) $existing->automatic : false;
+        $operation_id = $existing ? (int) $existing->id : self::claim_operation($operation_key, $booking_id, $order_id, (float) $existing_refund->get_amount());
+        if ($operation_id > 0) {
+          self::complete_operation($operation_id, (int) $existing_refund->get_id(), (float) $existing_refund->get_amount(), $was_automatic);
+        }
+        return [
+          'success' => true,
+          'refund_id' => (int) $existing_refund->get_id(),
+          'automatic' => $was_automatic,
+          'amount' => (float) $existing_refund->get_amount(),
+          'idempotent' => true,
+          'message' => 'This refund was already processed.',
+        ];
+      }
+      if ($existing && (string) $existing->status === 'processing' && strtotime((string) $existing->updated_at . ' UTC') > time() - (15 * MINUTE_IN_SECONDS)) {
+        return self::error_result('This refund is already being processed.', 'refund_in_progress');
+      }
+      return self::process_refund_locked($order_id, $amount, $reason, $booking_id, $operation_key);
+    } finally {
+      self::release_order_lock($order_id);
+    }
+  }
+
+  private static function process_refund_locked(int $order_id, float $amount, string $reason, int $booking_id, string $operation_key): array {
     $order = wc_get_order($order_id);
     if (!$order) {
-      return [
-        'success' => false,
-        'refund_id' => 0,
-        'automatic' => false,
-        'message' => 'Order not found',
-      ];
+      return self::error_result('Order not found', 'order_not_found');
     }
 
     $base_reason = $reason ? wp_strip_all_tags($reason) : 'Koopo appointment refund';
@@ -60,21 +98,11 @@ class Refund_Processor {
     $available = $order_total - $already_refunded;
 
     if ($amount > $available) {
-      return [
-        'success' => false,
-        'refund_id' => 0,
-        'automatic' => false,
-        'message' => sprintf('Refund amount ($%.2f) exceeds available amount ($%.2f)', $amount, $available),
-      ];
+      return self::error_result(sprintf('Refund amount ($%.2f) exceeds available amount ($%.2f)', $amount, $available), 'refund_amount_exceeds_available');
     }
 
     if ($amount <= 0) {
-      return [
-        'success' => false,
-        'refund_id' => 0,
-        'automatic' => false,
-        'message' => 'Refund amount must be greater than zero',
-      ];
+      return self::error_result('Refund amount must be greater than zero', 'invalid_refund_amount');
     }
 
     // Prepare refund reason
@@ -87,6 +115,11 @@ class Refund_Processor {
     $supports_refunds = self::gateway_supports_refunds($order);
     $api_refund = $supports_refunds;
 
+    $operation_id = self::claim_operation($operation_key, $booking_id, $order_id, $amount);
+    if ($operation_id < 1) {
+      return self::error_result('The refund operation could not be recorded.', 'refund_operation_failed');
+    }
+
     // Attempt to create WooCommerce refund
     try {
       $refund = wc_create_refund([
@@ -98,18 +131,16 @@ class Refund_Processor {
       ]);
 
       if (is_wp_error($refund)) {
-        return [
-          'success' => false,
-          'refund_id' => 0,
-          'automatic' => false,
-          'message' => $refund->get_error_message(),
-        ];
+        self::fail_operation($operation_id, sanitize_key((string) $refund->get_error_code()) ?: 'woocommerce_refund_failed');
+        return self::error_result($refund->get_error_message(), (string) $refund->get_error_code());
       }
 
       $refund_id = $refund->get_id();
+      self::persist_refund_identity_meta($refund, $operation_key, $booking_id);
       if (!empty($koopo_policy['applied'])) {
         self::persist_koopo_refund_meta($refund, $koopo_policy);
       }
+      self::complete_operation($operation_id, $refund_id, $amount, $api_refund);
 
       // Add order note with details
       $note = sprintf(
@@ -139,14 +170,126 @@ class Refund_Processor {
           : 'Refund created. Please process manually in your payment gateway.',
       ];
 
-    } catch (\Exception $e) {
-      return [
-        'success' => false,
-        'refund_id' => 0,
-        'automatic' => false,
-        'message' => 'Refund creation failed: ' . $e->getMessage(),
-      ];
+    } catch (\Throwable $e) {
+      self::fail_operation($operation_id, 'refund_exception');
+      Logger::error('refund_processing_failed', [
+        'order_id' => $order_id,
+        'booking_id' => $booking_id,
+        'operation_id' => $operation_id,
+        'exception' => $e,
+      ]);
+      return self::error_result('Refund creation failed: ' . $e->getMessage(), 'refund_exception');
     }
+  }
+
+  private static function idempotency_key(int $order_id, float $amount, string $reason, int $booking_id): string {
+    if ($booking_id > 0) return hash('sha256', 'koopo-booking-refund|' . $booking_id);
+    return hash('sha256', implode('|', [
+      'koopo-order-refund',
+      $order_id,
+      wc_format_decimal($amount, wc_get_price_decimals()),
+      wp_strip_all_tags($reason),
+    ]));
+  }
+
+  private static function acquire_order_lock(int $order_id, int $timeout_seconds): bool {
+    global $wpdb;
+    if ($order_id < 1) return false;
+    $key = 'koopo_appt_refund_' . $order_id;
+    $result = $wpdb->get_var($wpdb->prepare('SELECT GET_LOCK(%s, %d)', $key, max(0, $timeout_seconds)));
+    return (string) $result === '1';
+  }
+
+  private static function release_order_lock(int $order_id): void {
+    global $wpdb;
+    if ($order_id < 1) return;
+    $wpdb->query($wpdb->prepare('SELECT RELEASE_LOCK(%s)', 'koopo_appt_refund_' . $order_id));
+  }
+
+  private static function existing_operation(string $operation_key): ?object {
+    global $wpdb;
+    $row = $wpdb->get_row($wpdb->prepare(
+      'SELECT * FROM ' . DB::refund_operations_table() . ' WHERE idempotency_key = %s LIMIT 1',
+      $operation_key
+    ));
+    return $row ?: null;
+  }
+
+  private static function existing_woocommerce_refund(int $order_id, string $operation_key, int $booking_id): ?\WC_Order_Refund {
+    $order = wc_get_order($order_id);
+    if (!$order) return null;
+    foreach ($order->get_refunds() as $refund) {
+      if (!$refund instanceof \WC_Order_Refund) continue;
+      if (hash_equals($operation_key, (string) $refund->get_meta('_koopo_refund_operation_key', true))) return $refund;
+      if ($booking_id > 0 && (int) $refund->get_meta('_koopo_booking_id', true) === $booking_id) return $refund;
+      if ($booking_id > 0 && strpos((string) $refund->get_reason(), '[Booking #' . $booking_id . ']') !== false) return $refund;
+    }
+    return null;
+  }
+
+  private static function claim_operation(string $operation_key, int $booking_id, int $order_id, float $amount): int {
+    global $wpdb;
+    $table = DB::refund_operations_table();
+    $existing = self::existing_operation($operation_key);
+    if ($existing) {
+      $updated = $wpdb->query($wpdb->prepare(
+        "UPDATE {$table}
+         SET status = 'processing', requested_amount = %f, error_code = '', attempt_count = attempt_count + 1, updated_at = UTC_TIMESTAMP()
+         WHERE id = %d AND status != 'succeeded'",
+        $amount,
+        (int) $existing->id
+      ));
+      return $updated === 1 ? (int) $existing->id : 0;
+    }
+
+    $inserted = $wpdb->insert($table, [
+      'booking_id' => $booking_id ?: null,
+      'order_id' => $order_id,
+      'idempotency_key' => $operation_key,
+      'requested_amount' => $amount,
+      'status' => 'processing',
+      'created_at' => current_time('mysql', true),
+      'updated_at' => current_time('mysql', true),
+    ], ['%d','%d','%s','%f','%s','%s','%s']);
+    return $inserted ? (int) $wpdb->insert_id : 0;
+  }
+
+  private static function complete_operation(int $operation_id, int $refund_id, float $amount, bool $automatic): void {
+    global $wpdb;
+    $wpdb->update(DB::refund_operations_table(), [
+      'processed_amount' => $amount,
+      'refund_id' => $refund_id,
+      'automatic' => $automatic ? 1 : 0,
+      'status' => 'succeeded',
+      'error_code' => '',
+      'updated_at' => current_time('mysql', true),
+    ], ['id' => $operation_id], ['%f','%d','%d','%s','%s','%s'], ['%d']);
+  }
+
+  private static function fail_operation(int $operation_id, string $error_code): void {
+    global $wpdb;
+    if ($operation_id < 1) return;
+    $wpdb->update(DB::refund_operations_table(), [
+      'status' => 'failed',
+      'error_code' => sanitize_key($error_code) ?: 'refund_failed',
+      'updated_at' => current_time('mysql', true),
+    ], ['id' => $operation_id], ['%s','%s','%s'], ['%d']);
+  }
+
+  private static function persist_refund_identity_meta(\WC_Order_Refund $refund, string $operation_key, int $booking_id): void {
+    $refund->update_meta_data('_koopo_refund_operation_key', $operation_key);
+    if ($booking_id > 0) $refund->update_meta_data('_koopo_booking_id', $booking_id);
+    $refund->save();
+  }
+
+  private static function error_result(string $message, string $code): array {
+    return [
+      'success' => false,
+      'refund_id' => 0,
+      'automatic' => false,
+      'error_code' => sanitize_key($code) ?: 'refund_failed',
+      'message' => $message,
+    ];
   }
 
   private static function maybe_apply_koopo_refund_policy(\WC_Order $order, float $amount, string $reason): array {

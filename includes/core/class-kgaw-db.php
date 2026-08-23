@@ -4,7 +4,7 @@ namespace Koopo_Appointments;
 defined('ABSPATH') || exit;
 
 class DB {
-  const VERSION = '4.4';
+  const VERSION = '4.8';
 
   public static function table() {
     global $wpdb;
@@ -40,6 +40,10 @@ class DB {
   public static function service_areas_table() { global $wpdb; return $wpdb->prefix . 'koopo_appt_service_areas'; }
   public static function booking_invites_table() { global $wpdb; return $wpdb->prefix . 'koopo_appt_booking_invites'; }
   public static function notification_deliveries_table() { global $wpdb; return $wpdb->prefix . 'koopo_appt_notification_deliveries'; }
+  public static function sms_usage_table() { global $wpdb; return $wpdb->prefix . 'koopo_appt_sms_usage'; }
+  public static function sms_receipts_table() { global $wpdb; return $wpdb->prefix . 'koopo_appt_sms_receipts'; }
+  public static function sms_suppressions_table() { global $wpdb; return $wpdb->prefix . 'koopo_appt_sms_suppressions'; }
+  public static function refund_operations_table() { global $wpdb; return $wpdb->prefix . 'koopo_appt_refund_operations'; }
 
   public static function create_tables() {
     global $wpdb;
@@ -91,6 +95,8 @@ class DB {
       wc_order_id BIGINT UNSIGNED NULL,
       hold_expires_at DATETIME NULL,
       inbox_thread_id BIGINT UNSIGNED NULL,
+      archived_at DATETIME NULL,
+      retention_class VARCHAR(30) NOT NULL DEFAULT 'business_record',
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       PRIMARY KEY (id),
@@ -104,6 +110,7 @@ class DB {
       KEY wc_order_id (wc_order_id),
       KEY status (status),
       KEY status_hold (status, hold_expires_at),
+      KEY status_archived (status, archived_at),
       KEY start_datetime (start_datetime),
       KEY customer_email (customer_email),
       KEY customer_phone (customer_phone),
@@ -389,6 +396,11 @@ class DB {
       sms_consent_by BIGINT UNSIGNED NULL,
       sms_consent_version VARCHAR(40) NOT NULL DEFAULT '',
       sms_consent_phone VARCHAR(32) NOT NULL DEFAULT '',
+      sms_consent_method VARCHAR(20) NOT NULL DEFAULT '',
+      sms_consent_status VARCHAR(20) NOT NULL DEFAULT '',
+      sms_consent_disclosure TEXT NULL,
+      sms_consent_revoked_at DATETIME NULL,
+      sms_consent_revocation_source VARCHAR(40) NOT NULL DEFAULT '',
       expires_at DATETIME NOT NULL,
       claimed_at DATETIME NULL,
       revoked_at DATETIME NULL,
@@ -425,6 +437,87 @@ class DB {
       KEY status_updated (status, updated_at)
     ) {$charset};";
 
+    $sms_usage = self::sms_usage_table();
+    $sms_usage_sql = "CREATE TABLE {$sms_usage} (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      bucket_key VARCHAR(40) NOT NULL,
+      period_type VARCHAR(20) NOT NULL,
+      period_start DATETIME NOT NULL,
+      period_end DATETIME NOT NULL,
+      reserved_count BIGINT UNSIGNED NOT NULL DEFAULT 0,
+      sent_count BIGINT UNSIGNED NOT NULL DEFAULT 0,
+      failed_count BIGINT UNSIGNED NOT NULL DEFAULT 0,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY bucket_key (bucket_key),
+      KEY period_type_start (period_type, period_start)
+    ) {$charset};";
+
+    $sms_receipts = self::sms_receipts_table();
+    $sms_receipts_sql = "CREATE TABLE {$sms_receipts} (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      provider VARCHAR(20) NOT NULL,
+      provider_message_id VARCHAR(191) NOT NULL,
+      delivery_id BIGINT UNSIGNED NULL,
+      booking_id BIGINT UNSIGNED NULL,
+      invitation_id BIGINT UNSIGNED NULL,
+      message_type VARCHAR(80) NOT NULL DEFAULT '',
+      status VARCHAR(30) NOT NULL DEFAULT 'accepted',
+      last_reason_code VARCHAR(100) NOT NULL DEFAULT '',
+      accepted_at DATETIME NULL,
+      delivered_at DATETIME NULL,
+      failed_at DATETIME NULL,
+      last_event_at DATETIME NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY provider_message (provider, provider_message_id),
+      KEY status_updated (status, updated_at),
+      KEY delivery_id (delivery_id)
+    ) {$charset};";
+
+    $sms_suppressions = self::sms_suppressions_table();
+    $sms_suppressions_sql = "CREATE TABLE {$sms_suppressions} (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      phone_hash CHAR(64) NOT NULL,
+      phone_last4 VARCHAR(4) NOT NULL DEFAULT '',
+      status VARCHAR(20) NOT NULL DEFAULT 'observed',
+      reason VARCHAR(40) NOT NULL DEFAULT '',
+      source VARCHAR(40) NOT NULL DEFAULT '',
+      last_keyword VARCHAR(20) NOT NULL DEFAULT '',
+      suppressed_at DATETIME NULL,
+      help_requested_at DATETIME NULL,
+      start_received_at DATETIME NULL,
+      last_event_at DATETIME NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY phone_hash (phone_hash),
+      KEY status_updated (status, updated_at)
+    ) {$charset};";
+
+    $refund_operations = self::refund_operations_table();
+    $refund_operations_sql = "CREATE TABLE {$refund_operations} (
+      id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+      booking_id BIGINT UNSIGNED NULL,
+      order_id BIGINT UNSIGNED NOT NULL,
+      idempotency_key CHAR(64) NOT NULL,
+      requested_amount DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+      processed_amount DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+      refund_id BIGINT UNSIGNED NULL,
+      automatic TINYINT(1) UNSIGNED NOT NULL DEFAULT 0,
+      status VARCHAR(30) NOT NULL DEFAULT 'processing',
+      error_code VARCHAR(100) NOT NULL DEFAULT '',
+      attempt_count SMALLINT UNSIGNED NOT NULL DEFAULT 1,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY idempotency_key (idempotency_key),
+      KEY booking_status (booking_id, status),
+      KEY order_status (order_id, status)
+    ) {$charset};";
+
     require_once ABSPATH . 'wp-admin/includes/upgrade.php';
     dbDelta($sql);
     dbDelta($resources_sql);
@@ -440,15 +533,63 @@ class DB {
     dbDelta($service_areas_sql);
     dbDelta($booking_invites_sql);
     dbDelta($notification_deliveries_sql);
+    dbDelta($sms_usage_sql);
+    dbDelta($sms_receipts_sql);
+    dbDelta($sms_suppressions_sql);
+    dbDelta($refund_operations_sql);
+    wp_cache_delete('koopo_appt_db_version', 'options');
+    wp_cache_delete('alloptions', 'options');
     update_option('koopo_appt_db_version', self::VERSION);
+    wp_cache_delete('koopo_appt_db_version', 'options');
+    wp_cache_delete('alloptions', 'options');
   }
 
   public static function maybe_upgrade(): void {
-    $current = (string) get_option('koopo_appt_db_version', '');
-    if ($current !== self::VERSION) {
+    global $wpdb;
+    $current = (string) $wpdb->get_var($wpdb->prepare(
+      "SELECT option_value FROM {$wpdb->options} WHERE option_name=%s LIMIT 1",
+      'koopo_appt_db_version'
+    ));
+    if ($current === self::VERSION) {
+      self::reconcile_version_cache($current);
+      return;
+    }
+
+    $lock_name = 'koopo_appt_db_upgrade';
+    $locked = (string) $wpdb->get_var($wpdb->prepare('SELECT GET_LOCK(%s, %d)', $lock_name, 10)) === '1';
+    if (!$locked) {
+      Logger::warning('database_upgrade_lock_unavailable', ['target_version' => self::VERSION]);
+      return;
+    }
+
+    try {
+      $current = (string) $wpdb->get_var($wpdb->prepare(
+        "SELECT option_value FROM {$wpdb->options} WHERE option_name=%s LIMIT 1",
+        'koopo_appt_db_version'
+      ));
+      if ($current === self::VERSION) {
+        self::reconcile_version_cache($current);
+        return;
+      }
       self::create_tables();
       self::migrate_legacy_booking_options();
+      Logger::info('database_upgrade_complete', ['from_version' => $current, 'target_version' => self::VERSION]);
+    } catch (\Throwable $error) {
+      Logger::error('database_upgrade_failed', [
+        'from_version' => $current,
+        'target_version' => self::VERSION,
+        'exception' => $error,
+      ]);
+      throw $error;
+    } finally {
+      $wpdb->query($wpdb->prepare('SELECT RELEASE_LOCK(%s)', $lock_name));
     }
+  }
+
+  private static function reconcile_version_cache(string $stored_version): void {
+    if ((string) get_option('koopo_appt_db_version', '') === $stored_version) return;
+    wp_cache_delete('koopo_appt_db_version', 'options');
+    wp_cache_delete('alloptions', 'options');
   }
 
   private static function extra_migration_fields(): array {
