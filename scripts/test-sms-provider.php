@@ -16,7 +16,7 @@ $compliance=$read('includes/notifications/class-kgaw-sms-compliance.php');
 $transactional=$read('includes/notifications/class-kgaw-transactional-sms.php');
 
 $receipts=$read('includes/notifications/class-kgaw-sms-delivery-receipts.php');
-$expect(strpos($plugin,"Version: 0.10.9")!==false&&strpos($loader,"[SMS_Provider::class, 'init']")!==false&&strpos($loader,"[SMS_Delivery_Receipts::class, 'init']")!==false,'SMS release or provider initialization is missing.');
+$expect(strpos($plugin,"Version: 0.11.0")!==false&&strpos($loader,"[SMS_Provider::class, 'init']")!==false&&strpos($loader,"[SMS_Delivery_Receipts::class, 'init']")!==false,'SMS release or provider initialization is missing.');
 $expect(strpos($provider,'https://api.brevo.com/v3/transactionalSMS/send')!==false&&strpos($provider,'/transactionalSMS/sms')===false,'Brevo does not use the current transactional SMS endpoint.');
 $expect(strpos($provider,'https://api.brevo.com/v3/account')!==false&&strpos($provider,"['type'] ?? '')) === 'sms'")!==false,'Brevo SMS credit lookup is missing.');
 $expect(strpos($provider,'https://api.twilio.com/2010-04-01/Accounts/')!==false&&strpos($provider,"'Authorization'=>'Basic '")!==false,'Twilio message transport or authentication is missing.');
