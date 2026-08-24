@@ -23,6 +23,7 @@ class Vendor_Bookings_API {
       'permission_callback' => [__CLASS__, 'can_access'],
       'args' => [
         'listing_id' => ['type' => 'integer', 'required' => false, 'minimum' => 1, 'validate_callback'=>'rest_validate_request_arg', 'sanitize_callback' => 'absint'],
+        'resource_id' => ['type' => 'integer', 'required' => false, 'minimum' => 1, 'validate_callback'=>'rest_validate_request_arg', 'sanitize_callback' => 'absint'],
         'status'     => ['type' => 'string',  'required' => false, 'validate_callback'=>'rest_validate_request_arg', 'sanitize_callback' => 'sanitize_key'],
         'search'     => ['type' => 'string',  'required' => false, 'maxLength' => 100, 'validate_callback'=>'rest_validate_request_arg', 'sanitize_callback' => 'sanitize_text_field'],
         'month'      => ['type' => 'string',  'required' => false],

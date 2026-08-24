@@ -43,8 +43,15 @@ expect_boundary(strpos($clients, '$wpdb->esc_like($search)') !== false, 'Client 
 
 $vendor_core = boundary_source('assets/vendor-core.js');
 $vendor_clients = boundary_source('assets/vendor-clients.js');
+$vendor_appointments = boundary_source('assets/vendor-appointments.js');
 expect_boundary(strpos($vendor_core, 'utils.apiWithMeta = apiWithMeta;') !== false, 'Vendor API pagination metadata adapter is missing.');
 expect_boundary(strpos($vendor_clients, 'data-client-search-form') !== false && strpos($vendor_clients, 'data-client-page') !== false, 'Client pagination/search controls are missing.');
+expect_boundary(strpos($vendor_appointments, 'CALENDAR_PAGE_SIZE = 100') !== false && strpos($vendor_appointments, 'loadCalendarBookings(params)') !== false, 'Vendor calendar does not use bounded API pagination.');
+expect_boundary(strpos($vendor_appointments, "per_page: '500'") === false, 'Vendor calendar still exceeds the REST page-size contract.');
+expect_boundary(strpos($vendor_appointments, 'requestToken !== calendarState.requestToken') !== false, 'Vendor calendar does not ignore stale range responses.');
+
+$vendor_bookings = boundary_source('includes/vendor/class-kgaw-vendor-bookings-api.php');
+expect_boundary(strpos($vendor_bookings, "'resource_id' => ['type' => 'integer'") !== false, 'Vendor booking resource scope is not declared in the REST schema.');
 
 $services = boundary_source('includes/services/class-kgaw-services-api.php');
 $waitlist = boundary_source('includes/waitlist/class-kgaw-waitlist.php');

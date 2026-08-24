@@ -23,6 +23,7 @@ class Admin_Settings {
   const OPTION_MICROSOFT_CALENDAR_CLIENT_ID = 'koopo_appt_microsoft_calendar_client_id';
   const OPTION_MICROSOFT_CALENDAR_CLIENT_SECRET = 'koopo_appt_microsoft_calendar_client_secret';
   const OPTION_MICROSOFT_CALENDAR_TENANT = 'koopo_appt_microsoft_calendar_tenant';
+  const OPTION_MICROSOFT_CALENDAR_ENABLED = 'koopo_appt_microsoft_calendar_enabled';
   const OPTION_GEOCODER_MODE = 'koopo_appt_geocoder_mode';
   const OPTION_GEOCODER_AUTO_ORDER = 'koopo_appt_geocoder_auto_order';
   const OPTION_GEOCODER_DAILY_LIMITS = 'koopo_appt_geocoder_daily_limits';
@@ -105,6 +106,11 @@ class Admin_Settings {
       'type' => 'string',
       'sanitize_callback' => [__CLASS__, 'sanitize_microsoft_calendar_tenant'],
       'default' => 'common',
+    ]);
+    register_setting('koopo_appt_settings', self::OPTION_MICROSOFT_CALENDAR_ENABLED, [
+      'type' => 'boolean',
+      'sanitize_callback' => static fn($value): int => empty($value) ? 0 : 1,
+      'default' => 0,
     ]);
     register_setting('koopo_appt_settings', self::OPTION_GEOCODER_MODE, [
       'type' => 'string',
@@ -378,7 +384,7 @@ class Admin_Settings {
     ?>
     <p>
       Configure the OAuth applications used by service providers to mirror Koopo appointments into their calendars.
-      Koopo remains the source of truth; external calendars never change availability or appointments.
+      Koopo remains the source of truth. Selected external events create read-only busy blocks but never change Koopo appointments.
     </p>
     <p><strong>Security:</strong> Client secrets are encrypted before storage and are never displayed again.</p>
     <?php
@@ -403,17 +409,16 @@ class Admin_Settings {
     $callback = rest_url('koopo/v1/appointments/calendar/oauth/' . $provider . '/callback');
     ?>
     <fieldset style="max-width:760px;">
-      <?php if ($is_google): ?>
+      <?php $enabled_option = $is_google ? self::OPTION_GOOGLE_CALENDAR_ENABLED : self::OPTION_MICROSOFT_CALENDAR_ENABLED; ?>
         <p>
           <label>
-            <input type="checkbox" name="<?php echo esc_attr(self::OPTION_GOOGLE_CALENDAR_ENABLED); ?>" value="1" <?php checked($enabled); ?> />
-            <strong>Enable Google Calendar connections and synchronization</strong>
+            <input type="checkbox" name="<?php echo esc_attr($enabled_option); ?>" value="1" <?php checked($enabled); ?> />
+            <strong><?php echo esc_html(sprintf('Enable %s Calendar connections and synchronization', $is_google ? 'Google' : 'Microsoft')); ?></strong>
           </label>
         </p>
         <p class="description">
-          Keep this off while Google's OAuth verification is pending. When off, Koopo preserves the implementation and saved data but blocks new connections, provider API calls, appointment mirroring, and Google-based availability blocking.
+          Keep this off while provider approval and live acceptance testing are pending. When off, Koopo preserves the implementation and saved data but blocks new connections, provider API calls, appointment mirroring, and provider-based availability blocking.
         </p>
-      <?php endif; ?>
       <p>
         <span style="display:inline-block;padding:4px 9px;border-radius:999px;background:<?php echo $configured ? '#def9eb' : '#f0edf5'; ?>;color:<?php echo $configured ? '#1e6f5c' : '#655d78'; ?>;font-weight:600;">
           <?php echo esc_html($configured ? 'Configured' : 'Not configured'); ?>
@@ -521,7 +526,10 @@ class Admin_Settings {
     if ($provider === 'google') {
       return (bool) get_option(self::OPTION_GOOGLE_CALENDAR_ENABLED, 0);
     }
-    return $provider === 'microsoft';
+    if ($provider === 'microsoft') {
+      return (bool) get_option(self::OPTION_MICROSOFT_CALENDAR_ENABLED, 0);
+    }
+    return false;
   }
 
   public static function calendar_client_secret(string $provider): string {

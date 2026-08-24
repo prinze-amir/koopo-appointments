@@ -51,7 +51,9 @@ namespace Koopo_Appointments {
   expect(!Admin_Settings::calendar_provider_enabled('google'), 'Google Calendar must fail closed when its release toggle is absent.');
   $GLOBALS['calendar_test_options'][Admin_Settings::OPTION_GOOGLE_CALENDAR_ENABLED] = 1;
   expect(Admin_Settings::calendar_provider_enabled('google'), 'Google Calendar release toggle could not enable the provider.');
-  expect(Admin_Settings::calendar_provider_enabled('microsoft'), 'Google release control unexpectedly disabled Microsoft Calendar.');
+  expect(!Admin_Settings::calendar_provider_enabled('microsoft'), 'Microsoft Calendar must fail closed when its release toggle is absent.');
+  $GLOBALS['calendar_test_options'][Admin_Settings::OPTION_MICROSOFT_CALENDAR_ENABLED] = 1;
+  expect(Admin_Settings::calendar_provider_enabled('microsoft'), 'Microsoft Calendar release toggle could not enable the provider.');
   $_POST[Admin_Settings::OPTION_GOOGLE_CALENDAR_CLIENT_SECRET . '_clear'] = '1';
   expect(Admin_Settings::sanitize_google_calendar_secret('') === '', 'Explicit admin secret removal failed.');
   unset($_POST[Admin_Settings::OPTION_GOOGLE_CALENDAR_CLIENT_SECRET . '_clear']);

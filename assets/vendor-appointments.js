@@ -41,7 +41,7 @@
   const $viewListing = $('#koopo-view-listing-appointments');
 
   const apptState = { listingId: 0, providerId: 0, resourceId: 0, subjectType: '', status: 'all', search: '', month: '', year: '', page: 1, perPage: 20, totalPages: 1, view: 'table', sortKey: 'when', sortDir: 'asc' };
-  const calendarState = { view: 'month', cursor: new Date(), items: [], mobileDay: null };
+  const calendarState = { view: 'month', cursor: new Date(), items: [], mobileDay: null, requestToken: 0 };
   let apptServices = [];
   let apptServiceMap = {};
   let apptTimezone = '';
@@ -50,6 +50,8 @@
   let selectedAddonIds = [];
   let apptCreateState = { selectedSlot: null };
   const analyticsColors = ['#f6c453', '#7bb4ff', '#8fe0a9', '#f39a9d', '#b79cf7', '#f2c7a7', '#a6d7d5', '#f0b7d2'];
+  const CALENDAR_PAGE_SIZE = 100;
+  const CALENDAR_MAX_PAGES = 50;
   if ($apptAnalytics.length) {
     $apptAnalytics.removeClass('is-empty');
     $apptAnalytics.find('[data-stat="total"]').text('0');
@@ -85,6 +87,29 @@
     const s = String(booking?.status || '').toLowerCase();
     if (s === 'cancelled') return '<span class="koopo-cal-badge koopo-cal-badge--cancelled">Cancelled</span>';
     return '';
+  }
+
+  async function loadCalendarBookings(params){
+    const items = [];
+    let page = 1;
+    let totalPages = 1;
+
+    do {
+      const qs = new URLSearchParams(Object.assign({}, params, {
+        page: String(page),
+        per_page: String(CALENDAR_PAGE_SIZE),
+      }));
+      const data = await api(`/vendor/bookings?${qs.toString()}`, { method: 'GET' });
+      const pageItems = Array.isArray(data && data.items) ? data.items : [];
+      items.push(...pageItems);
+      totalPages = Math.max(1, Number(data && data.pagination && data.pagination.total_pages) || 1);
+      if (totalPages > CALENDAR_MAX_PAGES) {
+        throw new Error('This calendar range contains too many appointments to display safely.');
+      }
+      page++;
+    } while (page <= totalPages);
+
+    return items;
   }
 
   
@@ -555,6 +580,7 @@
 
     const view = calendarState.view;
     const cursor = calendarState.cursor;
+    const requestToken = ++calendarState.requestToken;
 
     let rangeStart;
     let rangeEnd;
@@ -596,13 +622,11 @@
       const params = {
         resource_id: apptState.resourceId,
         status: apptState.status || 'all',
-        per_page: '500',
         range_start: rangeStart,
         range_end: rangeEnd,
       };
-      const qs = new URLSearchParams(params);
-      const data = await api(`/vendor/bookings?${qs.toString()}`, { method: 'GET' });
-      const items = data.items || [];
+      const items = await loadCalendarBookings(params);
+      if (requestToken !== calendarState.requestToken) return;
       apptItemsMap = {};
       items.forEach(b => { apptItemsMap[b.id] = b; });
       calendarState.items = items;
@@ -617,6 +641,7 @@
         renderAgendaView(items, start, end);
       }
     } catch (e) {
+      if (requestToken !== calendarState.requestToken) return;
       $calendarBody.html('<div class="koopo-muted">Failed to load calendar.</div>');
       console.error(e);
     }
