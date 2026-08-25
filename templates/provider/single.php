@@ -34,6 +34,7 @@ foreach ($profile['locations'] as $location) {
       <?php if ($review_summary['count']) : ?><a class="koopo-pro-rating-link" href="#reviews"><span aria-hidden="true"><?php echo esc_html(str_repeat('★', (int) round($review_summary['average'])) . str_repeat('☆', 5 - (int) round($review_summary['average']))); ?></span><strong><?php echo esc_html(number_format_i18n($review_summary['average'], 1)); ?></strong><small><?php printf(esc_html(_n('%s review', '%s reviews', $review_summary['count'], 'koopo-appointments')), number_format_i18n($review_summary['count'])); ?></small></a><?php endif; ?>
       <?php if ($modes || $profile['category']) : ?><div class="koopo-pro-pills"><?php if ($profile['category']) : ?><span class="koopo-pro-pill--category"><?php echo esc_html(($profile['category']['glyph'] ? $profile['category']['glyph'] . ' ' : '') . $profile['category']['name']); ?></span><?php endif; ?><?php foreach ($modes as $mode) : ?><span><?php echo esc_html($mode); ?></span><?php endforeach; ?></div><?php endif; ?>
       <a class="koopo-pro-member-link" href="<?php echo esc_url($profile['buddyboss_profile_url']); ?>"><?php esc_html_e('View member profile', 'koopo-appointments'); ?> ↗</a>
+      <?php if (is_user_logged_in() && get_current_user_id() === $owner_id) : ?><a class="koopo-pro-owner-edit" href="<?php echo esc_url(\Koopo_Appointments\Provider_Onboarding::edit_url()); ?>"><?php esc_html_e('Edit service profile', 'koopo-appointments'); ?> <span aria-hidden="true">→</span></a><?php endif; ?>
     </div>
   </header>
 

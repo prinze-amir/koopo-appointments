@@ -4,6 +4,7 @@ use Koopo_Appointments\Provider_Profiles;
 defined('ABSPATH') || exit;
 get_header();
 $currency = function_exists('get_woocommerce_currency_symbol') ? html_entity_decode(get_woocommerce_currency_symbol(), ENT_QUOTES | ENT_HTML5, 'UTF-8') : '$';
+$provider_cta = \Koopo_Appointments\Provider_Onboarding::cta();
 $profiles = [];
 $active_category = sanitize_title((string) ($_GET['service_category'] ?? ''));
 $categories = array_values(array_filter(\Koopo_Appointments\Service_Categories::get_all_categories(), static fn($category) => !empty($category['featured']) || !empty($category['count'])));
@@ -55,12 +56,13 @@ foreach ($profiles as $profile) {
 <script>
     document.body.classList.add('page-template-page-fullwidth-content', 'page-template-page-fullwidth-content-php');
 </script>
-<main class="koopo-pro-directory" id="koopo-professionals">
+<main class="koopo-pro-directory" id="koopo-bookable">
   <section class="koopo-pro-directory__intro">
     <div>
-      <span class="koopo-pro-eyebrow"><?php esc_html_e('Book local talent', 'koopo-appointments'); ?></span>
+      <span class="koopo-pro-eyebrow"><?php esc_html_e('Koopo Booking', 'koopo-appointments'); ?></span>
       <h1><?php esc_html_e('Find a professional who fits.', 'koopo-appointments'); ?></h1>
-      <p><?php esc_html_e('Compare independent providers and bookable business locations in one place.', 'koopo-appointments'); ?></p>
+      <p><?php esc_html_e('Discover bookable service providers and local businesses. Compare services, reviews, locations, availability, and prices before you book.', 'koopo-appointments'); ?></p>
+      <a class="koopo-pro-directory__provider-cta" href="<?php echo esc_url($provider_cta['url']); ?>"><span><?php echo esc_html($provider_cta['label']); ?></span><b aria-hidden="true">→</b></a>
     </div>
     <form class="koopo-pro-search" method="get" action="<?php echo esc_url(get_post_type_archive_link(Provider_Profiles::POST_TYPE)); ?>" role="search">
         <label for="koopo-professional-search"><?php esc_html_e('Search services and providers', 'koopo-appointments'); ?></label>

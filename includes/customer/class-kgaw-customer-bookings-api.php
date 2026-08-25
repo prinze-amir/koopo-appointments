@@ -239,16 +239,20 @@ class Customer_Bookings_API {
 
     $service_ids = [];
     $listing_ids = [];
+    $provider_ids = [];
     foreach ($rows as $r) {
       if (!empty($r['service_id'])) $service_ids[] = (int) $r['service_id'];
       if (!empty($r['listing_id'])) $listing_ids[] = (int) $r['listing_id'];
+      if (!empty($r['provider_id'])) $provider_ids[] = (int) $r['provider_id'];
     }
     $service_ids = array_values(array_unique($service_ids));
     $listing_ids = array_values(array_unique($listing_ids));
+    $provider_ids = array_values(array_unique($provider_ids));
+    $subject_ids = array_values(array_unique(array_merge($listing_ids, $provider_ids)));
 
     if (function_exists('_prime_post_caches')) {
       if ($service_ids) _prime_post_caches($service_ids, false, false);
-      if ($listing_ids) _prime_post_caches($listing_ids, false, false);
+      if ($subject_ids) _prime_post_caches($subject_ids, false, false);
     }
     if ($service_ids) {
       update_postmeta_cache($service_ids);

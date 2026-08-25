@@ -29,6 +29,7 @@ test_files=(
   scripts/test-geocoding-router.php
   scripts/test-production-hardening.php
   scripts/test-provider-architecture.php
+  scripts/test-provider-onboarding.php
   scripts/test-sms-provider.php
 )
 

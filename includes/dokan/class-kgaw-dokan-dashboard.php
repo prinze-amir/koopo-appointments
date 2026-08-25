@@ -23,6 +23,8 @@ class Dokan_Dashboard {
     add_filter('dokan_get_dashboard_nav', [__CLASS__, 'add_nav_items'], 20);
     add_action('dokan_load_custom_template', [__CLASS__, 'load_templates'], 20);
     add_action('wp_enqueue_scripts', [__CLASS__, 'enqueue_assets'], 20);
+    add_action('dokan_dashboard_content_inside_before', [__CLASS__, 'render_verification_notice'], 4);
+    add_action('dokan_pro_vendor_verification_after_vendor_verified', [__CLASS__, 'verification_completed'], 20, 1);
   }
 
   public static function register_query_vars($vars) {
@@ -37,6 +39,15 @@ class Dokan_Dashboard {
 
   public static function add_nav_items($urls) {
     if (!self::vendor_has_appointments_access(get_current_user_id())) {
+      if ((function_exists('dokan_is_user_seller') && dokan_is_user_seller(get_current_user_id())) || Provider_Profiles::owned_profile_id(get_current_user_id())) {
+        $urls['koopo-service-profile'] = [
+          'title' => __('Service Profile', 'koopo-appointments'),
+          'icon' => '<i class="fas fa-user-circle"></i>',
+          'url' => dokan_get_navigation_url('koopo-professional-profile'),
+          'pos' => 55,
+          'icon_name' => 'UserCircle',
+        ];
+      }
       return $urls;
     }
 
@@ -85,6 +96,10 @@ class Dokan_Dashboard {
 
 public static function load_templates($query_vars) {
     if (!is_array($query_vars)) return;
+
+    if (isset($query_vars['koopo-professional-profile']) && ((function_exists('dokan_is_user_seller') && dokan_is_user_seller(get_current_user_id())) || Provider_Profiles::owned_profile_id(get_current_user_id()))) {
+      self::load('provider-profile.php'); return;
+    }
 
     if (!self::vendor_has_appointments_access(get_current_user_id())) {
       self::render_access_notice();
@@ -259,6 +274,31 @@ public static function load_templates($query_vars) {
       $url = $default;
     }
     return (string) apply_filters('koopo_appt_upgrade_plan_url', $url);
+  }
+
+  public static function render_verification_notice(): void {
+    $vendor_id = get_current_user_id();
+    if (!$vendor_id || !function_exists('dokan_is_user_seller') || !dokan_is_user_seller($vendor_id) || !function_exists('dokan_is_seller_enabled') || dokan_is_seller_enabled($vendor_id)) return;
+
+    try {
+      $policy = dokan_get_container()->get(\WeDevs\Dokan\Utilities\AdminSettings::class)->get_new_seller_enable_selling_status();
+    } catch (\Throwable $error) {
+      return;
+    }
+    if ('verified_only' !== $policy) return;
+
+    $status = sanitize_key((string) get_user_meta($vendor_id, 'dokan_verification_status', true));
+    $pending = false !== strpos($status, 'pending');
+    $url = function_exists('dokan_get_navigation_url') ? dokan_get_navigation_url('settings/verification') : home_url('/seller-dashboard/settings/verification/');
+    echo '<div class="dokan-alert dokan-alert-warning koopo-vendor-verification-notice" role="status">';
+    echo '<strong>' . esc_html($pending ? __('Seller verification is under review.', 'koopo-appointments') : __('Verify your seller account to enable selling.', 'koopo-appointments')) . '</strong> ';
+    echo esc_html($pending ? __('Koopo will enable selling automatically after Dokan approves the required verification.', 'koopo-appointments') : __('Complete the required Dokan verification steps. Your Starter plan and service profile can be prepared while selling remains protected.', 'koopo-appointments'));
+    echo ' <a class="dokan-btn dokan-btn-theme" href="' . esc_url($url) . '">' . esc_html($pending ? __('Review verification status', 'koopo-appointments') : __('Verify account', 'koopo-appointments')) . '</a>';
+    echo '</div>';
+  }
+
+  public static function verification_completed(int $vendor_id): void {
+    if (function_exists('dokan_is_seller_enabled') && dokan_is_seller_enabled($vendor_id)) delete_user_meta($vendor_id, '_koopo_provider_selling_pending');
   }
 
   public static function render_no_listing_cta(): void {

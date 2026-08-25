@@ -31,6 +31,16 @@ final class Provider_Profiles {
 
   public static function init(): void {
     add_action('init', [__CLASS__, 'register_post_type']);
+    add_action('template_redirect', [__CLASS__, 'redirect_legacy_archive'], 1);
+    add_action('wp', [__CLASS__, 'prepare_archive_seo'], 20);
+    add_filter('document_title_parts', [__CLASS__, 'archive_title']);
+    add_action('wp_head', [__CLASS__, 'archive_seo_meta'], 2);
+    add_filter('wpseo_title', [__CLASS__, 'seo_title']);
+    add_filter('wpseo_metadesc', [__CLASS__, 'seo_description']);
+    add_filter('wpseo_canonical', [__CLASS__, 'seo_canonical']);
+    add_filter('rank_math/frontend/title', [__CLASS__, 'seo_title']);
+    add_filter('rank_math/frontend/description', [__CLASS__, 'seo_description']);
+    add_filter('rank_math/frontend/canonical', [__CLASS__, 'seo_canonical']);
     add_action('rest_api_init', [__CLASS__, 'routes']);
     add_action('wp_enqueue_scripts', [__CLASS__, 'enqueue_directory_assets']);
     add_filter('template_include', [__CLASS__, 'public_template'], 99);
@@ -71,8 +81,8 @@ final class Provider_Profiles {
       'show_ui' => true,
       'show_in_menu' => 'koopo-appointments',
       'show_in_rest' => false,
-      'has_archive' => true,
-      'rewrite' => ['slug' => 'professionals'],
+      'has_archive' => 'bookable',
+      'rewrite' => ['slug' => 'bookable', 'with_front' => false],
       'supports' => ['title', 'editor', 'excerpt', 'author', 'thumbnail', 'comments'],
       'capability_type' => 'post',
       'map_meta_cap' => true,
@@ -134,7 +144,7 @@ final class Provider_Profiles {
 
   public static function can_create(): bool {
     $user_id = get_current_user_id();
-    return $user_id > 0 && (Access::is_admin_bypass($user_id) || Access::vendor_has_feature($user_id, 'appointments'));
+    return $user_id > 0 && (Access::is_admin_bypass($user_id) || Access::vendor_has_feature($user_id, 'appointments') || (function_exists('dokan_is_user_seller') && dokan_is_user_seller($user_id)));
   }
 
   private static function can_manage(int $provider_id): bool {
@@ -144,28 +154,136 @@ final class Provider_Profiles {
 
   public static function create(\WP_REST_Request $request): \WP_REST_Response {
     $payload = (array) $request->get_json_params();
+    $provider_id = self::create_for_user(get_current_user_id(), $payload);
+    if (is_wp_error($provider_id)) {
+      $status = in_array($provider_id->get_error_code(), ['profile_name_required', 'service_mode_required'], true) ? 422 : 500;
+      return new \WP_REST_Response(['error' => $provider_id->get_error_message(), 'code' => $provider_id->get_error_code()], $status);
+    }
+    return new \WP_REST_Response(self::format((int) $provider_id, true), 201);
+  }
+
+  /** Create one provider-owned service profile and its scheduling resource. */
+  public static function create_for_user(int $user_id, array $payload) {
     $title = sanitize_text_field((string) ($payload['name'] ?? $payload['title'] ?? ''));
-    if (!$title) return new \WP_REST_Response(['error' => 'Service profile name is required.'], 400);
-    if (empty($payload['service_modes']) || !is_array($payload['service_modes'])) return new \WP_REST_Response(['error' => 'Choose at least one service delivery option.', 'code' => 'service_mode_required'], 422);
+    if (!$user_id) return new \WP_Error('invalid_provider_owner', __('A valid profile owner is required.', 'koopo-appointments'));
+    if (!$title) return new \WP_Error('profile_name_required', __('Service profile name is required.', 'koopo-appointments'));
+    if (empty($payload['service_modes']) || !is_array($payload['service_modes'])) return new \WP_Error('service_mode_required', __('Choose at least one service delivery option.', 'koopo-appointments'));
     $provider_id = wp_insert_post([
       'post_type' => self::POST_TYPE,
       'post_status' => 'publish',
       'post_title' => $title,
       'post_content' => wp_kses_post((string) ($payload['bio'] ?? '')),
       'post_excerpt' => sanitize_textarea_field((string) ($payload['headline'] ?? '')),
-      'post_author' => get_current_user_id(),
+      'post_author' => $user_id,
       'comment_status' => 'open',
     ], true);
-    if (is_wp_error($provider_id)) return new \WP_REST_Response(['error' => $provider_id->get_error_message()], 500);
+    if (is_wp_error($provider_id)) return $provider_id;
     $saved = self::save_meta((int) $provider_id, $payload);
     if (is_wp_error($saved)) {
       wp_delete_post((int) $provider_id, true);
-      return new \WP_REST_Response(['error' => $saved->get_error_message(), 'code' => $saved->get_error_code()], 422);
+      return $saved;
     }
     update_post_meta((int) $provider_id, '_koopo_appt_enabled', '1');
     $resource_id = Resources::ensure_for_provider((int) $provider_id);
     update_post_meta((int) $provider_id, Resources::META_RESOURCE_ID, $resource_id);
-    return new \WP_REST_Response(self::format((int) $provider_id, true), 201);
+    return (int) $provider_id;
+  }
+
+  public static function owned_profile_id(int $user_id): int {
+    if (!$user_id) return 0;
+    $ids = get_posts([
+      'post_type' => self::POST_TYPE,
+      'post_status' => ['publish', 'draft', 'pending', 'private'],
+      'author' => $user_id,
+      'posts_per_page' => 1,
+      'fields' => 'ids',
+      'orderby' => 'ID',
+      'order' => 'ASC',
+      'no_found_rows' => true,
+    ]);
+    return (int) ($ids[0] ?? 0);
+  }
+
+  /** Keep indexed and bookmarked legacy directory URLs working after the slug change. */
+  public static function redirect_legacy_archive(): void {
+    if (is_admin()) return;
+    $request_uri = isset($_SERVER['REQUEST_URI']) ? wp_unslash((string) $_SERVER['REQUEST_URI']) : '';
+    $request_path = untrailingslashit((string) wp_parse_url($request_uri, PHP_URL_PATH));
+    $matches = [];
+    $is_legacy = false;
+    foreach (['professionals', 'book'] as $legacy_slug) {
+      $legacy_path = untrailingslashit((string) wp_parse_url(home_url('/' . $legacy_slug . '/'), PHP_URL_PATH));
+      if ($request_path === $legacy_path || preg_match('#^' . preg_quote($legacy_path, '#') . '/page/([0-9]+)$#', $request_path, $matches)) {
+        $is_legacy = true;
+        break;
+      }
+    }
+    if (!$is_legacy) return;
+
+    $target = get_post_type_archive_link(self::POST_TYPE) ?: home_url('/bookable/');
+    if (!empty($matches[1])) $target = trailingslashit($target) . 'page/' . absint($matches[1]) . '/';
+    $query = [];
+    foreach (['s', 'service_category'] as $key) {
+      if (isset($_GET[$key]) && !is_array($_GET[$key])) $query[$key] = sanitize_text_field(wp_unslash($_GET[$key]));
+    }
+    wp_safe_redirect($query ? add_query_arg($query, $target) : $target, 301, 'Koopo Appointments');
+    exit;
+  }
+
+  public static function archive_title(array $parts): array {
+    if (is_post_type_archive(self::POST_TYPE)) $parts['title'] = __('Koopo Booking — Book Local Services & Professionals', 'koopo-appointments');
+    return $parts;
+  }
+
+  public static function seo_title(string $title): string {
+    return is_post_type_archive(self::POST_TYPE) ? __('Koopo Booking | Book Local Services & Professionals', 'koopo-appointments') : $title;
+  }
+
+  public static function seo_description(string $description): string {
+    return is_post_type_archive(self::POST_TYPE) ? __('Discover bookable service providers and local businesses on Koopo. Compare services, locations, reviews, availability, and prices, then book online.', 'koopo-appointments') : $description;
+  }
+
+  public static function seo_canonical(string $canonical): string {
+    return is_post_type_archive(self::POST_TYPE) ? (get_post_type_archive_link(self::POST_TYPE) ?: home_url('/bookable/')) : $canonical;
+  }
+
+  /** Replace BuddyBoss Sharing's site-wide fallback metadata on this archive only. */
+  public static function prepare_archive_seo(): void {
+    if (!is_post_type_archive(self::POST_TYPE)) return;
+
+    $class = '\\BuddyBoss\\Sharing\\Modules\\Site_SEO';
+    if (!class_exists($class) || !is_callable([$class, 'instance'])) return;
+
+    $site_seo = $class::instance();
+    remove_action('wp_head', [$site_seo, 'output_seo_meta'], 1);
+    remove_action('wp_head', [$site_seo, 'output_open_graph_meta'], 5);
+  }
+
+  public static function archive_seo_meta(): void {
+    if (!is_post_type_archive(self::POST_TYPE)) return;
+    $url = get_post_type_archive_link(self::POST_TYPE) ?: home_url('/bookable/');
+    $title = self::seo_title('');
+    $description = self::seo_description('');
+    if (!defined('WPSEO_VERSION') && !defined('RANK_MATH_VERSION')) {
+      echo '<meta name="description" content="' . esc_attr($description) . '">' . "\n";
+      echo '<link rel="canonical" href="' . esc_url($url) . '">' . "\n";
+      echo '<meta property="og:type" content="website">' . "\n";
+      echo '<meta property="og:site_name" content="' . esc_attr(get_bloginfo('name')) . '">' . "\n";
+      echo '<meta property="og:title" content="' . esc_attr($title) . '">' . "\n";
+      echo '<meta property="og:description" content="' . esc_attr($description) . '">' . "\n";
+      echo '<meta property="og:url" content="' . esc_url($url) . '">' . "\n";
+      echo '<meta name="twitter:card" content="summary">' . "\n";
+      echo '<meta name="twitter:title" content="' . esc_attr($title) . '">' . "\n";
+      echo '<meta name="twitter:description" content="' . esc_attr($description) . '">' . "\n";
+    }
+    echo '<script type="application/ld+json">' . wp_json_encode([
+      '@context' => 'https://schema.org',
+      '@type' => 'CollectionPage',
+      'name' => $title,
+      'description' => $description,
+      'url' => $url,
+      'isPartOf' => ['@type' => 'WebSite', 'name' => get_bloginfo('name'), 'url' => home_url('/')],
+    ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) . '</script>' . "\n";
   }
 
   public static function read_or_update(\WP_REST_Request $request): \WP_REST_Response {

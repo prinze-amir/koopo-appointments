@@ -26,6 +26,8 @@ expect_source('includes/core/class-kgaw-bookings.php', 'WHERE resource_id = %d',
 expect_source('includes/core/class-kgaw-bookings.php', "'payee_user_id'      =>", 'Booking payee is not persisted.');
 expect_source('includes/services/class-kgaw-services-list.php', "'/services/by-listing/(?P<id>\\d+)'", 'Legacy place service route was removed.');
 expect_source('includes/services/class-kgaw-services-list.php', "'/services/by-provider/(?P<id>\\d+)'", 'Professional service route is missing.');
+expect_source('includes/services/class-kgaw-bookable-listings-api.php', "'/providers/discovery'", 'Indexed professional discovery route is missing.');
+expect_source('includes/services/class-kgaw-bookable-listings-api.php', 'COUNT(DISTINCT si.provider_id)', 'Professional discovery is not backed by the provider service index.');
 expect_source('includes/settings/class-kgaw-settings-api.php', "'/appointments/settings/(?P<listing_id>\\d+)'", 'Legacy place settings route was removed.');
 expect_source('includes/settings/class-kgaw-settings-api.php', "'/resources/(?P<resource_id>\\d+)/settings'", 'Resource settings route is missing.');
 expect_source('includes/providers/class-kgaw-provider-profiles.php', "const POST_TYPE = 'koopo_provider';", 'Professional post type is missing.');

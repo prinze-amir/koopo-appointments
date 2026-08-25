@@ -27,6 +27,19 @@ class Bookable_Listings_API {
   }
 
   public static function routes(): void {
+    register_rest_route('koopo/v1', '/providers/discovery', [
+      'methods' => 'GET',
+      'callback' => [__CLASS__, 'get_provider_discovery'],
+      'permission_callback' => '__return_true',
+      'args' => [
+        'page' => ['type' => 'integer', 'required' => false, 'default' => 1, 'minimum' => 1, 'maximum' => 10000, 'validate_callback'=>'rest_validate_request_arg', 'sanitize_callback' => 'absint'],
+        'per_page' => ['type' => 'integer', 'required' => false, 'default' => 12, 'minimum' => 1, 'maximum' => 24, 'validate_callback'=>'rest_validate_request_arg', 'sanitize_callback' => 'absint'],
+        'search' => ['type' => 'string', 'required' => false, 'maxLength' => 100, 'validate_callback'=>'rest_validate_request_arg', 'sanitize_callback' => 'sanitize_text_field'],
+        'category' => ['type' => 'string', 'required' => false, 'maxLength' => 100, 'validate_callback'=>'rest_validate_request_arg', 'sanitize_callback' => 'sanitize_text_field'],
+        'service_mode' => ['type' => 'string', 'required' => false, 'enum' => ['at_location', 'mobile', 'virtual'], 'validate_callback'=>'rest_validate_request_arg', 'sanitize_callback' => 'sanitize_key'],
+      ],
+    ]);
+
     register_rest_route('koopo/v1', '/bookable-listings', [
       'methods' => 'GET',
       'callback' => [__CLASS__, 'get_bookable_listings'],
@@ -37,6 +50,133 @@ class Bookable_Listings_API {
         'search' => ['type' => 'string', 'required' => false, 'maxLength' => 100, 'validate_callback'=>'rest_validate_request_arg', 'sanitize_callback' => 'sanitize_text_field'],
       ],
     ]);
+  }
+
+  /** Lightweight provider cards backed by the service index. */
+  public static function get_provider_discovery(\WP_REST_Request $req): \WP_REST_Response {
+    self::maybe_seed_index();
+
+    global $wpdb;
+    $page = max(1, absint($req->get_param('page')));
+    $per_page = min(24, max(1, absint($req->get_param('per_page')) ?: 12));
+    $offset = ($page - 1) * $per_page;
+    $search = sanitize_text_field((string) $req->get_param('search'));
+    $category = sanitize_text_field((string) $req->get_param('category'));
+    $service_mode = sanitize_key((string) $req->get_param('service_mode'));
+
+    $service_table = DB::service_index_table();
+    $resource_table = DB::resources_table();
+    $where = "si.provider_id IS NOT NULL
+      AND si.provider_id > 0
+      AND si.status != 'inactive'
+      AND si.is_addon = 0
+      AND si.wc_product_id IS NOT NULL
+      AND si.wc_product_id > 0
+      AND p.post_type = %s
+      AND p.post_status = 'publish'
+      AND r.subject_type = 'provider'
+      AND r.status = 'active'";
+    $params = [Provider_Profiles::POST_TYPE];
+
+    if ($search !== '') {
+      $like = '%' . $wpdb->esc_like($search) . '%';
+      $where .= ' AND (p.post_title LIKE %s OR p.post_excerpt LIKE %s OR si.title LIKE %s OR si.description LIKE %s)';
+      array_push($params, $like, $like, $like, $like);
+    }
+
+    if ($category !== '') {
+      $category_term = ctype_digit($category)
+        ? get_term(absint($category), Service_Categories::TAXONOMY)
+        : get_term_by('slug', sanitize_title($category), Service_Categories::TAXONOMY);
+      if (!$category_term || is_wp_error($category_term)) {
+        return self::empty_provider_discovery($page, $per_page);
+      }
+      $where .= " AND EXISTS (
+        SELECT 1 FROM {$wpdb->term_relationships} tr
+        INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id
+        WHERE tr.object_id = si.provider_id AND tt.taxonomy = %s AND tt.term_id = %d
+      )";
+      $params[] = Service_Categories::TAXONOMY;
+      $params[] = (int) $category_term->term_id;
+    }
+
+    if (in_array($service_mode, ['at_location', 'mobile', 'virtual'], true)) {
+      $where .= " AND EXISTS (
+        SELECT 1 FROM {$wpdb->postmeta} pm
+        WHERE pm.post_id = si.provider_id AND pm.meta_key = %s AND pm.meta_value LIKE %s
+      )";
+      $params[] = Provider_Profiles::META_SERVICE_MODES;
+      $params[] = '%"' . $wpdb->esc_like($service_mode) . '"%';
+    }
+
+    $from = "FROM {$service_table} si
+      INNER JOIN {$wpdb->posts} p ON p.ID = si.provider_id
+      INNER JOIN {$resource_table} r ON r.id = si.resource_id AND r.subject_id = si.provider_id";
+    $count_sql = "SELECT COUNT(DISTINCT si.provider_id) {$from} WHERE {$where}";
+    $total = (int) $wpdb->get_var($wpdb->prepare($count_sql, $params));
+
+    $items_sql = "SELECT si.provider_id,
+        MAX(si.resource_id) AS resource_id,
+        MAX(si.vendor_id) AS vendor_id,
+        COUNT(*) AS service_count,
+        MIN(si.price) AS min_price,
+        MAX(si.price) AS max_price,
+        MAX(si.currency) AS currency,
+        MAX(si.updated_at) AS service_updated_at
+      {$from}
+      WHERE {$where}
+      GROUP BY si.provider_id
+      ORDER BY service_updated_at DESC, si.provider_id DESC
+      LIMIT %d OFFSET %d";
+    $rows = $wpdb->get_results($wpdb->prepare($items_sql, array_merge($params, [$per_page, $offset])), ARRAY_A) ?: [];
+    $provider_ids = array_values(array_filter(array_map('absint', wp_list_pluck($rows, 'provider_id'))));
+    if ($provider_ids) {
+      update_meta_cache('post', $provider_ids);
+      update_object_term_cache($provider_ids, Provider_Profiles::POST_TYPE);
+    }
+
+    $items = array_map(static function(array $row): array {
+      $provider_id = (int) $row['provider_id'];
+      $categories = Provider_Profiles::categories($provider_id);
+      $location = Provider_Profiles::direct_location($provider_id, false);
+      return [
+        'provider_id' => $provider_id,
+        'resource_id' => (int) $row['resource_id'],
+        'vendor_id' => (int) $row['vendor_id'],
+        'name' => get_the_title($provider_id),
+        'headline' => (string) (get_post_meta($provider_id, Provider_Profiles::META_HEADLINE, true) ?: get_post_field('post_excerpt', $provider_id)),
+        'image_url' => Provider_Profiles::image_url($provider_id, 'large'),
+        'permalink' => get_permalink($provider_id),
+        'service_modes' => array_values((array) get_post_meta($provider_id, Provider_Profiles::META_SERVICE_MODES, true)),
+        'service_area' => class_exists(Service_Areas::class) ? Service_Areas::public_area($provider_id) : null,
+        'locations' => $location ? [$location] : [],
+        'reviews' => Provider_Reviews::summary($provider_id),
+        'category' => $categories[0] ?? null,
+        'categories' => $categories,
+        'service_count' => (int) $row['service_count'],
+        'min_price' => isset($row['min_price']) ? (float) $row['min_price'] : null,
+        'max_price' => isset($row['max_price']) ? (float) $row['max_price'] : null,
+        'currency' => (string) ($row['currency'] ?: 'USD'),
+      ];
+    }, $rows);
+
+    return new \WP_REST_Response([
+      'items' => $items,
+      'pagination' => [
+        'page' => $page,
+        'per_page' => $per_page,
+        'total' => $total,
+        'total_pages' => $per_page > 0 ? (int) ceil($total / $per_page) : 0,
+        'has_more' => ($offset + count($items)) < $total,
+      ],
+    ], 200);
+  }
+
+  private static function empty_provider_discovery(int $page, int $per_page): \WP_REST_Response {
+    return new \WP_REST_Response([
+      'items' => [],
+      'pagination' => ['page' => $page, 'per_page' => $per_page, 'total' => 0, 'total_pages' => 0, 'has_more' => false],
+    ], 200);
   }
 
   public static function queue_service_sync(int $service_id): void {
@@ -469,7 +609,8 @@ class Bookable_Listings_API {
     global $wpdb;
     $service_count = (int) $wpdb->get_var("SELECT COUNT(*) FROM " . DB::service_index_table());
     $listing_count = (int) $wpdb->get_var("SELECT COUNT(*) FROM " . DB::listing_index_table());
-    if ($service_count > 0 && $listing_count > 0) {
+    $provider_service_count = (int) $wpdb->get_var("SELECT COUNT(*) FROM " . DB::service_index_table() . ' WHERE provider_id IS NOT NULL AND provider_id > 0');
+    if ($service_count > 0 && ($listing_count > 0 || $provider_service_count > 0)) {
       update_option('koopo_appt_bookable_index_version', DB::VERSION, false);
       return;
     }

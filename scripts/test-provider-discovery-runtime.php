@@ -37,6 +37,8 @@ if ('verify' === $action) {
   foreach($public as $service)$assert((int)($service['categories'][0]['id']??0)===(int)$barber->term_id,'Public service did not inherit the profile category.');
   $request=new WP_REST_Request('GET','/koopo/v1/services/by-provider/'.$provider_id);$request->set_url_params(['id'=>$provider_id]);$response=\Koopo_Appointments\Services_List::get_services_for_provider($request);$rest=(array)$response->get_data();
   foreach($rest as $service)$assert(($service['category_ids']??[])===[(int)$barber->term_id],'Provider service REST output did not inherit the profile category.');
+  $discovery_request=new WP_REST_Request('GET','/koopo/v1/providers/discovery');$discovery_request->set_query_params(['search'=>'Alex Morgan','per_page'=>12]);$discovery_response=\Koopo_Appointments\Bookable_Listings_API::get_provider_discovery($discovery_request);$discovery=(array)$discovery_response->get_data();$discovery_ids=array_map(static fn($item)=>(int)($item['provider_id']??0),(array)($discovery['items']??[]));
+  $assert(in_array($provider_id,$discovery_ids,true),'Indexed provider discovery did not return the bookable profile.');
   $query=new WP_Query(['post_type'=>'koopo_provider','post_status'=>'publish','fields'=>'ids','tax_query'=>[['taxonomy'=>'koopo_service_category','field'=>'slug','terms'=>'barbering-grooming']]]);$assert(in_array($provider_id,array_map('intval',$query->posts),true),'Category archive query does not include the profile.');
   \Koopo_Appointments\Provider_Profiles::save_meta($provider_id,['category_id'=>(int)$wellness->term_id]);
   global $wpdb;$rows=$wpdb->get_col($wpdb->prepare('SELECT category_ids FROM '.\Koopo_Appointments\DB::service_index_table().' WHERE provider_id = %d ORDER BY service_id',$provider_id));

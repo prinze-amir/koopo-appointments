@@ -54,6 +54,7 @@ class Vendor_Bookings_API {
       'permission_callback' => [__CLASS__, 'can_access'],
       'args' => [
         'listing_id' => ['type' => 'integer', 'required' => false],
+        'resource_id' => ['type' => 'integer', 'required' => false, 'minimum' => 1, 'validate_callback'=>'rest_validate_request_arg', 'sanitize_callback' => 'absint'],
       ],
     ]);
 
@@ -307,16 +308,20 @@ class Vendor_Bookings_API {
 
     $service_ids = [];
     $listing_ids = [];
+    $provider_ids = [];
     $customer_ids = [];
     $booking_ids = [];
     foreach ($rows as $r) {
       $booking_ids[] = (int) $r['id'];
       if (!empty($r['service_id'])) $service_ids[] = (int) $r['service_id'];
       if (!empty($r['listing_id'])) $listing_ids[] = (int) $r['listing_id'];
+      if (!empty($r['provider_id'])) $provider_ids[] = (int) $r['provider_id'];
       if (!empty($r['customer_id'])) $customer_ids[] = (int) $r['customer_id'];
     }
     $service_ids = array_values(array_unique($service_ids));
     $listing_ids = array_values(array_unique($listing_ids));
+    $provider_ids = array_values(array_unique($provider_ids));
+    $subject_ids = array_values(array_unique(array_merge($listing_ids, $provider_ids)));
     $customer_ids = array_values(array_unique($customer_ids));
     $invites_by_booking = [];
     if ($booking_ids) {
@@ -329,7 +334,7 @@ class Vendor_Bookings_API {
     }
 
     if (function_exists('_prime_post_caches')) {
-      if ($listing_ids) _prime_post_caches($listing_ids, false, false);
+      if ($subject_ids) _prime_post_caches($subject_ids, false, false);
       if ($service_ids) _prime_post_caches($service_ids, false, false);
     }
     if ($service_ids) {

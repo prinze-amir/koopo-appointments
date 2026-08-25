@@ -3,7 +3,15 @@ body.koopo-appt--modal-open {
   overflow: hidden;
 }
 
-.koopo-appt__delivery{margin:22px 0;padding:0;border:0}.koopo-appt__delivery legend{margin-bottom:11px;color:#263832;font-size:14px;font-weight:800}.koopo-appt__delivery-options{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:9px}.koopo-appt__delivery-option{display:flex;min-height:74px;padding:13px;border:1px solid #d7e0dc;border-radius:12px;background:#fff;cursor:pointer}.koopo-appt__delivery-option:has(input:checked){border-color:#2f6755;background:#edf7f2;box-shadow:0 0 0 1px #2f6755}.koopo-appt__delivery-option.is-disabled{opacity:.48;cursor:not-allowed}.koopo-appt__delivery-option input{margin:3px 10px 0 0}.koopo-appt__delivery-option span{display:grid;gap:3px}.koopo-appt__delivery-option strong{color:#263832;font-size:13px}.koopo-appt__delivery-option small{color:#6e7b76;font-size:11px;line-height:1.35}.koopo-appt__mobile-address,.koopo-appt__virtual-note{margin-top:12px;padding:15px;border-left:3px solid #2f6755;background:#f4f8f6}.koopo-appt__delivery-note{margin:0 0 12px;color:#5e7069;font-size:12px}.koopo-appt__coverage-check{margin-top:12px;padding:9px 13px;border:0;border-radius:8px;background:#2f6755;color:#fff;font-weight:750;cursor:pointer}.koopo-appt__coverage-status{margin-left:9px;color:#385e51;font-size:12px}.koopo-appt__virtual-note{display:grid;gap:4px}.koopo-appt__virtual-note[hidden],.koopo-appt__mobile-address[hidden]{display:none}.koopo-appt__virtual-note span{color:#64736d;font-size:12px}
+.koopo-appt__delivery{margin:22px 0;padding:0;border:0}.koopo-appt__delivery legend{margin-bottom:11px;color:#263832;font-size:14px;font-weight:800}.koopo-appt__delivery-options{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:9px}.koopo-appt__delivery-option{display:flex;min-height:74px;padding:13px;border:1px solid #d7e0dc;border-radius:12px;background:#fff;cursor:pointer}
+
+.koopo-appt__delivery-option:has(input:checked) {
+    border-color: #ffba12;
+    background: #ffba1221;
+    box-shadow: 0 0 0 1px #ffba12;
+}
+
+.koopo-appt__delivery-option.is-disabled{opacity:.48;cursor:not-allowed}.koopo-appt__delivery-option input{margin:3px 10px 0 0}.koopo-appt__delivery-option span{display:grid;gap:3px}.koopo-appt__delivery-option strong{color:#263832;font-size:13px}.koopo-appt__delivery-option small{color:#7b786e;font-size:11px;line-height:1.35}.koopo-appt__mobile-address,.koopo-appt__virtual-note{margin-top:12px;padding:15px;border-left:3px solid #ffba12;background:#f4f8f6}.koopo-appt__delivery-note{margin:0 0 12px;color:#706c5e;font-size:12px}.koopo-appt__coverage-check{margin-top:12px;padding:9px 13px;border:0;border-radius:8px;background:#ffba12;color:#fff;font-weight:750;cursor:pointer}.koopo-appt__coverage-status{margin-left:9px;color:#e7a80b;font-size:12px}.koopo-appt__virtual-note{display:grid;gap:4px}.koopo-appt__virtual-note[hidden],.koopo-appt__mobile-address[hidden]{display:none}.koopo-appt__virtual-note span{color:#64736d;font-size:12px}
 
 .koopo-appt__waitlist {
   margin-top: 18px;
