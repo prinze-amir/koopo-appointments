@@ -27,6 +27,19 @@ class Bookable_Listings_API {
   }
 
   public static function routes(): void {
+    register_rest_route('koopo/v1', '/bookable-directory', [
+      'methods' => 'GET',
+      'callback' => [__CLASS__, 'get_bookable_directory'],
+      'permission_callback' => '__return_true',
+      'args' => [
+        'page' => ['type' => 'integer', 'required' => false, 'default' => 1, 'minimum' => 1, 'maximum' => 10000, 'validate_callback'=>'rest_validate_request_arg', 'sanitize_callback' => 'absint'],
+        'per_page' => ['type' => 'integer', 'required' => false, 'default' => 12, 'minimum' => 1, 'maximum' => 24, 'validate_callback'=>'rest_validate_request_arg', 'sanitize_callback' => 'absint'],
+        'search' => ['type' => 'string', 'required' => false, 'maxLength' => 100, 'validate_callback'=>'rest_validate_request_arg', 'sanitize_callback' => 'sanitize_text_field'],
+        'category' => ['type' => 'string', 'required' => false, 'maxLength' => 100, 'validate_callback'=>'rest_validate_request_arg', 'sanitize_callback' => 'sanitize_text_field'],
+        'service_mode' => ['type' => 'string', 'required' => false, 'enum' => ['at_location', 'mobile', 'virtual'], 'validate_callback'=>'rest_validate_request_arg', 'sanitize_callback' => 'sanitize_key'],
+      ],
+    ]);
+
     register_rest_route('koopo/v1', '/providers/discovery', [
       'methods' => 'GET',
       'callback' => [__CLASS__, 'get_provider_discovery'],
@@ -50,6 +63,38 @@ class Bookable_Listings_API {
         'search' => ['type' => 'string', 'required' => false, 'maxLength' => 100, 'validate_callback'=>'rest_validate_request_arg', 'sanitize_callback' => 'sanitize_text_field'],
       ],
     ]);
+  }
+
+  /** Provider profiles and bookable places, matching the public /bookable archive. */
+  public static function get_bookable_directory(\WP_REST_Request $req): \WP_REST_Response {
+    $provider_request = new \WP_REST_Request('GET', '/koopo/v1/providers/discovery');
+    $listing_request = new \WP_REST_Request('GET', '/koopo/v1/bookable-listings');
+    foreach (['page', 'per_page', 'search'] as $key) {
+      $value = $req->get_param($key);
+      if (null === $value) continue;
+      $provider_request->set_param($key, $value);
+      $listing_request->set_param($key, $value);
+    }
+    foreach (['category', 'service_mode'] as $key) {
+      $value = $req->get_param($key);
+      if (null !== $value) $provider_request->set_param($key, $value);
+    }
+
+    $providers = (array) self::get_provider_discovery($provider_request)->get_data();
+    $bookable_listings = (array) self::get_bookable_listings($listing_request)->get_data();
+    $provider_pagination = (array) ($providers['pagination'] ?? []);
+    $listing_pagination = (array) ($bookable_listings['pagination'] ?? []);
+
+    return new \WP_REST_Response([
+      'providers' => $providers,
+      'bookable_listings' => $bookable_listings,
+      'pagination' => [
+        'page' => max(1, absint($req->get_param('page'))),
+        'per_page' => min(24, max(1, absint($req->get_param('per_page')) ?: 12)),
+        'total' => absint($provider_pagination['total'] ?? 0) + absint($listing_pagination['total'] ?? 0),
+        'has_more' => !empty($provider_pagination['has_more']) || !empty($listing_pagination['has_more']),
+      ],
+    ], 200);
   }
 
   /** Lightweight provider cards backed by the service index. */
@@ -739,6 +784,9 @@ class Bookable_Listings_API {
   private static function format_listing_row(array $row, array $services): array {
     $listing_id = (int) $row['listing_id'];
     $image_url = self::listing_image_url($listing_id);
+    $location = self::listing_coordinates($listing_id);
+    $terms = wp_get_object_terms($listing_id, 'gd_placecategory');
+    if (is_wp_error($terms)) $terms = [];
     return [
       'listing_id' => $listing_id,
       'place_id' => $listing_id,
@@ -749,6 +797,9 @@ class Bookable_Listings_API {
       'image_url' => $image_url,
       'image_urls' => $image_url ? [$image_url] : [],
       'address' => self::listing_address($listing_id),
+      'latitude' => isset($location['latitude']) ? (float) $location['latitude'] : 0.0,
+      'longitude' => isset($location['longitude']) ? (float) $location['longitude'] : 0.0,
+      'categories' => array_values(array_map(static fn($term): string => (string) $term->name, $terms)),
       'rating' => self::listing_rating($listing_id),
       'rating_count' => self::listing_rating_count($listing_id),
       'service_count' => (int) $row['service_count'],
