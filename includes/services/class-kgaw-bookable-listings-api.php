@@ -84,10 +84,12 @@ class Bookable_Listings_API {
     $bookable_listings = (array) self::get_bookable_listings($listing_request)->get_data();
     $provider_pagination = (array) ($providers['pagination'] ?? []);
     $listing_pagination = (array) ($bookable_listings['pagination'] ?? []);
+    $categories = array_values(array_filter(Service_Categories::get_all_categories(), static fn($category): bool => !empty($category['featured']) || !empty($category['count'])));
 
-    return new \WP_REST_Response([
+    $response = new \WP_REST_Response([
       'providers' => $providers,
       'bookable_listings' => $bookable_listings,
+      'categories' => $categories,
       'pagination' => [
         'page' => max(1, absint($req->get_param('page'))),
         'per_page' => min(24, max(1, absint($req->get_param('per_page')) ?: 12)),
@@ -95,6 +97,8 @@ class Bookable_Listings_API {
         'has_more' => !empty($provider_pagination['has_more']) || !empty($listing_pagination['has_more']),
       ],
     ], 200);
+    $response->header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+    return $response;
   }
 
   /** Lightweight provider cards backed by the service index. */
