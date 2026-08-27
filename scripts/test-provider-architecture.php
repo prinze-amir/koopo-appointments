@@ -52,6 +52,8 @@ expect_source('includes/calendar/providers/class-kgaw-calendar-provider.php', 'l
 $calendar_provider = source('includes/calendar/providers/class-kgaw-calendar-provider.php');
 if (!preg_match('/public function list_busy_events\(.*?\n  }\n\n  private function normalize_google_busy_event/s', $calendar_provider, $busy_method)) throw new RuntimeException('External busy ingestion method could not be inspected.');
 if (preg_match('/summary|subject|attendees|description/i', $busy_method[0])) throw new RuntimeException('External busy ingestion requests private event content.');
+if (strpos($busy_method[0], "'fields'=>'items(id,status,transparency,start/date,start/dateTime,start/timeZone,end/date,end/dateTime,end/timeZone,extendedProperties/private),nextPageToken'") === false) throw new RuntimeException('Google busy ingestion must request a valid privacy-minimal partial response.');
+if (substr_count($busy_method[0], "gmdate('Y-m-d\\\\TH:i:s\\\\Z'") < 2) throw new RuntimeException('Google busy ingestion must send unambiguous RFC3339 UTC bounds.');
 expect_source('includes/core/class-kgaw-bookings.php', 'Calendar_Busy::has_conflict', 'Locked booking conflict checks do not include external busy periods.');
 expect_source('includes/waitlist/class-kgaw-waitlist.php', "'first_to_confirm'", 'Waitlist first-to-confirm mode is missing.');
 $waitlist = source('includes/waitlist/class-kgaw-waitlist.php');

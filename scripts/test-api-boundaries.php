@@ -48,6 +48,8 @@ expect_boundary(strpos($vendor_core, 'utils.apiWithMeta = apiWithMeta;') !== fal
 expect_boundary(strpos($vendor_clients, 'data-client-search-form') !== false && strpos($vendor_clients, 'data-client-page') !== false, 'Client pagination/search controls are missing.');
 expect_boundary(strpos($vendor_appointments, 'CALENDAR_PAGE_SIZE = 100') !== false && strpos($vendor_appointments, 'loadCalendarBookings(params)') !== false, 'Vendor calendar does not use bounded API pagination.');
 expect_boundary(strpos($vendor_appointments, "per_page: '500'") === false, 'Vendor calendar still exceeds the REST page-size contract.');
+expect_boundary(strpos($vendor_appointments, 'per_page=200') === false, 'Vendor rescheduling still exceeds the REST page-size contract.');
+expect_boundary(strpos($vendor_appointments, "resource_id: String(apptState.resourceId || 0)") !== false, 'Vendor rescheduling does not preserve the selected booking-profile scope.');
 expect_boundary(strpos($vendor_appointments, 'requestToken !== calendarState.requestToken') !== false, 'Vendor calendar does not ignore stale range responses.');
 
 $vendor_bookings = boundary_source('includes/vendor/class-kgaw-vendor-bookings-api.php');

@@ -1745,8 +1745,13 @@ let rescheduleState = {
   async function showRescheduleModal(bookingId) {
     try {
       // Get booking details
-      const bookings = await api(`/vendor/bookings?page=1&per_page=200`, { method: 'GET' });
-      const booking = bookings.items.find(b => b.id === bookingId);
+      const bookingQuery = new URLSearchParams({
+        resource_id: String(apptState.resourceId || 0),
+        page: '1',
+        per_page: '100',
+      });
+      const bookings = await api(`/vendor/bookings?${bookingQuery.toString()}`, { method: 'GET' });
+      const booking = (bookings.items || []).find(b => Number(b.id) === Number(bookingId));
       
       if (!booking) {
         alert('Booking not found');

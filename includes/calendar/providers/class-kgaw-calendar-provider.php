@@ -193,10 +193,10 @@ final class Calendar_Provider {
       $query = [
         'singleEvents'=>'true',
         'showDeleted'=>'false',
-        'timeMin'=>gmdate('c', strtotime($start_utc . ' UTC')),
-        'timeMax'=>gmdate('c', strtotime($end_utc . ' UTC')),
+        'timeMin'=>gmdate('Y-m-d\\TH:i:s\\Z', strtotime($start_utc . ' UTC')),
+        'timeMax'=>gmdate('Y-m-d\\TH:i:s\\Z', strtotime($end_utc . ' UTC')),
         'maxResults'=>2500,
-        'fields'=>'items(id,status,transparency,start,end,extendedProperties),nextPageToken',
+        'fields'=>'items(id,status,transparency,start/date,start/dateTime,start/timeZone,end/date,end/dateTime,end/timeZone,extendedProperties/private),nextPageToken',
       ];
       $base = 'https://www.googleapis.com/calendar/v3/calendars/' . rawurlencode($calendar_id) . '/events';
       do {
