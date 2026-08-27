@@ -121,7 +121,7 @@ The codebase includes the originally planned commits 17-22 and additional work l
 
 ### Calendar Synchronization and Availability
 
-Koopo remains the source of truth for Koopo appointments. Confirmed Koopo bookings synchronize outbound, while selected external calendars synchronize inbound as read-only busy periods. External titles and descriptions are never stored or displayed; the booking surface shows only **Unavailable**. External events cannot edit, reschedule, or cancel a Koopo booking. Virtual join links remain hidden from customer calendar links until the booking is confirmed.
+Koopo remains the source of truth for Koopo appointments. Confirmed Koopo bookings synchronize outbound to an existing writable calendar selected by the provider, including a shared team calendar the provider can edit without owning. Selected external calendars synchronize inbound as read-only busy periods. External titles and descriptions are never stored or displayed; the booking surface shows only **Unavailable**. Koopo adds, updates, and removes only the appointment events it mirrors. Pre-existing external events cannot be changed by Koopo and cannot edit, reschedule, or cancel a Koopo booking. Virtual join links remain hidden from customer calendar links until the booking is confirmed.
 
 The vendor settings screen supports each business or professional booking calendar:
 

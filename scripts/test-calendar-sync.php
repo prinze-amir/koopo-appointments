@@ -94,5 +94,10 @@ namespace Koopo_Appointments {
   expect(strpos($calendar_api, 'Calendar_Sync::remove_binding_events($binding, false)') !== false, 'Disconnect still uses best-effort external-event cleanup.');
   expect(strpos($calendar_api, 'calendar_disconnect_cleanup_failed') !== false, 'Disconnect does not retain credentials when remote cleanup fails.');
 
+  $calendar_ui = (string) file_get_contents(dirname(__DIR__) . '/assets/calendar-sync.js');
+  expect(strpos($calendar_ui, 'including a shared team calendar you can edit') !== false, 'Calendar disclosure does not explain editable shared-calendar support.');
+  expect(strpos($calendar_ui, 'only appointment events it mirrors') !== false, 'Calendar disclosure does not limit write access to Koopo-mirrored events.');
+  expect(strpos($calendar_ui, 'Existing Google or Outlook events are read only as privacy-safe busy time') !== false, 'Calendar disclosure does not distinguish inbound read-only events from outbound mirrored events.');
+
   echo "calendar-sync tests passed\n";
 }

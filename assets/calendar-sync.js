@@ -42,13 +42,13 @@
         <div class="kcal__heading">
           <div>
             <h4 id="kcal-title">Calendar Sync</h4>
-            <p>Mirror Koopo appointments out and import privacy-safe busy time back in.</p>
+            <p>Mirror confirmed Koopo appointments to a writable calendar you choose and import privacy-safe busy time back in.</p>
           </div>
           <button type="button" class="kcal__sync-all">Sync now</button>
         </div>
         <div class="kcal__authority">
           <strong>Koopo stays in control.</strong>
-          External events are read-only. Selected calendars can block booking time, but Koopo never imports event titles or lets an external calendar change an appointment.
+          Existing Google or Outlook events are read only as privacy-safe busy time. Koopo can add, update, and remove only appointment events it mirrors to the writable calendar you select, including a shared team calendar you can edit. Changes made in an external calendar never update a Koopo appointment.
         </div>
         <div class="kcal__notice" role="status" aria-live="polite"></div>
         <div class="kcal__providers"><span class="kcal__loading">Loading calendar connections…</span></div>
@@ -95,7 +95,7 @@
       }
       if (!connection) {
         return `<article class="kcal__card">
-          <div><h5>${providerLabel(provider)}</h5><p>Automatically add, update, and remove Koopo appointments.</p></div>
+          <div><h5>${providerLabel(provider)}</h5><p>Choose an existing writable calendar, including a shared team calendar you can edit, to add, update, and remove mirrored Koopo appointments.</p></div>
           <button type="button" class="kcal__connect" data-provider="${provider}">Connect</button>
         </article>`;
       }
