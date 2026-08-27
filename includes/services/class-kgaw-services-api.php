@@ -83,10 +83,11 @@ class Services_API {
   public static function can_manage(): bool {
     if (!is_user_logged_in()) return false;
     $user_id = get_current_user_id();
+    if (current_user_can('manage_options')) return true;
     if (function_exists('dokan_is_user_seller') && dokan_is_user_seller($user_id)) {
       return Access::vendor_has_feature($user_id, 'appointments');
     }
-    return current_user_can('manage_options');
+    return false;
   }
 
   private static function assert_owner($post_id) {

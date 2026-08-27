@@ -31,6 +31,7 @@ class Admin_Settings {
   const OPTION_GEOCODEFARM_KEY = 'koopo_appt_geocodefarm_key';
   const OPTION_GEOAPIFY_KEY = 'koopo_appt_geoapify_key';
   const OPTION_GOOGLE_GEOCODING_KEY = 'koopo_appt_google_geocoding_key';
+  const OPTION_ONBOARDING_PACK_IDS = 'koopo_appt_onboarding_pack_ids';
 
   public static function init() {
     add_action('admin_menu', [__CLASS__, 'menu']);
@@ -71,6 +72,11 @@ class Admin_Settings {
       'type' => 'array',
       'sanitize_callback' => [__CLASS__, 'sanitize_refund_policy_rules'],
       'default' => self::standard_refund_policy(),
+    ]);
+    register_setting('koopo_appt_settings', self::OPTION_ONBOARDING_PACK_IDS, [
+      'type' => 'array',
+      'sanitize_callback' => [__CLASS__, 'sanitize_onboarding_pack_ids'],
+      'default' => [],
     ]);
     register_setting('koopo_appt_settings', self::OPTION_EMAIL_LOGO_ATTACHMENT_ID, [
       'type' => 'integer',
@@ -211,6 +217,20 @@ class Admin_Settings {
       [__CLASS__, 'field_email_logo'],
       'koopo-appointments-settings',
       'koopo_appt_general'
+    );
+
+    add_settings_section(
+      'koopo_appt_provider_onboarding',
+      __('Provider Onboarding', 'koopo-appointments'),
+      [__CLASS__, 'provider_onboarding_description'],
+      'koopo-appointments-settings'
+    );
+    add_settings_field(
+      self::OPTION_ONBOARDING_PACK_IDS,
+      __('Subscription options', 'koopo-appointments'),
+      [__CLASS__, 'field_onboarding_pack_ids'],
+      'koopo-appointments-settings',
+      'koopo_appt_provider_onboarding'
     );
 
     add_settings_section(
@@ -638,6 +658,44 @@ class Admin_Settings {
     if ($v < 1) $v = 10;
     if ($v > 120) $v = 120; // safety cap
     return $v;
+  }
+
+  public static function sanitize_onboarding_pack_ids($value): array {
+    $requested = is_array($value) ? array_values(array_unique(array_filter(array_map('absint', $value)))) : [];
+    if (!$requested || !class_exists('WooCommerce')) return [];
+    $valid = [];
+    foreach ($requested as $pack_id) {
+      $product = function_exists('wc_get_product') ? wc_get_product($pack_id) : null;
+      if (!$product || 'publish' !== get_post_status($pack_id) || 'product_pack' !== $product->get_type()) continue;
+      if ('yes' === get_post_meta($pack_id, '_exclusive_for_admin_only', true)) continue;
+      $valid[] = $pack_id;
+    }
+    return $valid;
+  }
+
+  public static function provider_onboarding_description(): void {
+    echo '<p>' . esc_html__('Choose the Dokan subscription packs shown during provider registration. Koopo prepares the selected pack in the cart; WooCommerce and the configured payment gateway remain responsible for checkout and payment verification.', 'koopo-appointments') . '</p>';
+  }
+
+  public static function field_onboarding_pack_ids(): void {
+    $selected = array_map('absint', (array) get_option(self::OPTION_ONBOARDING_PACK_IDS, []));
+    $packs = class_exists(Provider_Onboarding::class) ? Provider_Onboarding::subscription_packs(true) : [];
+    if (!$packs) {
+      echo '<p class="description">' . esc_html__('No published, customer-facing Dokan subscription packs were found. Create a Vendor Subscription product first.', 'koopo-appointments') . '</p>';
+      return;
+    }
+    echo '<fieldset>';
+    foreach ($packs as $pack) {
+      printf(
+        '<label style="display:block;margin:0 0 12px"><input type="checkbox" name="%1$s[]" value="%2$d" %3$s> <strong>%4$s</strong> <span style="color:#646970">%5$s</span></label>',
+        esc_attr(self::OPTION_ONBOARDING_PACK_IDS),
+        (int) $pack['id'],
+        checked(in_array((int) $pack['id'], $selected, true), true, false),
+        esc_html($pack['name']),
+        wp_kses_post($pack['price_html'])
+      );
+    }
+    echo '<p class="description">' . esc_html__('This list refreshes automatically from current published, customer-facing Dokan subscription products. New packs appear here unchecked. Only checked packs are accepted by the onboarding API; leaving all packs unchecked hides the subscription step and prevents onboarding cart preparation.', 'koopo-appointments') . '</p></fieldset>';
   }
 
   public static function sanitize_refund_policy_rules($value) {

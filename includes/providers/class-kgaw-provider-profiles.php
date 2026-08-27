@@ -680,6 +680,30 @@ final class Provider_Profiles {
       'loggedIn' => is_user_logged_in(),
       'tileUrl' => (string) apply_filters('koopo_appt_provider_map_tile_url', 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'),
     ]);
+    if (is_singular(self::POST_TYPE)) {
+      $provider_id = (int) get_queried_object_id();
+      $owner_id = (int) get_post_field('post_author', $provider_id);
+      if (is_user_logged_in() && (get_current_user_id() === $owner_id || Access::is_admin_bypass())) {
+        wp_enqueue_style('koopo-provider-owner', KOOPO_APPT_URL . 'assets/provider-owner.css', [], KOOPO_APPT_VERSION);
+        wp_enqueue_script('koopo-appt-provider-owner-core', KOOPO_APPT_URL . 'assets/vendor-core.js', ['jquery'], KOOPO_APPT_VERSION, true);
+        wp_localize_script('koopo-appt-provider-owner-core', 'KOOPO_APPT_VENDOR', [
+          'rest' => esc_url_raw(rest_url('koopo/v1')),
+          'mediaGatewayRest' => esc_url_raw(rest_url('koopo-media-gateway/v1')),
+          'serviceProfileImageMaxBytes' => (int) apply_filters('koopo_appt_service_profile_image_max_bytes', 6 * MB_IN_BYTES),
+          'nonce' => wp_create_nonce('wp_rest'),
+          'userId' => get_current_user_id(),
+          'currency_symbol' => function_exists('get_woocommerce_currency_symbol') ? get_woocommerce_currency_symbol() : '$',
+        ]);
+        wp_enqueue_script('koopo-provider-owner', KOOPO_APPT_URL . 'assets/provider-owner.js', ['koopo-appt-provider-owner-core'], KOOPO_APPT_VERSION, true);
+        wp_localize_script('koopo-provider-owner', 'KOOPO_PROVIDER_OWNER', [
+          'providerId' => $provider_id,
+          'profile' => self::format($provider_id, true),
+          'categories' => Service_Categories::get_all_categories(),
+          'canManageServices' => Access::is_admin_bypass() || Access::vendor_has_feature(get_current_user_id(), 'appointments'),
+          'dashboardUrl' => Provider_Onboarding::edit_url(),
+        ]);
+      }
+    }
   }
 
   public static function append_public_profile(string $content): string {
