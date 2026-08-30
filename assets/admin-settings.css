@@ -1,0 +1,94 @@
+:root {
+  --koopo-admin-ink: #171713;
+  --koopo-admin-muted: #6c6b64;
+  --koopo-admin-gold: #f4b73f;
+  --koopo-admin-gold-soft: #fff4d7;
+  --koopo-admin-green: #216b50;
+  --koopo-admin-line: #deddd6;
+  --koopo-admin-paper: #fbfaf6;
+}
+
+body.settings_page_koopo-appointments-settings { background: #efeee9; }
+.koopo-admin-settings { max-width: 1440px; margin: 26px 28px 80px 8px; color: var(--koopo-admin-ink); }
+.koopo-admin-settings__masthead { position: relative; overflow: hidden; display: flex; align-items: flex-end; justify-content: space-between; gap: 32px; min-height: 210px; padding: 38px 42px; border-radius: 24px; background: var(--koopo-admin-ink); color: #fff; box-shadow: 0 24px 60px rgba(26, 25, 20, .14); }
+.koopo-admin-settings__masthead::after { content: ""; position: absolute; right: -90px; bottom: -180px; width: 410px; height: 410px; border: 1px solid rgba(244, 183, 63, .34); border-radius: 50%; box-shadow: 0 0 0 54px rgba(244, 183, 63, .06), 0 0 0 108px rgba(244, 183, 63, .035); pointer-events: none; }
+.koopo-admin-settings__identity { position: relative; z-index: 1; display: flex; align-items: flex-start; gap: 22px; max-width: 790px; }
+.koopo-admin-settings__mark { display: grid; place-items: center; flex: 0 0 58px; width: 58px; height: 58px; border-radius: 17px; background: var(--koopo-admin-gold); color: #171713; font: 800 27px/1 system-ui, sans-serif; transform: rotate(-4deg); }
+.koopo-admin-settings__identity span:not(.koopo-admin-settings__mark) { color: var(--koopo-admin-gold); font-size: 11px; font-weight: 800; letter-spacing: .17em; text-transform: uppercase; }
+.koopo-admin-settings__identity h1 { margin: 6px 0 9px; color: #fff; font: 750 clamp(30px, 3vw, 46px)/1.04 system-ui, sans-serif; letter-spacing: -.035em; }
+.koopo-admin-settings__identity p { max-width: 660px; margin: 0; font-size: 15px; line-height: 1.55; }
+.koopo-admin-settings__health { position: relative; z-index: 1; display: grid; gap: 8px; min-width: 170px; }
+.koopo-admin-settings__health span { display: flex; align-items: center; gap: 9px; padding: 9px 13px; border: 1px solid rgba(255,255,255,.12); border-radius: 999px; background: rgba(255,255,255,.055); color: rgba(255,255,255,.76); font-size: 12px; font-weight: 700; }
+.koopo-admin-settings__health i { width: 8px; height: 8px; border-radius: 50%; background: #817f76; box-shadow: 0 0 0 4px rgba(255,255,255,.06); }
+.koopo-admin-settings__health .is-live i { background: #59d59d; }
+.koopo-admin-settings > .notice { margin: 18px 0 0; border-radius: 10px; }
+.koopo-admin-settings__layout { display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: 38px; align-items: start; margin-top: 34px; }
+.koopo-admin-settings__nav { position: sticky; top: 46px; display: grid; gap: 3px; padding: 6px 0; }
+.koopo-admin-settings__nav strong { margin: 0 0 11px 14px; color: #8c8a81; font-size: 10px; letter-spacing: .16em; text-transform: uppercase; }
+.koopo-admin-settings__nav a { padding: 10px 14px; border-left: 2px solid transparent; color: #595850; text-decoration: none; font-weight: 600; transition: color .18s ease, background .18s ease, border-color .18s ease, transform .18s ease; }
+.koopo-admin-settings__nav a:hover, .koopo-admin-settings__nav a.is-active { border-left-color: var(--koopo-admin-gold); background: rgba(255,255,255,.64); color: #171713; transform: translateX(2px); }
+.koopo-admin-settings__content { min-width: 0; }
+.koopo-settings-section { scroll-margin-top: 42px; margin: 0 0 22px; padding: 30px 34px 34px; border: 1px solid var(--koopo-admin-line); border-radius: 18px; background: var(--koopo-admin-paper); box-shadow: 0 8px 25px rgba(35, 33, 24, .045); animation: koopo-section-in .42s both; animation-delay: calc(var(--koopo-section-index) * 35ms); overflow:scroll}
+.koopo-settings-section > header { display: flex; align-items: baseline; gap: 13px; padding-bottom: 17px; border-bottom: 1px solid var(--koopo-admin-line); }
+.koopo-settings-section > header span { color: #a17a24; font: 800 11px/1 system-ui, sans-serif; letter-spacing: .12em; }
+.koopo-settings-section h2 { margin: 0; color: var(--koopo-admin-ink); font-size: 22px; letter-spacing: -.025em; }
+.koopo-settings-section__description { max-width: 900px; color: var(--koopo-admin-muted); line-height: 1.55; }
+.koopo-settings-section__description:empty { display: none; }
+.koopo-settings-section__description p { margin: 16px 0 0; }
+.koopo-settings-section .form-table { margin: 4px 0 0; }
+.koopo-settings-section .form-table th { width: 205px; padding: 25px 28px 20px 0; color: #3f3e38; font-size: 13px; }
+.koopo-settings-section .form-table td { padding: 20px 0; }
+.koopo-settings-section input[type="text"], .koopo-settings-section input[type="password"], .koopo-settings-section input[type="number"], .koopo-settings-section input[type="url"], .koopo-settings-section select, .koopo-settings-section textarea { min-height: 40px; border-color: #c9c7bd; border-radius: 8px; background: #fff; box-shadow: none; }
+.koopo-settings-section input:focus, .koopo-settings-section select:focus, .koopo-settings-section textarea:focus { border-color: #b37d13; box-shadow: 0 0 0 2px rgba(244,183,63,.22); }
+.koopo-feature-gates { display: grid; grid-template-columns: repeat(2, minmax(260px, 1fr)); gap: 13px; max-width: 920px; }
+.koopo-feature-toggle { display: grid; grid-template-columns: 46px 1fr auto; gap: 14px; align-items: center; min-height: 104px; padding: 17px; border: 1px solid #d6d4ca; border-radius: 14px; background: #fff; cursor: pointer; transition: border-color .2s ease, box-shadow .2s ease, transform .2s ease; }
+.koopo-feature-toggle:hover { transform: translateY(-2px); border-color: #b9a56e; box-shadow: 0 12px 22px rgba(41,36,22,.08); }
+.koopo-feature-toggle.is-enabled { border-color: rgba(33,107,80,.42); background: #f7fcf9; }
+.koopo-feature-toggle__icon { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 13px; background: var(--koopo-admin-gold-soft); color: #7b5815; font-size: 20px; font-weight: 800; }
+.koopo-feature-toggle.is-enabled .koopo-feature-toggle__icon { background: #dff4e9; color: var(--koopo-admin-green); }
+.koopo-feature-toggle__copy { display: grid; gap: 5px; }
+.koopo-feature-toggle__copy strong { font-size: 15px; }
+.koopo-feature-toggle__copy small { max-width: 470px; color: var(--koopo-admin-muted); line-height: 1.45; }
+.koopo-feature-toggle__control { display: grid; justify-items: end; gap: 7px; }
+.koopo-feature-toggle__control input { position: absolute; opacity: 0; pointer-events: none; }
+.koopo-feature-toggle__track { width: 46px; height: 25px; padding: 3px; border-radius: 999px; background: #aaa89f; transition: background .2s ease; box-sizing: border-box; }
+.koopo-feature-toggle__track span { display: block; width: 19px; height: 19px; border-radius: 50%; background: #fff; box-shadow: 0 2px 5px rgba(0,0,0,.18); transition: transform .2s ease; }
+.koopo-feature-toggle__control input:focus-visible + .koopo-feature-toggle__track { outline: 3px solid rgba(34,113,177,.28); outline-offset: 2px; }
+.koopo-feature-toggle__control input:checked + .koopo-feature-toggle__track { background: var(--koopo-admin-green); }
+.koopo-feature-toggle__control input:checked + .koopo-feature-toggle__track span { transform: translateX(21px); }
+.koopo-feature-toggle__control b { color: #817f76; font-size: 10px; letter-spacing: .1em; text-transform: uppercase; }
+.koopo-feature-toggle.is-enabled .koopo-feature-toggle__control b { color: var(--koopo-admin-green); }
+.koopo-feature-gates__note { max-width: 880px; margin-top: 14px !important; }
+.koopo-admin-settings__save { position: sticky; z-index: 10; bottom: 18px; display: flex; justify-content: flex-end; align-items: center; gap: 18px; width: fit-content; margin: 24px 0 0 auto; padding: 10px 11px 10px 17px; border: 1px solid rgba(23,23,19,.14); border-radius: 999px; background: rgba(23,23,19,.94); color: rgba(255,255,255,.67); box-shadow: 0 16px 35px rgba(20,19,15,.2); backdrop-filter: blur(12px); }
+.koopo-admin-settings__save.is-dirty [data-koopo-save-state] { color: #ffd574; }
+.koopo-admin-settings__save .button-primary { min-height: 39px; padding: 0 20px; border: 0; border-radius: 999px; background: var(--koopo-admin-gold); color: #1c1b16; font-weight: 750; box-shadow: none; }
+.koopo-admin-settings__save .button-primary:hover, .koopo-admin-settings__save .button-primary:focus { background: #ffc955; color: #111; }
+
+@keyframes koopo-section-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+@media (max-width: 960px) {
+  .koopo-admin-settings { margin-right: 16px; }
+  .koopo-admin-settings__masthead { align-items: flex-start; flex-direction: column; min-height: 0; padding: 30px; }
+  .koopo-admin-settings__health { grid-template-columns: repeat(2, auto); }
+  .koopo-admin-settings__layout { grid-template-columns: 1fr; gap: 18px; }
+  .koopo-admin-settings__nav { position: static; display: flex; overflow-x: auto; padding-bottom: 8px; }
+  .koopo-admin-settings__nav strong { display: none; }
+  .koopo-admin-settings__nav a { flex: 0 0 auto; border-left: 0; border-bottom: 2px solid transparent; }
+  .koopo-admin-settings__nav a:hover, .koopo-admin-settings__nav a.is-active { border-left: 0; border-bottom-color: var(--koopo-admin-gold); transform: none; }
+}
+@media (max-width: 680px) {
+  .koopo-admin-settings { margin: 14px 10px 70px 0; }
+  .koopo-admin-settings__masthead { padding: 24px 20px; border-radius: 18px; }
+  .koopo-admin-settings__identity { gap: 14px; }
+  .koopo-admin-settings__mark { flex-basis: 45px; width: 45px; height: 45px; border-radius: 13px; }
+  .koopo-admin-settings__health { grid-template-columns: 1fr; width: 100%; }
+  .koopo-settings-section { padding: 23px 20px; }
+  .koopo-settings-section .form-table th, .koopo-settings-section .form-table td { display: block; width: auto; padding: 15px 0 4px; }
+  .koopo-feature-gates { grid-template-columns: 1fr; }
+  .koopo-feature-toggle { grid-template-columns: 42px 1fr; }
+  .koopo-feature-toggle__control { grid-column: 1 / -1; grid-template-columns: auto 1fr; justify-items: start; align-items: center; }
+  .koopo-admin-settings__save { left: 0; right: 0; width: auto; justify-content: space-between; border-radius: 14px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .koopo-settings-section { animation: none; }
+  .koopo-feature-toggle, .koopo-admin-settings__nav a, .koopo-feature-toggle__track, .koopo-feature-toggle__track span { transition: none; }
+}

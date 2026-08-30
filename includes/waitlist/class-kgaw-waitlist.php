@@ -18,20 +18,20 @@ final class Waitlist {
   public static function routes(): void {
     $id_arg=['type'=>'integer','minimum'=>1,'validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'absint'];
     register_rest_route('koopo/v1', '/waitlist', [
-      ['methods'=>'GET','callback'=>[__CLASS__,'customer_entries'],'permission_callback'=>static fn():bool=>is_user_logged_in()],
-      ['methods'=>'POST','callback'=>[__CLASS__,'join'],'permission_callback'=>static fn():bool=>is_user_logged_in(),'args'=>self::join_args()],
+      ['methods'=>'GET','callback'=>[__CLASS__,'customer_entries'],'permission_callback'=>[__CLASS__,'permission']],
+      ['methods'=>'POST','callback'=>[__CLASS__,'join'],'permission_callback'=>[__CLASS__,'permission'],'args'=>self::join_args()],
     ]);
     register_rest_route('koopo/v1', '/waitlist/(?P<id>\d+)', [
-      'methods'=>'DELETE','callback'=>[__CLASS__,'leave'],'permission_callback'=>static fn():bool=>is_user_logged_in(),'args'=>['id'=>$id_arg],
+      'methods'=>'DELETE','callback'=>[__CLASS__,'leave'],'permission_callback'=>[__CLASS__,'permission'],'args'=>['id'=>$id_arg],
     ]);
     register_rest_route('koopo/v1', '/waitlist/offers/(?P<token>[A-Za-z0-9_-]{32,128})/accept', [
-      'methods'=>'POST','callback'=>[__CLASS__,'accept_offer'],'permission_callback'=>static fn():bool=>is_user_logged_in(),'args'=>['token'=>['type'=>'string','minLength'=>32,'maxLength'=>128,'pattern'=>'^[A-Za-z0-9_-]+$','validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'sanitize_text_field']],
+      'methods'=>'POST','callback'=>[__CLASS__,'accept_offer'],'permission_callback'=>[__CLASS__,'permission'],'args'=>['token'=>['type'=>'string','minLength'=>32,'maxLength'=>128,'pattern'=>'^[A-Za-z0-9_-]+$','validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'sanitize_text_field']],
     ]);
     register_rest_route('koopo/v1', '/vendor/waitlist', [
-      'methods'=>'GET','callback'=>[__CLASS__,'vendor_entries'],'permission_callback'=>static fn():bool=>is_user_logged_in(),'args'=>['resource_id'=>array_merge($id_arg,['required'=>true])],
+      'methods'=>'GET','callback'=>[__CLASS__,'vendor_entries'],'permission_callback'=>[__CLASS__,'permission'],'args'=>['resource_id'=>array_merge($id_arg,['required'=>true])],
     ]);
     register_rest_route('koopo/v1', '/vendor/waitlist/(?P<id>\d+)/offer', [
-      'methods'=>'POST','callback'=>[__CLASS__,'manual_offer'],'permission_callback'=>static fn():bool=>is_user_logged_in(),'args'=>[
+      'methods'=>'POST','callback'=>[__CLASS__,'manual_offer'],'permission_callback'=>[__CLASS__,'permission'],'args'=>[
         'id'=>$id_arg,
         'opening_booking_id'=>$id_arg,
         'start_datetime'=>['type'=>'string','required'=>true,'pattern'=>'^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$','validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'sanitize_text_field'],
@@ -40,7 +40,7 @@ final class Waitlist {
       ],
     ]);
     register_rest_route('koopo/v1', '/vendor/waitlist/(?P<id>\d+)', [
-      'methods'=>'PATCH,PUT,POST','callback'=>[__CLASS__,'update_entry'],'permission_callback'=>static fn():bool=>is_user_logged_in(),'args'=>[
+      'methods'=>'PATCH,PUT,POST','callback'=>[__CLASS__,'update_entry'],'permission_callback'=>[__CLASS__,'permission'],'args'=>[
         'id'=>$id_arg,
         'priority'=>['type'=>'integer','minimum'=>1,'maximum'=>1000,'validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'absint'],
         'provider_note'=>['type'=>'string','maxLength'=>5000,'validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'sanitize_textarea_field'],
@@ -48,14 +48,19 @@ final class Waitlist {
       ],
     ]);
     register_rest_route('koopo/v1', '/vendor/waitlist/settings/(?P<resource_id>\d+)', [
-      ['methods'=>'GET','callback'=>[__CLASS__,'get_settings'],'permission_callback'=>static fn():bool=>is_user_logged_in(),'args'=>['resource_id'=>$id_arg]],
-      ['methods'=>'PUT,POST','callback'=>[__CLASS__,'save_settings'],'permission_callback'=>static fn():bool=>is_user_logged_in(),'args'=>[
+      ['methods'=>'GET','callback'=>[__CLASS__,'get_settings'],'permission_callback'=>[__CLASS__,'permission'],'args'=>['resource_id'=>$id_arg]],
+      ['methods'=>'PUT,POST','callback'=>[__CLASS__,'save_settings'],'permission_callback'=>[__CLASS__,'permission'],'args'=>[
         'resource_id'=>$id_arg,
         'mode'=>['type'=>'string','enum'=>['sequential','first_to_confirm','manual'],'validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'sanitize_key'],
         'offer_minutes'=>['type'=>'integer','minimum'=>5,'maximum'=>120,'validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'absint'],
         'batch_size'=>['type'=>'integer','minimum'=>1,'maximum'=>20,'validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'absint'],
       ]],
     ]);
+  }
+
+  public static function permission() {
+    if (!is_user_logged_in()) return new \WP_Error('koopo_appt_auth_required', __('Authentication is required.', 'koopo-appointments'), ['status'=>401]);
+    return Features::waitlist_enabled() ? true : Features::unavailable_error('waitlist');
   }
 
   private static function join_args(): array {
@@ -198,6 +203,7 @@ final class Waitlist {
   }
 
   public static function handle_opening(int $booking_id,string $status,$booking):void{
+    if(!Features::waitlist_enabled())return;
     if($status!=='cancelled'||!$booking||strtotime((string)$booking->start_datetime)<=time())return;
     $resource_id=Resources::booking_resource_id($booking);if(!$resource_id)return;
     $settings=self::settings($resource_id);if($settings['mode']==='manual')return;
@@ -225,6 +231,7 @@ final class Waitlist {
   }
 
   public static function manual_offer(\WP_REST_Request $request){
+    if(!Features::waitlist_enabled())return Features::unavailable_error('waitlist');
     global $wpdb;$entry=$wpdb->get_row($wpdb->prepare('SELECT * FROM '.DB::waitlist_table().' WHERE id=%d',absint($request['id'])));if(!$entry||!Resources::can_manage((int)$entry->resource_id))return new \WP_Error('forbidden','You cannot offer this opening.',['status'=>403]);
     $payload=(array)$request->get_json_params();$start=sanitize_text_field((string)($payload['start_datetime']??''));$end=sanitize_text_field((string)($payload['end_datetime']??''));if(!$start||!$end||strtotime($end)<=strtotime($start))return new \WP_Error('invalid_time','Choose a valid opening.',['status'=>422]);
     $opening=(object)['id'=>absint($payload['opening_booking_id']??0),'resource_id'=>(int)$entry->resource_id,'service_id'=>(int)$entry->service_id,'start_datetime'=>$start,'end_datetime'=>$end,'timezone'=>sanitize_text_field((string)($payload['timezone']??'UTC'))];
@@ -232,6 +239,7 @@ final class Waitlist {
   }
 
   public static function accept_offer(\WP_REST_Request $request){
+    if(!Features::waitlist_enabled())return Features::unavailable_error('waitlist');
     global $wpdb;$token=(string)$request['token'];$offer=$wpdb->get_row($wpdb->prepare('SELECT * FROM '.DB::waitlist_offers_table().' WHERE token_hash=%s',hash('sha256',$token)));if(!$offer||(int)$offer->customer_id!==get_current_user_id())return new \WP_Error('offer_not_found','This opening offer is unavailable.',['status'=>404]);
     if((string)$offer->status!=='offered'||strtotime((string)$offer->expires_at.' UTC')<=time())return new \WP_Error('offer_expired','This opening offer has expired.',['status'=>409]);
     $claimed=$wpdb->query($wpdb->prepare('UPDATE '.DB::waitlist_offers_table().' SET status="accepting" WHERE id=%d AND status="offered" AND expires_at>UTC_TIMESTAMP()',(int)$offer->id));if($claimed!==1)return new \WP_Error('offer_claimed','This opening offer is already being accepted.',['status'=>409]);
@@ -251,10 +259,12 @@ final class Waitlist {
   public static function expire_offers():void{
     global $wpdb;$expired=$wpdb->get_results('SELECT * FROM '.DB::waitlist_offers_table().' WHERE status IN ("offered","accepting") AND expires_at<=UTC_TIMESTAMP() ORDER BY opening_booking_id,id')?:[];$openings=[];
     foreach($expired as $offer){$wpdb->update(DB::waitlist_offers_table(),['status'=>'expired'],['id'=>(int)$offer->id]);$wpdb->update(DB::waitlist_table(),['status'=>'active'],['id'=>(int)$offer->waitlist_id]);if((int)$offer->opening_booking_id)$openings[(int)$offer->opening_booking_id]=(int)$offer->resource_id;}
+    if(!Features::waitlist_enabled())return;
     foreach($openings as $opening_id=>$resource_id){$remaining=(int)$wpdb->get_var($wpdb->prepare('SELECT COUNT(*) FROM '.DB::waitlist_offers_table().' WHERE opening_booking_id=%d AND status="offered"',$opening_id));if($remaining)continue;$opening=Bookings::get_booking($opening_id);$settings=self::settings($resource_id);if($opening&&$settings['mode']!=='manual')self::offer_matching($opening,$settings);}
   }
 
   public static function handle_customer_booked(int $booking_id,$booking):void{
+    if(!Features::waitlist_enabled())return;
     if(!$booking)$booking=Bookings::get_booking($booking_id);if(!$booking)return;global $wpdb;$wpdb->query($wpdb->prepare('UPDATE '.DB::waitlist_table().' SET status="matched" WHERE resource_id=%d AND service_id=%d AND customer_id=%d AND status IN ("active","offered")',Resources::booking_resource_id($booking),(int)$booking->service_id,(int)$booking->customer_id));
   }
 
@@ -280,6 +290,7 @@ final class Waitlist {
   }
 
   public static function offer_url(int $offer_id): string {
+    if (!Features::waitlist_enabled()) return home_url('/');
     global $wpdb;
     $offer = $wpdb->get_row($wpdb->prepare('SELECT o.token_encrypted,w.listing_id,w.provider_id FROM '.DB::waitlist_offers_table().' o INNER JOIN '.DB::waitlist_table().' w ON w.id=o.waitlist_id WHERE o.id=%d', $offer_id));
     if (!$offer) return home_url('/');

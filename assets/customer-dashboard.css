@@ -438,6 +438,10 @@
 
 .koopo-modal__close {
   float: right;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
   background: none;
   border: none;
   font-size: 28px;
@@ -445,7 +449,7 @@
   cursor: pointer;
   color: #999;
   padding: 0;
-  margin: -4px -4px 0 0;
+  margin: -8px -8px 0 0;
 }
 
 .koopo-modal__close:hover {
@@ -512,7 +516,6 @@
   padding: 10px;
   border: 1px solid #ddd;
   border-radius: 6px;
-  font-family: inherit;
   font-size: 14px;
   resize: vertical;
 }
@@ -586,8 +589,7 @@
 }
 
 .woocommerce .woocommerce-MyAccount-navigation ul li.woocommerce-MyAccount-navigation-link--appointments a:before {
-  font-family: bb-icons;
-  content: '\e803';
+  content: '\1F4C5';
 }
 
 .koopo-calendar__date {
@@ -721,3 +723,4 @@
     width: 100%;
   }
 }
+.koopo-customer-appointments button,.koopo-customer-appointments input,.koopo-customer-appointments select,.koopo-customer-appointments textarea,.koopo-modal button,.koopo-modal input,.koopo-modal select,.koopo-modal textarea{font-family:inherit}

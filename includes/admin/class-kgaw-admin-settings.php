@@ -35,6 +35,7 @@ class Admin_Settings {
 
   public static function init() {
     add_action('admin_menu', [__CLASS__, 'menu']);
+    add_action('admin_enqueue_scripts', [__CLASS__, 'enqueue_admin_assets']);
     add_action('admin_init', [__CLASS__, 'maybe_migrate_email_logo_setting'], 5);
     add_action('admin_init', [__CLASS__, 'register_settings']);
     add_action('add_option_' . self::OPTION_EMAIL_LOGO_ATTACHMENT_ID, [__CLASS__, 'handle_email_logo_added'], 10, 2);
@@ -63,6 +64,13 @@ class Admin_Settings {
   }
 
   public static function register_settings() {
+    foreach ([Features::OPTION_WAITLIST_ENABLED, Features::OPTION_CLIENT_FORMS_ENABLED] as $option) {
+      register_setting('koopo_appt_settings', $option, [
+        'type' => 'boolean',
+        'sanitize_callback' => static fn($value): int => empty($value) ? 0 : 1,
+        'default' => 0,
+      ]);
+    }
     register_setting('koopo_appt_settings', self::OPTION_HOLD_MINUTES, [
       'type' => 'integer',
       'sanitize_callback' => [__CLASS__, 'sanitize_hold_minutes'],
@@ -189,6 +197,20 @@ class Admin_Settings {
     ]);
 
     add_settings_section(
+      'koopo_appt_feature_availability',
+      __('Feature Availability', 'koopo-appointments'),
+      [__CLASS__, 'feature_availability_description'],
+      'koopo-appointments-settings'
+    );
+    add_settings_field(
+      'koopo_appt_release_gates',
+      __('Release controls', 'koopo-appointments'),
+      [__CLASS__, 'field_feature_availability'],
+      'koopo-appointments-settings',
+      'koopo_appt_feature_availability'
+    );
+
+    add_settings_section(
       'koopo_appt_general',
       'General',
       '__return_false',
@@ -281,6 +303,35 @@ class Admin_Settings {
     add_settings_field('koopo_appt_geocoder_keys', 'Provider API keys', [__CLASS__, 'field_geocoder_keys'], 'koopo-appointments-settings', 'koopo_appt_geocoding');
     add_settings_field(self::OPTION_GEOCODER_DAILY_LIMITS, 'Auto daily allowances', [__CLASS__, 'field_geocoder_daily_limits'], 'koopo-appointments-settings', 'koopo_appt_geocoding');
     add_settings_field(self::OPTION_GEOCODER_OSM_PUBLIC, 'Public OSM fallback', [__CLASS__, 'field_geocoder_osm_public'], 'koopo-appointments-settings', 'koopo_appt_geocoding');
+  }
+
+  public static function enqueue_admin_assets(string $hook): void {
+    if ($hook !== 'settings_page_koopo-appointments-settings') return;
+    wp_enqueue_style('koopo-appt-admin-settings', KOOPO_APPT_URL . 'assets/admin-settings.css', [], KOOPO_APPT_VERSION);
+    wp_enqueue_script('koopo-appt-admin-settings', KOOPO_APPT_URL . 'assets/admin-settings.js', [], KOOPO_APPT_VERSION, true);
+  }
+
+  public static function feature_availability_description(): void {
+    ?><p><?php esc_html_e('Keep unfinished operational features installed and testable without exposing them to providers or customers. Disabling a feature preserves its records and configuration.', 'koopo-appointments'); ?></p><?php
+  }
+
+  public static function field_feature_availability(): void {
+    $features = [
+      ['option'=>Features::OPTION_WAITLIST_ENABLED, 'enabled'=>Features::waitlist_enabled(), 'icon'=>'↻', 'title'=>__('Waitlist', 'koopo-appointments'), 'description'=>__('Shows cancellation-fill tools, customer opening alerts, expiring offers, and provider waitlist controls.', 'koopo-appointments')],
+      ['option'=>Features::OPTION_CLIENT_FORMS_ENABLED, 'enabled'=>Features::client_forms_enabled(), 'icon'=>'✓', 'title'=>__('Client Records & Forms', 'koopo-appointments'), 'description'=>__('Shows private client workspaces, intake and consent forms, scheduled requests, signatures, and client-file uploads.', 'koopo-appointments')],
+    ];
+    ?><div class="koopo-feature-gates"><?php foreach ($features as $feature): ?>
+      <label class="koopo-feature-toggle <?php echo $feature['enabled'] ? 'is-enabled' : 'is-disabled'; ?>" data-koopo-feature-card>
+        <span class="koopo-feature-toggle__icon" aria-hidden="true"><?php echo esc_html($feature['icon']); ?></span>
+        <span class="koopo-feature-toggle__copy"><strong><?php echo esc_html($feature['title']); ?></strong><small><?php echo esc_html($feature['description']); ?></small></span>
+        <span class="koopo-feature-toggle__control">
+          <input type="checkbox" name="<?php echo esc_attr($feature['option']); ?>" value="1" <?php checked($feature['enabled']); ?> data-koopo-feature-toggle />
+          <span class="koopo-feature-toggle__track" aria-hidden="true"><span></span></span>
+          <b data-koopo-feature-status><?php echo esc_html($feature['enabled'] ? __('Enabled', 'koopo-appointments') : __('Hidden', 'koopo-appointments')); ?></b>
+        </span>
+      </label>
+    <?php endforeach; ?></div>
+    <p class="description koopo-feature-gates__note"><strong><?php esc_html_e('Fail-closed behavior:', 'koopo-appointments'); ?></strong> <?php esc_html_e('Disabled features are removed from provider and customer interfaces, their APIs return unavailable, and no new automation or notifications are created.', 'koopo-appointments'); ?></p><?php
   }
 
   public static function geocoding_description(): void {
@@ -1053,15 +1104,36 @@ class Admin_Settings {
 
   public static function render_page() {
     if (!current_user_can('manage_options')) return;
+    global $wp_settings_sections;
+    $sections = (array) ($wp_settings_sections['koopo-appointments-settings'] ?? []);
     ?>
-    <div class="wrap">
-      <h1>Koopo Appointments</h1>
+    <div class="wrap koopo-admin-settings">
+      <header class="koopo-admin-settings__masthead">
+        <div class="koopo-admin-settings__identity"><span class="koopo-admin-settings__mark" aria-hidden="true">K</span><div><span><?php esc_html_e('Koopo operations', 'koopo-appointments'); ?></span><h1><?php esc_html_e('Appointments control room', 'koopo-appointments'); ?></h1><p><?php esc_html_e('Release features deliberately, connect providers, and manage how booking operations behave.', 'koopo-appointments'); ?></p></div></div>
+        <div class="koopo-admin-settings__health" aria-label="Feature release status">
+          <span class="<?php echo Features::waitlist_enabled() ? 'is-live' : 'is-held'; ?>"><i></i><?php echo esc_html(Features::waitlist_enabled() ? __('Waitlist live', 'koopo-appointments') : __('Waitlist held', 'koopo-appointments')); ?></span>
+          <span class="<?php echo Features::client_forms_enabled() ? 'is-live' : 'is-held'; ?>"><i></i><?php echo esc_html(Features::client_forms_enabled() ? __('Client forms live', 'koopo-appointments') : __('Client forms held', 'koopo-appointments')); ?></span>
+        </div>
+      </header>
+      <?php settings_errors(); ?>
       <form method="post" action="options.php">
-        <?php
-          settings_fields('koopo_appt_settings');
-          do_settings_sections('koopo-appointments-settings');
-          submit_button();
-        ?>
+        <?php settings_fields('koopo_appt_settings'); ?>
+        <div class="koopo-admin-settings__layout">
+          <nav class="koopo-admin-settings__nav" aria-label="<?php esc_attr_e('Settings sections', 'koopo-appointments'); ?>">
+            <strong><?php esc_html_e('Settings', 'koopo-appointments'); ?></strong>
+            <?php foreach ($sections as $section): ?><a href="#<?php echo esc_attr($section['id']); ?>" data-koopo-settings-nav><?php echo esc_html($section['title']); ?></a><?php endforeach; ?>
+          </nav>
+          <main class="koopo-admin-settings__content">
+            <?php $position = 0; foreach ($sections as $section): $position++; ?>
+              <section class="koopo-settings-section" id="<?php echo esc_attr($section['id']); ?>" style="--koopo-section-index:<?php echo esc_attr($position - 1); ?>">
+                <header><span><?php echo esc_html(sprintf('%02d', $position)); ?></span><h2><?php echo esc_html($section['title']); ?></h2></header>
+                <div class="koopo-settings-section__description"><?php if (!empty($section['callback']) && is_callable($section['callback'])) call_user_func($section['callback'], $section); ?></div>
+                <table class="form-table" role="presentation"><tbody><?php do_settings_fields('koopo-appointments-settings', $section['id']); ?></tbody></table>
+              </section>
+            <?php endforeach; ?>
+          </main>
+        </div>
+        <div class="koopo-admin-settings__save"><span data-koopo-save-state><?php esc_html_e('Settings are up to date', 'koopo-appointments'); ?></span><?php submit_button(__('Save appointment settings', 'koopo-appointments'), 'primary', 'submit', false); ?></div>
       </form>
     </div>
     <?php

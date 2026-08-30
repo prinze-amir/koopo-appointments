@@ -8,6 +8,9 @@
   let profile = config.profile || {};
   let services = [];
   let lastTrigger = null;
+  let pendingPortfolio = [];
+  let draggedPortfolioId = 0;
+  let portfolioBusy = false;
   const escape = (value) => String(value == null ? '' : value).replace(/[&<>"]/g, (char) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[char]));
   const status = (selector, message, error = false) => {
     const node = document.querySelector(selector);
@@ -45,9 +48,61 @@
     const node = document.querySelector('[data-koopo-owner-gallery]');
     if (!node) return;
     const gallery = Array.isArray(profile.gallery) ? profile.gallery : [];
-    node.innerHTML = gallery.length ? gallery.map((image) => `<figure data-image-id="${Number(image.id)}"><img src="${escape(image.url)}" alt=""><button type="button" data-koopo-gallery-remove aria-label="Remove photo">×</button></figure>`).join('') : '<p>No gallery photos yet.</p>';
+    const saved = gallery.map((image, index) => `<figure draggable="true" tabindex="0" data-image-id="${Number(image.id)}" aria-label="Portfolio photo ${index + 1} of ${gallery.length}. Drag to reorder."><img src="${escape(image.url)}" alt=""><figcaption><span aria-hidden="true">⠿</span><button type="button" data-koopo-gallery-move="up" ${index === 0 ? 'disabled' : ''} aria-label="Move photo earlier">←</button><button type="button" data-koopo-gallery-move="down" ${index === gallery.length - 1 ? 'disabled' : ''} aria-label="Move photo later">→</button><button type="button" data-koopo-gallery-remove aria-label="Remove photo">×</button></figcaption></figure>`).join('');
+    const pending = pendingPortfolio.map((item) => `<figure class="is-uploading" data-pending-key="${escape(item.key)}"><img src="${escape(item.url)}" alt=""><span class="koopo-owner-gallery__uploading">Uploading</span></figure>`).join('');
+    node.innerHTML = saved + pending || '<p>Drop photos above to start your portfolio.</p>';
   }
   renderGallery();
+
+  async function persistPortfolioOrder(next) {
+    if (portfolioBusy) return;
+    const previous = (profile.gallery || []).slice();
+    portfolioBusy = true;
+    profile.gallery = next;
+    renderGallery();
+    status('[data-koopo-owner-gallery-status]', 'Saving portfolio order…');
+    try {
+      const result = await utils.api(`/providers/${providerId}/gallery`, {method: 'POST', body: JSON.stringify({attachment_ids: next.map((image) => image.id)})});
+      profile.gallery = result.gallery || next;
+      renderGallery();
+      status('[data-koopo-owner-gallery-status]', 'Portfolio order saved.');
+    } catch (error) {
+      profile.gallery = previous;
+      renderGallery();
+      status('[data-koopo-owner-gallery-status]', error.message || 'Unable to save portfolio order.', true);
+    } finally { portfolioBusy = false; }
+  }
+
+  async function uploadPortfolio(files) {
+    const available = Math.max(0, 12 - ((profile.gallery || []).length + pendingPortfolio.length));
+    if (!files.length || portfolioBusy) return;
+    if (!available) return status('[data-koopo-owner-gallery-status]', 'This portfolio already has 12 photos.', true);
+    const selected = files.slice(0, available);
+    const batch = selected.map((file, index) => ({file, key: `${Date.now()}-${index}-${Math.random().toString(36).slice(2)}`, url: URL.createObjectURL(file)}));
+    pendingPortfolio = pendingPortfolio.concat(batch);
+    renderGallery();
+    portfolioBusy = true;
+    try {
+      for (let index = 0; index < batch.length; index += 1) {
+        const item = batch[index];
+        const media = await utils.uploadServiceProfileGalleryImage(providerId, item.file, (percent) => status('[data-koopo-owner-gallery-status]', `Uploading photo ${index + 1} of ${batch.length} — ${percent}%…`));
+        profile.gallery = Array.isArray(media.gallery) ? media.gallery : profile.gallery;
+        pendingPortfolio = pendingPortfolio.filter((pending) => pending.key !== item.key);
+        URL.revokeObjectURL(item.url);
+        renderGallery();
+      }
+      status('[data-koopo-owner-gallery-status]', selected.length < files.length ? `Added ${selected.length} photos. The portfolio limit is 12.` : `Added ${selected.length} ${selected.length === 1 ? 'photo' : 'photos'} to your portfolio.`);
+    } catch (error) {
+      status('[data-koopo-owner-gallery-status]', error.message || 'Portfolio upload failed.', true);
+    } finally {
+      batch.forEach((item) => URL.revokeObjectURL(item.url));
+      pendingPortfolio = pendingPortfolio.filter((item) => !batch.some((batchItem) => batchItem.key === item.key));
+      portfolioBusy = false;
+      renderGallery();
+      const field = document.querySelector('[data-koopo-owner-gallery-files]');
+      if (field) field.value = '';
+    }
+  }
 
   document.querySelector('[data-koopo-owner-image]')?.addEventListener('change', async (event) => {
     const file = event.target.files?.[0];
@@ -62,25 +117,25 @@
     } catch (error) { status('[data-koopo-owner-image-status]', error.message || 'Image upload failed.', true); }
   });
 
-  document.querySelector('[data-koopo-owner-gallery-files]')?.addEventListener('change', async (event) => {
-    const files = Array.from(event.target.files || []);
-    const available = Math.max(0, 12 - (profile.gallery || []).length);
-    if (!available) return status('[data-koopo-owner-gallery-status]', 'This gallery already has 12 photos.', true);
-    try {
-      const selected = files.slice(0, available);
-      for (let index = 0; index < selected.length; index += 1) {
-        await utils.uploadServiceProfileGalleryImage(providerId, selected[index], (percent) => status('[data-koopo-owner-gallery-status]', `Uploading photo ${index + 1} of ${selected.length} — ${percent}%…`));
-      }
-      profile = await utils.api(`/providers/${providerId}`, {method: 'GET'});
-      renderGallery();
-      status('[data-koopo-owner-gallery-status]', `Added ${selected.length} ${selected.length === 1 ? 'photo' : 'photos'}.`);
-      event.target.value = '';
-    } catch (error) { status('[data-koopo-owner-gallery-status]', error.message || 'Gallery upload failed.', true); }
-  });
+  document.querySelector('[data-koopo-owner-gallery-files]')?.addEventListener('change', (event) => uploadPortfolio(Array.from(event.target.files || [])));
+  const portfolioDrop = document.querySelector('[data-koopo-owner-gallery-drop]');
+  portfolioDrop?.addEventListener('keydown', (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); document.querySelector('[data-koopo-owner-gallery-files]')?.click(); } });
+  ['dragenter', 'dragover'].forEach((name) => portfolioDrop?.addEventListener(name, (event) => { event.preventDefault(); event.dataTransfer.dropEffect = 'copy'; portfolioDrop.classList.add('is-drag-over'); }));
+  portfolioDrop?.addEventListener('dragleave', (event) => { if (!event.relatedTarget || !portfolioDrop.contains(event.relatedTarget)) portfolioDrop.classList.remove('is-drag-over'); });
+  portfolioDrop?.addEventListener('drop', (event) => { event.preventDefault(); portfolioDrop.classList.remove('is-drag-over'); uploadPortfolio(Array.from(event.dataTransfer.files || [])); });
 
   document.querySelector('[data-koopo-owner-gallery]')?.addEventListener('click', async (event) => {
+    const move = event.target.closest('[data-koopo-gallery-move]');
+    if (move) {
+      const imageId = Number(move.closest('[data-image-id]')?.dataset.imageId || 0);
+      const from = (profile.gallery || []).findIndex((image) => Number(image.id) === imageId);
+      const to = move.dataset.koopoGalleryMove === 'up' ? from - 1 : from + 1;
+      if (from >= 0 && to >= 0 && to < profile.gallery.length) { const next = profile.gallery.slice(); [next[from], next[to]] = [next[to], next[from]]; await persistPortfolioOrder(next); }
+      return;
+    }
     const button = event.target.closest('[data-koopo-gallery-remove]');
     if (!button) return;
+    if (portfolioBusy) return;
     const imageId = Number(button.closest('[data-image-id]')?.dataset.imageId || 0);
     if (!imageId) return;
     status('[data-koopo-owner-gallery-status]', 'Removing photo…');
@@ -91,6 +146,11 @@
       status('[data-koopo-owner-gallery-status]', 'Photo removed.');
     } catch (error) { status('[data-koopo-owner-gallery-status]', error.message || 'Unable to remove photo.', true); }
   });
+  const ownerGallery = document.querySelector('[data-koopo-owner-gallery]');
+  ownerGallery?.addEventListener('dragstart', (event) => { const figure = event.target.closest('[data-image-id]'); if (!figure || portfolioBusy) { event.preventDefault(); return; } draggedPortfolioId = Number(figure.dataset.imageId) || 0; figure.classList.add('is-dragging'); event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData('text/plain', String(draggedPortfolioId)); });
+  ownerGallery?.addEventListener('dragend', (event) => { event.target.closest('[data-image-id]')?.classList.remove('is-dragging'); ownerGallery.querySelectorAll('.is-drag-target').forEach((item) => item.classList.remove('is-drag-target')); draggedPortfolioId = 0; });
+  ownerGallery?.addEventListener('dragover', (event) => { const figure = event.target.closest('[data-image-id]'); if (!figure || !draggedPortfolioId) return; event.preventDefault(); ownerGallery.querySelectorAll('.is-drag-target').forEach((item) => item.classList.remove('is-drag-target')); figure.classList.add('is-drag-target'); });
+  ownerGallery?.addEventListener('drop', async (event) => { const target = event.target.closest('[data-image-id]'); if (!target || !draggedPortfolioId) return; event.preventDefault(); const targetId = Number(target.dataset.imageId) || 0; ownerGallery.querySelectorAll('.is-drag-target').forEach((item) => item.classList.remove('is-drag-target')); if (targetId === draggedPortfolioId) return; const from = profile.gallery.findIndex((image) => Number(image.id) === draggedPortfolioId); const to = profile.gallery.findIndex((image) => Number(image.id) === targetId); if (from < 0 || to < 0) return; const next = profile.gallery.slice(); const [moved] = next.splice(from, 1); next.splice(to, 0, moved); await persistPortfolioOrder(next); });
 
   const settingsForm = document.querySelector('[data-koopo-owner-settings]');
   if (settingsForm) {

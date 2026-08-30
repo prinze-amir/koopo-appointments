@@ -1,4 +1,4 @@
-.kas { padding: 10px 0; }
+.kas { padding: 10px 0; font-size:15px; line-height:1.5; }
 .kas__row { display:flex; align-items:center; justify-content:space-between; gap:12px; margin:10px 0; }
 .kas__row--toggle { align-items:center; }
 .kas__row--block { display:block; }
@@ -38,7 +38,7 @@
 .koopo-appt-services__list { display:flex; flex-direction:column; gap:8px; }
 .koopo-appt-services__row { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 12px; border:1px solid #eee; border-radius:10px; background:#fff; }
 .koopo-appt-services__row-title { font-weight:600; }
-.koopo-appt-services__row-meta { font-size:12px; color:#1f1f1f; }
+.koopo-appt-services__row-meta { font-size:14px; color:#1f1f1f; }
 .koopo-appt-services__edit { padding:6px 10px; border-radius:8px; border:1px solid #ddd; background:#fff; cursor:pointer; }
 .koopo-appt-services__empty { color:#666; font-size:13px; }
 .koopo-appt-services__add { display:flex; align-items:center; gap:8px; padding:12px; border-radius:10px; border:1px dashed #ddd; background:#fafafa; cursor:pointer; }
@@ -60,7 +60,7 @@
 .koopo-appt-appointments__meta { font-size:12px; color:#666; }
 .koopo-appt-appointments__aside { text-align:right; display:flex; flex-direction:column; gap:6px; }
 .koopo-appt-appointments__amount { font-weight:700; font-size:14px; }
-.koopo-appt-appointments__status { font-size:11px; color:#666; text-transform:capitalize; background:#f1f1f1; border-radius:999px; padding:2px 8px; display:inline-block; align-self:flex-end; }
+.koopo-appt-appointments__status { font-size:13px; color:#666; text-transform:capitalize; background:#f1f1f1; border-radius:999px; padding:3px 9px; display:inline-block; align-self:flex-end; }
 .koopo-appt-appointments__status--confirmed { background:#e8f5e9; color:#2c7a3c; }
 .koopo-appt-appointments__status--pending_payment,
 .koopo-appt-appointments__status--pending { background:#fff3cd; color:#856404; }
@@ -69,7 +69,7 @@
 .koopo-appt-appointments__status--expired { background:#f1f1f1; color:#666; }
 .koopo-appt-appointments__status--conflict { background:#fce8e6; color:#b3261e; }
 a.koopo-appt-appointments__avatar img { width:60px; height:60px; border-radius:50%; object-fit:cover; }
-.koopo-appt-appointments__avatar-fallback { width:40px; height:40px; border-radius:50%; background:#f2f2f2; display:flex; align-items:center; justify-content:center; font-size:12px; color:#555; padding:6px; text-align:center; border:1px solid #e6e6e6; }
+.koopo-appt-appointments__avatar-fallback { width:40px; height:40px; border-radius:50%; background:#f2f2f2; display:flex; align-items:center; justify-content:center; font-size:13px; color:#555; padding:6px; text-align:center; border:1px solid #e6e6e6; }
 .koopo-appt-appointments__title { font-weight:600; }
 .koopo-appt-appointments__meta { font-size:1rem; color:#666; }
 .koopo-appt-appointments__all { align-self:flex-start; padding:8px 10px; border-radius:10px; border:1px solid #ddd; background:#fff; text-decoration:none; color:inherit; }
@@ -83,7 +83,7 @@ a.koopo-appt-appointments__avatar img { width:60px; height:60px; border-radius:5
 .koopo-appt-calendar__cell--head { background:#f7f7f7; border:none; font-weight:600; cursor:default; }
 .koopo-appt-calendar__cell--empty { background:transparent; border:none; }
 .koopo-appt-calendar__num { font-weight:600; }
-.koopo-appt-calendar__dot { background:#222; color:#fff; border-radius:10px; font-size:11px; padding:2px 6px; }
+.koopo-appt-calendar__dot { background:#222; color:#fff; border-radius:10px; font-size:13px; padding:2px 7px; }
 .kas__loading { display:flex; align-items:center; gap:10px; margin:10px 0; }
 .kas__loading--hidden { display:none; }
 .kas__spinner { width:18px; height:18px; border-radius:50%; border:2px solid #ffba12; border-top-color:#111; animation: kasSpin 0.9s linear infinite; }
@@ -95,7 +95,7 @@ a.koopo-appt-appointments__avatar img { width:60px; height:60px; border-radius:5
 
 .kas__grid { display:grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap:12px; margin:12px 0; }
 .kas__grid input { width:100%; padding:8px; border-radius:10px; border:1px solid #ddd; }
-.kas__field-hint { display:block; margin-top:6px; color:#666; font-size:12px; line-height:1.4; font-weight:400; }
+.kas__field-hint { display:block; margin-top:6px; color:#666; font-size:14px; line-height:1.5; font-weight:400; }
 .kas__grid--two { grid-template-columns: repeat(2, minmax(0,1fr)); }
 .kas__grid select { width:100%; padding:8px; border-radius:10px; border:1px solid #ddd; }
 .kas__row select { min-width:240px; max-width:100%; padding:8px; border-radius:10px; border:1px solid #ddd; }
@@ -109,11 +109,11 @@ a.koopo-appt-appointments__avatar img { width:60px; height:60px; border-radius:5
 .kas__reschedule-line { display:flex; flex-wrap:wrap; gap:10px; align-items:center; background:#f5f6f8; border-radius:10px; padding:10px 12px; }
 .kas__reschedule-line input { width:70px; padding:8px; border-radius:10px; border:1px solid #ddd; }
 .kas__reschedule-line select { padding:8px; border-radius:10px; border:1px solid #ddd; }
-.kas__hint { font-size:13px; color:#666; margin-top:6px; }
+.kas__hint { font-size:14px; color:#666; margin-top:6px; }
 .kas__refund-table { display:flex; flex-direction:column; gap:10px; margin-top:10px; }
 .kas__refund-rows { display:flex; flex-direction:column; gap:8px; }
 .kas__refund-row { display:grid; grid-template-columns: 1fr auto; gap:10px; align-items:center; }
-.kas__refund-line { display:flex; flex-wrap:wrap; gap:8px; align-items:center; background:#f5f6f8; border-radius:12px; padding:10px 12px; font-size:13px; color:#444; }
+.kas__refund-line { display:flex; flex-wrap:wrap; gap:8px; align-items:center; background:#f5f6f8; border-radius:12px; padding:10px 12px; font-size:14px; color:#444; }
 .kas__refund-line input { padding:8px; border-radius:10px; border:1px solid #ddd; width:70px; }
 .kas__refund-line select { padding:8px; border-radius:10px; border:1px solid #ddd; }
 .kas__refund-add { padding:8px 10px; border-radius:10px; border:1px solid #ddd; background:#fff; cursor:pointer; width:fit-content; }
@@ -125,7 +125,7 @@ a.koopo-appt-appointments__avatar img { width:60px; height:60px; border-radius:5
 .koopo-appt-settings__overlay.is-open { display:flex; }
 .koopo-appt-settings__modal { width:100%; max-width:700px; background:#fff; border-radius:16px; padding:24px; position:relative; transform: translateY(12px); opacity:0; transition: transform 200ms ease, opacity 200ms ease; margin:auto; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
 .koopo-appt-settings__overlay.is-open .koopo-appt-settings__modal { transform: translateY(0); opacity:1; }
-.koopo-appt-settings__close { position:absolute; right:12px; top:8px; font-size:22px; background:transparent; border:solid 1px #333 !important; cursor:pointer; }
+.koopo-appt-settings__close { position:absolute; right:14px; top:14px; display:grid; place-items:center; width:40px; height:40px; padding:0; border:solid 1px #333 !important; border-radius:50%; background:transparent; font-size:25px; line-height:1; cursor:pointer; }
 
 .koopo-appt-settings-picker select { padding:10px; border-radius:10px; border:1px solid #ddd; min-width:320px; }
 .kas__dayblock { margin: 10px 0; padding: 10px; border-radius: 12px; border: 1px solid #eee; background: #fff; }
@@ -144,7 +144,7 @@ a.koopo-appt-appointments__avatar img { width:60px; height:60px; border-radius:5
 .kas__presets, .kas__bulk { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
 .kas__toolbar button { padding:8px 10px; border-radius:10px; border:1px solid #ddd; background:#fff; cursor:pointer; color:#333 }
 .koopo-appt-settings-mount button {
-    font-size: .9rem !important;
+    font-size: 14px !important;
 }
 .kas__range.is-invalid { outline: 2px solid #ff3b3b; border-radius:12px; }
 .kas__range.is-overlap { outline: 2px solid #ff9f0a; border-radius:12px; }
@@ -161,3 +161,4 @@ a.koopo-appt-appointments__avatar img { width:60px; height:60px; border-radius:5
 .koopo-appt-settings__modal button:hover {
     border: solid 1px #333;
 }
+.koopo-appt-settings-mount button,.koopo-appt-settings-mount input,.koopo-appt-settings-mount select,.koopo-appt-settings-mount textarea{font-family:inherit}

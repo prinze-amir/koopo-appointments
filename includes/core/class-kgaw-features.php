@@ -5,6 +5,28 @@ defined('ABSPATH') || exit;
 
 class Features {
 
+  const OPTION_WAITLIST_ENABLED = 'koopo_appt_waitlist_enabled';
+  const OPTION_CLIENT_FORMS_ENABLED = 'koopo_appt_client_forms_enabled';
+
+  /** Site-wide release gates for features that can remain installed but unavailable. */
+  public static function waitlist_enabled(): bool {
+    return (bool) get_option(self::OPTION_WAITLIST_ENABLED, 0);
+  }
+
+  public static function client_forms_enabled(): bool {
+    return (bool) get_option(self::OPTION_CLIENT_FORMS_ENABLED, 0);
+  }
+
+  public static function unavailable_error(string $feature): \WP_Error {
+    $feature = sanitize_key($feature);
+    $label = $feature === 'waitlist' ? __('The waitlist', 'koopo-appointments') : __('Client records and forms', 'koopo-appointments');
+    return new \WP_Error(
+      'koopo_appt_' . $feature . '_disabled',
+      sprintf(__('%s are temporarily unavailable while Koopo finishes preparing this feature.', 'koopo-appointments'), $label),
+      ['status' => 503]
+    );
+  }
+
   public static function wc_subscriptions_active(): bool {
     // WooCommerce Subscriptions exposes WC_Subscriptions class + wcs_* functions
     if (class_exists('\WC_Subscriptions')) return true;

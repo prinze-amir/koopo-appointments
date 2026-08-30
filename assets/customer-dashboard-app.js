@@ -235,7 +235,9 @@
         .data('booking', booking);
     }
     if (booking.status === 'confirmed') {
-      $card.find('.koopo-btn-forms').show().attr('data-booking-id', booking.id);
+      if (window.KOOPO_CUSTOMER && KOOPO_CUSTOMER.features && KOOPO_CUSTOMER.features.clientForms) {
+        $card.find('.koopo-btn-forms').show().attr('data-booking-id', booking.id);
+      }
     }
 
     // Calendar dropdown (for future confirmed bookings)

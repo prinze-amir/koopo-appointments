@@ -33,28 +33,41 @@ class Access {
       return true;
     }
 
-    // Must be vendor
-    if (!function_exists('dokan_is_user_seller') || !dokan_is_user_seller($vendor_id)) {
-      return false;
-    }
+    return !empty(self::vendor_feature_values($vendor_id)[$feature_key]);
+  }
 
-    // Must have Dokan subscription module active (if it's off, treat as no features)
-    if (!Features::dokan_subscriptions_active()) {
-      return false;
-    }
-
-    // Get vendor's active pack product id (adapter via filter so we can support multiple Dokan versions)
+  /** Return the active pack's normalized Koopo entitlement map. */
+  public static function vendor_feature_values(int $vendor_id): array {
+    if (!$vendor_id || !function_exists('dokan_is_user_seller') || !dokan_is_user_seller($vendor_id)) return [];
+    if (!Features::dokan_subscriptions_active()) return [];
     $pack_product_id = (int) apply_filters('koopo_get_vendor_pack_id', 0, $vendor_id);
-    if (!$pack_product_id) return false;
-
+    if (!$pack_product_id) return [];
     $features = get_post_meta($pack_product_id, '_koopo_features', true);
     if (is_string($features)) {
       $decoded = json_decode($features, true);
       if (is_array($decoded)) $features = $decoded;
     }
-    if (!is_array($features)) $features = [];
+    return is_array($features) ? $features : [];
+  }
 
-    return !empty($features[$feature_key]);
+  /**
+   * Resolve a numeric pack entitlement. -1 represents unlimited.
+   * Legacy appointment-enabled packs default to one service profile.
+   */
+  public static function vendor_feature_limit(int $vendor_id, string $feature_key, int $legacy_default = 0): int {
+    if (self::is_admin_bypass($vendor_id)) return -1;
+    if (self::user_has_feature_override($vendor_id, 'appointments')) return max(1, $legacy_default);
+    if (!function_exists('dokan_is_user_seller') || !dokan_is_user_seller($vendor_id)) return 0;
+
+    $features = self::vendor_feature_values($vendor_id);
+    if (!$features) return max(0, $legacy_default);
+    if ('service_profiles' === $feature_key && empty($features['appointments'])) return 0;
+    if (array_key_exists($feature_key, $features)) {
+      $value = $features[$feature_key];
+      if ('unlimited' === $value || -1 === (int) $value) return -1;
+      return min(1000, max(0, (int) $value));
+    }
+    return !empty($features['appointments']) ? max(0, $legacy_default) : 0;
   }
 
   private static function user_has_feature_override(int $user_id, string $feature_key): bool {

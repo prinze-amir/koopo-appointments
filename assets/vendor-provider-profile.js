@@ -3,7 +3,65 @@
   const api = (window.KOOPO_VENDOR_UTILS || {}).api;
   if (!api) return;
   const $picker = $('#koopo-provider-picker');
+  const escapeHtml = (window.KOOPO_VENDOR_UTILS || {}).escapeHtml || (value => String(value || ''));
+  const $modal = $('[data-koopo-provider-modal]');
+  const $createPanel = $('#koopo-provider-create-panel');
+  const entitlement = Object.assign({used:0,limit:1,limit_label:'1',can_create:true}, KOOPO_APPT_VENDOR.profileEntitlement || {});
   let providers = [];
+  let modalReturnFocus = null;
+  let pendingGallery = [];
+  let draggedGalleryId = 0;
+  let galleryBusy = false;
+
+  function updateEntitlement(){
+    entitlement.used = providers.length;
+    entitlement.can_create = entitlement.limit == null || providers.length < Number(entitlement.limit);
+    const label = entitlement.limit == null ? 'Unlimited' : String(entitlement.limit);
+    $('[data-koopo-profile-usage]').text(`${providers.length} of ${label}`);
+    $('[data-koopo-profile-entitlement]').toggleClass('is-at-limit', !entitlement.can_create);
+    $('[data-koopo-create-toggle]').prop('disabled', !entitlement.can_create);
+    if (!entitlement.can_create && !$('[data-koopo-profile-entitlement] a').length) {
+      $('[data-koopo-profile-entitlement]').append(`<a href="${escapeHtml(KOOPO_APPT_VENDOR.upgradeUrl || '#')}">Upgrade plan →</a>`);
+    }
+  }
+
+  function renderCards(){
+    const $grid = $('[data-koopo-provider-grid]');
+    $('[data-koopo-provider-count]').text(providers.length === 1 ? '1 profile' : `${providers.length} profiles`);
+    if (!providers.length) {
+      $grid.html('<div class="koopo-provider-empty"><strong>No service profiles yet</strong><p>Create a profile to publish services, availability, and booking details.</p></div>');
+      updateEntitlement();
+      return;
+    }
+    $grid.html(providers.map(provider => {
+      const modes = (provider.service_modes || []).map(mode => mode === 'at_location' ? 'In person' : (mode === 'mobile' ? 'Mobile' : 'Virtual')).join(' · ');
+      const category = provider.category && provider.category.name ? provider.category.name : 'Uncategorized';
+      const image = provider.image_url ? `<img src="${escapeHtml(provider.image_url)}" alt="" />` : `<span>${escapeHtml((provider.name || '?').slice(0,1))}</span>`;
+      return `<button type="button" class="koopo-provider-profile-card" data-provider-open="${Number(provider.id)}" aria-label="Edit ${escapeHtml(provider.name)}">
+        <span class="koopo-provider-profile-card__image">${image}</span>
+        <span class="koopo-provider-profile-card__content"><strong>${escapeHtml(provider.name)}</strong><small>${escapeHtml(provider.headline || category)}</small><span>${escapeHtml(category)}${modes ? ` · ${escapeHtml(modes)}` : ''}</span></span>
+        <span class="koopo-provider-profile-card__action">Edit <b aria-hidden="true">→</b></span>
+      </button>`;
+    }).join(''));
+    updateEntitlement();
+  }
+
+  function openEditor(provider, trigger){
+    if (!provider) return;
+    modalReturnFocus = trigger || document.activeElement;
+    $picker.val(String(provider.id));
+    render(provider);
+    $('#koopo-provider-editor-title').text(`Edit ${provider.name}`);
+    $modal.prop('hidden', false).attr('aria-hidden', 'false');
+    $('body').addClass('koopo-provider-modal-open');
+    window.requestAnimationFrame(() => $modal.find('.koopo-provider-modal__dialog').trigger('focus'));
+  }
+
+  function closeEditor(){
+    $modal.prop('hidden', true).attr('aria-hidden', 'true');
+    $('body').removeClass('koopo-provider-modal-open');
+    if (modalReturnFocus && typeof modalReturnFocus.focus === 'function') modalReturnFocus.focus();
+  }
 
   function serviceAreaPayload(){
     return {
@@ -31,8 +89,61 @@
 
   function renderGallery(provider){
     const gallery = provider && Array.isArray(provider.gallery) ? provider.gallery : [];
-    const html = gallery.map((image,index)=>`<figure data-gallery-id="${Number(image.id)}"><img src="${$('<div>').text(image.url||'').html()}" alt="" /><figcaption><button type="button" data-gallery-move="up" ${index===0?'disabled':''} aria-label="Move photo earlier">↑</button><button type="button" data-gallery-move="down" ${index===gallery.length-1?'disabled':''} aria-label="Move photo later">↓</button><button type="button" data-gallery-remove aria-label="Remove photo">Remove</button></figcaption></figure>`).join('');
-    $('[data-koopo-provider-gallery]').html(html || '<p class="koopo-provider-gallery-empty">No gallery photos yet.</p>');
+    const saved = gallery.map((image,index)=>`<figure draggable="true" tabindex="0" data-gallery-id="${Number(image.id)}" aria-label="Portfolio photo ${index+1} of ${gallery.length}. Drag to reorder."><img src="${escapeHtml(image.url||'')}" alt="" /><figcaption><span class="koopo-gallery-drag-handle" aria-hidden="true">⠿</span><button type="button" data-gallery-move="up" ${index===0?'disabled':''} aria-label="Move photo earlier">←</button><button type="button" data-gallery-move="down" ${index===gallery.length-1?'disabled':''} aria-label="Move photo later">→</button><button type="button" data-gallery-remove aria-label="Remove photo">Remove</button></figcaption></figure>`).join('');
+    const pending = pendingGallery.map(item=>`<figure class="is-uploading" data-gallery-pending="${escapeHtml(item.key)}"><img src="${escapeHtml(item.url)}" alt="" /><span class="koopo-gallery-uploading">Uploading</span></figure>`).join('');
+    $('[data-koopo-provider-gallery]').html(saved + pending || '<p class="koopo-provider-gallery-empty">Drop photos above to start your portfolio.</p>');
+  }
+
+  async function persistGalleryOrder(provider, next){
+    if (!provider || galleryBusy) return;
+    const previous = provider.gallery.slice();
+    galleryBusy = true;
+    provider.gallery = next;
+    renderGallery(provider);
+    const $status = $('.koopo-provider-gallery-status').text('Saving portfolio order…');
+    try {
+      const result = await api(`/providers/${provider.id}/gallery`, {method:'POST', body:JSON.stringify({attachment_ids:next.map(image=>image.id)})});
+      provider.gallery = result.gallery || next;
+      renderGallery(provider);
+      $status.text('Portfolio order saved.');
+    } catch(error) {
+      provider.gallery = previous;
+      renderGallery(provider);
+      $status.text(error.message || 'Unable to save portfolio order.');
+    } finally { galleryBusy = false; }
+  }
+
+  async function uploadPortfolioFiles(files){
+    const id = parseInt($picker.val(),10) || 0;
+    const current = providers.find(item=>item.id===id);
+    if (!id || !current || !files.length || galleryBusy) return;
+    const available = Math.max(0, 12 - ((current.gallery||[]).length + pendingGallery.length));
+    const $status = $('.koopo-provider-gallery-status');
+    if (!available) { $status.text('This portfolio already has 12 photos.'); return; }
+    const selected = files.slice(0, available);
+    const batch = selected.map((file,index)=>({file,key:`${Date.now()}-${index}-${Math.random().toString(36).slice(2)}`,url:URL.createObjectURL(file)}));
+    pendingGallery = pendingGallery.concat(batch);
+    renderGallery(current);
+    galleryBusy = true;
+    try {
+      for (let index=0; index<batch.length; index++) {
+        const item = batch[index];
+        const media = await window.KOOPO_VENDOR_UTILS.uploadServiceProfileGalleryImage(id,item.file,percent=>$status.text(`Uploading photo ${index+1} of ${batch.length} — ${percent}%…`));
+        current.gallery = Array.isArray(media.gallery) ? media.gallery : current.gallery;
+        pendingGallery = pendingGallery.filter(pending=>pending.key!==item.key);
+        URL.revokeObjectURL(item.url);
+        renderGallery(current);
+      }
+      $status.text(selected.length<files.length?`Added ${selected.length} photos. The portfolio limit is 12.`:`Added ${selected.length} ${selected.length===1?'photo':'photos'} to your portfolio.`);
+    } catch(error) {
+      $status.text(error.message || 'Portfolio upload failed.');
+    } finally {
+      batch.forEach(item=>URL.revokeObjectURL(item.url));
+      pendingGallery = pendingGallery.filter(item=>!batch.some(batchItem=>batchItem.key===item.key));
+      galleryBusy = false;
+      renderGallery(current);
+      $('#koopo-provider-gallery-files').val('');
+    }
   }
 
   function render(provider){
@@ -80,10 +191,39 @@
     providers = await Promise.all(ids.map(id => api(`/providers/${id}`, { method:'GET' })));
     $picker.html('<option value="">Select service profile…</option>');
     providers.forEach(item => $picker.append(`<option value="${item.id}">${$('<div>').text(item.name).html()}</option>`));
-    if (providers.length) $picker.prop('selectedIndex', 1).trigger('change');
+    renderCards();
   }
 
   $picker.on('change', function(){ render(providers.find(item => item.id === parseInt($(this).val(), 10)) || null); });
+  $(document).on('click', '[data-provider-open]', function(){ openEditor(providers.find(item => item.id === Number($(this).data('provider-open'))), this); });
+  $(document).on('click', '[data-koopo-modal-close]', closeEditor);
+  $(document).on('keydown', function(event){
+    if ($modal.prop('hidden')) return;
+    if (event.key === 'Escape') { event.preventDefault(); closeEditor(); return; }
+    if (event.key !== 'Tab') return;
+    const focusable = $modal.find('a[href],button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),[tabindex]:not([tabindex="-1"])').filter(':visible').get();
+    if (!focusable.length) return;
+    const first = focusable[0], last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+  });
+  $('[data-koopo-create-toggle]').on('click', function(){
+    if (!entitlement.can_create) return;
+    const opening = $createPanel.prop('hidden');
+    $createPanel.prop('hidden', !opening);
+    $(this).attr('aria-expanded', opening ? 'true' : 'false');
+    if (opening) window.requestAnimationFrame(() => $('#koopo-provider-name').trigger('focus'));
+  });
+  $('[data-koopo-create-close]').on('click', function(){ $createPanel.prop('hidden', true); $('[data-koopo-create-toggle]').attr('aria-expanded', 'false').trigger('focus'); });
+  $(document).on('koopo:provider-created', function(event, provider){
+    if (!provider || !provider.id) return;
+    providers.push(provider);
+    $picker.append(`<option value="${provider.id}">${escapeHtml(provider.name)}</option>`);
+    renderCards();
+    $createPanel.prop('hidden', true);
+    $('[data-koopo-create-toggle]').attr('aria-expanded', 'false');
+    $('.koopo-provider-create-status').text('Profile created.');
+  });
   $('#koopo-provider-edit-image').on('change', async function(){
     const id = parseInt($picker.val(), 10) || 0;
     const file = this.files && this.files[0];
@@ -94,21 +234,16 @@
       const media = await window.KOOPO_VENDOR_UTILS.uploadServiceProfileImage(id, file, percent => $status.text(`Uploading directly ${percent}%…`));
       const provider = await api(`/providers/${id}`, {method:'GET'});
       providers = providers.map(item => item.id === id ? provider : item);
-      render(provider); $status.text('Profile image updated.'); this.value = '';
+      render(provider); renderCards(); $status.text('Profile image updated.'); this.value = '';
     } catch(error) { $status.text(error.message || 'Image upload failed.'); }
   });
-  $('#koopo-provider-gallery-files').on('change', async function(){
-    const id=parseInt($picker.val(),10)||0; const files=[...(this.files||[])]; if(!id||!files.length)return;
-    const current=providers.find(item=>item.id===id); const available=Math.max(0,12-((current&&current.gallery||[]).length));
-    const $status=$('.koopo-provider-gallery-status'); if(!available){$status.text('This gallery already has 12 photos.');this.value='';return;}
-    try {
-      const selected=files.slice(0,available);
-      for(let index=0;index<selected.length;index++) await window.KOOPO_VENDOR_UTILS.uploadServiceProfileGalleryImage(id,selected[index],percent=>$status.text(`Uploading photo ${index+1} of ${selected.length} — ${percent}%…`));
-      const provider=await api(`/providers/${id}`,{method:'GET'}); providers=providers.map(item=>item.id===id?provider:item); render(provider);
-      $status.text(selected.length<files.length?`Added ${selected.length} photos. The gallery limit is 12.`:`Added ${selected.length} ${selected.length===1?'photo':'photos'}.`); this.value='';
-    } catch(error){$status.text(error.message||'Gallery upload failed.');}
-  });
+  $('#koopo-provider-gallery-files').on('change', function(){ uploadPortfolioFiles([...(this.files||[])]); });
+  $('[data-koopo-provider-gallery-drop]').on('keydown', function(event){ if(event.key==='Enter'||event.key===' '){event.preventDefault();$('#koopo-provider-gallery-files').trigger('click');} });
+  $('[data-koopo-provider-gallery-drop]').on('dragenter dragover', function(event){event.preventDefault();event.originalEvent.dataTransfer.dropEffect='copy';$(this).addClass('is-drag-over');});
+  $('[data-koopo-provider-gallery-drop]').on('dragleave', function(event){if(!event.relatedTarget||!this.contains(event.relatedTarget))$(this).removeClass('is-drag-over');});
+  $('[data-koopo-provider-gallery-drop]').on('drop', function(event){event.preventDefault();$(this).removeClass('is-drag-over');uploadPortfolioFiles([...(event.originalEvent.dataTransfer.files||[])]);});
   $(document).on('click','[data-gallery-remove]',async function(){
+    if(galleryBusy)return;
     const id=parseInt($picker.val(),10)||0; const attachmentId=parseInt($(this).closest('[data-gallery-id]').data('gallery-id'),10)||0; if(!id||!attachmentId)return;
     const $status=$('.koopo-provider-gallery-status').text('Removing photo…');
     try{const result=await api(`/providers/${id}/gallery/${attachmentId}`,{method:'DELETE'}); const provider=providers.find(item=>item.id===id); provider.gallery=result.gallery||[];renderGallery(provider);$status.text('Photo removed.');}catch(error){$status.text(error.message||'Unable to remove photo.');}
@@ -116,9 +251,16 @@
   $(document).on('click','[data-gallery-move]',async function(){
     const id=parseInt($picker.val(),10)||0; const provider=providers.find(item=>item.id===id); if(!id||!provider)return;
     const attachmentId=parseInt($(this).closest('[data-gallery-id]').data('gallery-id'),10)||0; const from=provider.gallery.findIndex(image=>Number(image.id)===attachmentId); const to=$(this).data('gallery-move')==='up'?from-1:from+1; if(from<0||to<0||to>=provider.gallery.length)return;
-    const next=provider.gallery.slice(); [next[from],next[to]]=[next[to],next[from]]; provider.gallery=next;renderGallery(provider);
-    const $status=$('.koopo-provider-gallery-status').text('Saving gallery order…');
-    try{const result=await api(`/providers/${id}/gallery`,{method:'POST',body:JSON.stringify({attachment_ids:next.map(image=>image.id)})});provider.gallery=result.gallery||next;renderGallery(provider);$status.text('Gallery order saved.');}catch(error){$status.text(error.message||'Unable to save gallery order.');}
+    const next=provider.gallery.slice(); [next[from],next[to]]=[next[to],next[from]]; await persistGalleryOrder(provider,next);
+  });
+  $(document).on('dragstart','[data-koopo-provider-gallery] [data-gallery-id]',function(event){
+    if(galleryBusy){event.preventDefault();return;} draggedGalleryId=Number($(this).data('gallery-id'))||0; $(this).addClass('is-dragging'); event.originalEvent.dataTransfer.effectAllowed='move'; event.originalEvent.dataTransfer.setData('text/plain',String(draggedGalleryId));
+  });
+  $(document).on('dragend','[data-koopo-provider-gallery] [data-gallery-id]',function(){$(this).removeClass('is-dragging');$('[data-gallery-id]').removeClass('is-drag-target');draggedGalleryId=0;});
+  $(document).on('dragover','[data-koopo-provider-gallery] [data-gallery-id]',function(event){if(!draggedGalleryId)return;event.preventDefault();$(this).addClass('is-drag-target').siblings().removeClass('is-drag-target');});
+  $(document).on('drop','[data-koopo-provider-gallery] [data-gallery-id]',async function(event){
+    event.preventDefault(); const id=parseInt($picker.val(),10)||0; const provider=providers.find(item=>item.id===id); const targetId=Number($(this).data('gallery-id'))||0; $('[data-gallery-id]').removeClass('is-drag-target'); if(!provider||!draggedGalleryId||targetId===draggedGalleryId)return;
+    const from=provider.gallery.findIndex(image=>Number(image.id)===draggedGalleryId); const to=provider.gallery.findIndex(image=>Number(image.id)===targetId); if(from<0||to<0)return; const next=provider.gallery.slice(); const [moved]=next.splice(from,1); next.splice(to,0,moved); await persistGalleryOrder(provider,next);
   });
   $('#koopo-provider-edit-save').on('click', async function(){
     const id = parseInt($picker.val(), 10) || 0;
@@ -160,7 +302,8 @@
       }
       const refreshed = await api(`/providers/${id}`, {method:'GET'});
       providers = providers.map(item => item.id === id ? refreshed : item);
-      render(refreshed);
+      render(refreshed); renderCards();
+      $('#koopo-provider-editor-title').text(`Edit ${refreshed.name}`);
       $status.text('Profile saved.');
     } catch (error) { $status.text(error.message || 'Save failed.'); }
   });

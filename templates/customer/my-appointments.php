@@ -212,16 +212,20 @@ defined('ABSPATH') || exit;
       <a href="#" class="koopo-btn koopo-btn--small koopo-btn-order" target="_blank" style="display:none;">
         <?php esc_html_e('View Order', 'koopo-appointments'); ?>
       </a>
-      <button type="button" class="koopo-btn koopo-btn--small koopo-btn-forms" style="display:none;">
-        <?php esc_html_e('Required Forms', 'koopo-appointments'); ?>
-      </button>
+      <?php if (\Koopo_Appointments\Features::client_forms_enabled()): ?>
+        <button type="button" class="koopo-btn koopo-btn--small koopo-btn-forms" style="display:none;">
+          <?php esc_html_e('Required Forms', 'koopo-appointments'); ?>
+        </button>
+      <?php endif; ?>
     </div>
   </div>
 </template>
 
-<div class="koopo-modal" id="koopo-forms-modal" style="display:none;">
-  <div class="koopo-modal__card koopo-forms-modal__card"><button class="koopo-modal__close" type="button">&times;</button><span class="koopo-forms-eyebrow"><?php esc_html_e('Private appointment forms', 'koopo-appointments'); ?></span><h3><?php esc_html_e('Intake & Consent', 'koopo-appointments'); ?></h3><div data-customer-forms></div></div>
-</div>
+<?php if (\Koopo_Appointments\Features::client_forms_enabled()): ?>
+  <div class="koopo-modal" id="koopo-forms-modal" style="display:none;">
+    <div class="koopo-modal__card koopo-forms-modal__card"><button class="koopo-modal__close" type="button">&times;</button><span class="koopo-forms-eyebrow"><?php esc_html_e('Private appointment forms', 'koopo-appointments'); ?></span><h3><?php esc_html_e('Intake & Consent', 'koopo-appointments'); ?></h3><div data-customer-forms></div></div>
+  </div>
+<?php endif; ?>
 
 <!-- Empty state template -->
 <template id="koopo-empty-state-template">

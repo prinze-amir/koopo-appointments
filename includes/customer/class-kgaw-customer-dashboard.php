@@ -163,6 +163,9 @@ class Customer_Dashboard {
       'api_url' => rest_url('koopo/v1'),
       'nonce' => wp_create_nonce('wp_rest'),
       'currency_symbol' => get_woocommerce_currency_symbol(),
+      'features' => [
+        'clientForms' => Features::client_forms_enabled(),
+      ],
       'i18n' => [
         'confirm_cancel' => __('Are you sure you want to cancel this appointment? This action cannot be undone.', 'koopo-appointments'),
         'cancel_success' => __('Appointment cancelled successfully.', 'koopo-appointments'),

@@ -17,31 +17,36 @@ final class Client_Records {
 
   public static function routes(): void {
     $id_arg=['type'=>'integer','minimum'=>1,'validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'absint'];
-    register_rest_route('koopo/v1', '/vendor/clients', ['methods'=>'GET','callback'=>[__CLASS__,'list_clients'],'permission_callback'=>static fn():bool=>is_user_logged_in(),'args'=>[
+    register_rest_route('koopo/v1', '/vendor/clients', ['methods'=>'GET','callback'=>[__CLASS__,'list_clients'],'permission_callback'=>[__CLASS__,'permission'],'args'=>[
       'resource_id'=>array_merge($id_arg,['required'=>true]),
       'page'=>['type'=>'integer','default'=>1,'minimum'=>1,'maximum'=>10000,'validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'absint'],
       'per_page'=>['type'=>'integer','default'=>25,'minimum'=>1,'maximum'=>100,'validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'absint'],
       'search'=>['type'=>'string','maxLength'=>100,'validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'sanitize_text_field'],
     ]]);
     register_rest_route('koopo/v1', '/vendor/clients/(?P<id>\d+)', [
-      ['methods'=>'GET','callback'=>[__CLASS__,'get_client'],'permission_callback'=>static fn():bool=>is_user_logged_in(),'args'=>['id'=>$id_arg]],
-      ['methods'=>'PUT,POST','callback'=>[__CLASS__,'update_client'],'permission_callback'=>static fn():bool=>is_user_logged_in(),'args'=>array_merge(['id'=>$id_arg],self::client_update_args())],
+      ['methods'=>'GET','callback'=>[__CLASS__,'get_client'],'permission_callback'=>[__CLASS__,'permission'],'args'=>['id'=>$id_arg]],
+      ['methods'=>'PUT,POST','callback'=>[__CLASS__,'update_client'],'permission_callback'=>[__CLASS__,'permission'],'args'=>array_merge(['id'=>$id_arg],self::client_update_args())],
     ]);
     register_rest_route('koopo/v1', '/vendor/client-forms', [
-      ['methods'=>'GET','callback'=>[__CLASS__,'list_forms'],'permission_callback'=>static fn():bool=>is_user_logged_in(),'args'=>['resource_id'=>array_merge($id_arg,['required'=>true])]],
-      ['methods'=>'POST','callback'=>[__CLASS__,'save_form'],'permission_callback'=>static fn():bool=>is_user_logged_in(),'args'=>self::form_args(true)],
+      ['methods'=>'GET','callback'=>[__CLASS__,'list_forms'],'permission_callback'=>[__CLASS__,'permission'],'args'=>['resource_id'=>array_merge($id_arg,['required'=>true])]],
+      ['methods'=>'POST','callback'=>[__CLASS__,'save_form'],'permission_callback'=>[__CLASS__,'permission'],'args'=>self::form_args(true)],
     ]);
     register_rest_route('koopo/v1', '/vendor/client-forms/(?P<id>\d+)', [
-      ['methods'=>'PUT,POST','callback'=>[__CLASS__,'save_form'],'permission_callback'=>static fn():bool=>is_user_logged_in(),'args'=>array_merge(['id'=>$id_arg],self::form_args(false))],
-      ['methods'=>'DELETE','callback'=>[__CLASS__,'delete_form'],'permission_callback'=>static fn():bool=>is_user_logged_in(),'args'=>['id'=>$id_arg]],
+      ['methods'=>'PUT,POST','callback'=>[__CLASS__,'save_form'],'permission_callback'=>[__CLASS__,'permission'],'args'=>array_merge(['id'=>$id_arg],self::form_args(false))],
+      ['methods'=>'DELETE','callback'=>[__CLASS__,'delete_form'],'permission_callback'=>[__CLASS__,'permission'],'args'=>['id'=>$id_arg]],
     ]);
-    register_rest_route('koopo/v1', '/customer/bookings/(?P<booking_id>\d+)/forms', ['methods'=>'GET','callback'=>[__CLASS__,'booking_forms'],'permission_callback'=>static fn():bool=>is_user_logged_in(),'args'=>['booking_id'=>$id_arg]]);
-    register_rest_route('koopo/v1', '/customer/bookings/(?P<booking_id>\d+)/forms/(?P<form_id>\d+)', ['methods'=>'POST','callback'=>[__CLASS__,'submit_form'],'permission_callback'=>static fn():bool=>is_user_logged_in(),'args'=>[
+    register_rest_route('koopo/v1', '/customer/bookings/(?P<booking_id>\d+)/forms', ['methods'=>'GET','callback'=>[__CLASS__,'booking_forms'],'permission_callback'=>[__CLASS__,'permission'],'args'=>['booking_id'=>$id_arg]]);
+    register_rest_route('koopo/v1', '/customer/bookings/(?P<booking_id>\d+)/forms/(?P<form_id>\d+)', ['methods'=>'POST','callback'=>[__CLASS__,'submit_form'],'permission_callback'=>[__CLASS__,'permission'],'args'=>[
       'booking_id'=>$id_arg,
       'form_id'=>$id_arg,
       'answers'=>['type'=>'object','required'=>true,'maxProperties'=>50,'validate_callback'=>'rest_validate_request_arg'],
       'signature_name'=>['type'=>'string','maxLength'=>191,'validate_callback'=>'rest_validate_request_arg','sanitize_callback'=>'sanitize_text_field'],
     ]]);
+  }
+
+  public static function permission() {
+    if (!is_user_logged_in()) return new \WP_Error('koopo_appt_auth_required', __('Authentication is required.', 'koopo-appointments'), ['status'=>401]);
+    return Features::client_forms_enabled() ? true : Features::unavailable_error('client_forms');
   }
 
   private static function client_update_args(): array {
@@ -80,6 +85,7 @@ final class Client_Records {
   }
 
   public static function capture_booking(int $booking_id, $booking): void {
+    if (!Features::client_forms_enabled()) return;
     $booking = $booking ?: Bookings::get_booking($booking_id);
     if (!$booking) return;
     $resource_id = Resources::booking_resource_id($booking);
@@ -272,7 +278,7 @@ final class Client_Records {
     return $clean;
   }
 
-  public static function send_form_request(int $booking_id,int $form_id):void{$booking=Bookings::get_booking($booking_id);if(!$booking||(string)$booking->status!=='confirmed')return;global $wpdb;$form=$wpdb->get_row($wpdb->prepare('SELECT f.*,s.status submission_status FROM '.DB::client_forms_table().' f INNER JOIN '.DB::form_submissions_table().' s ON s.form_id=f.id WHERE f.id=%d AND s.booking_id=%d',$form_id,$booking_id));if(!$form||$form->submission_status==='completed')return;$email=(string)Bookings::extra_from_record($booking,'customer_email','');if(!$email&&$booking->customer_id){$user=get_userdata((int)$booking->customer_id);$email=$user?(string)$user->user_email:'';}if(!$email)return;$url=class_exists(MyAccount::class)?MyAccount::appointments_url():home_url('/');wp_mail($email,sprintf(__('Please complete %s before your appointment','koopo-appointments'),$form->title),sprintf("Your provider requires this private form before your appointment.\n\n%s",$url));}
+  public static function send_form_request(int $booking_id,int $form_id):void{if(!Features::client_forms_enabled())return;$booking=Bookings::get_booking($booking_id);if(!$booking||(string)$booking->status!=='confirmed')return;global $wpdb;$form=$wpdb->get_row($wpdb->prepare('SELECT f.*,s.status submission_status FROM '.DB::client_forms_table().' f INNER JOIN '.DB::form_submissions_table().' s ON s.form_id=f.id WHERE f.id=%d AND s.booking_id=%d',$form_id,$booking_id));if(!$form||$form->submission_status==='completed')return;$email=(string)Bookings::extra_from_record($booking,'customer_email','');if(!$email&&$booking->customer_id){$user=get_userdata((int)$booking->customer_id);$email=$user?(string)$user->user_email:'';}if(!$email)return;$url=class_exists(MyAccount::class)?MyAccount::appointments_url():home_url('/');wp_mail($email,sprintf(__('Please complete %s before your appointment','koopo-appointments'),$form->title),sprintf("Your provider requires this private form before your appointment.\n\n%s",$url));}
 
   private static function required_forms(int $resource_id,int $service_id):array{global $wpdb;return $wpdb->get_results($wpdb->prepare('SELECT * FROM '.DB::client_forms_table().' WHERE resource_id=%d AND enabled=1 AND (service_id IS NULL OR service_id=0 OR service_id=%d)',$resource_id,$service_id))?:[];}
   private static function format_client(object $r):array{return ['id'=>(int)$r->id,'resource_id'=>(int)$r->resource_id,'wp_user_id'=>(int)$r->wp_user_id,'name'=>(string)$r->name,'email'=>(string)$r->email,'phone'=>(string)$r->phone,'birthday'=>$r->birthday,'preferences'=>(string)$r->preferences,'formulas'=>(string)$r->formulas,'private_notes'=>(string)$r->private_notes,'appointment_count'=>(int)($r->appointment_count??0),'last_appointment'=>$r->last_appointment??null,'created_at'=>$r->created_at];}

@@ -263,16 +263,25 @@
     $button.prop('disabled', true);
     $status.text('Creating profile…');
     try {
-      const provider = await api('/providers', { method:'POST', body: JSON.stringify({ name, headline, category_id: categoryId, service_modes: serviceModes,
+      let provider = await api('/providers', { method:'POST', body: JSON.stringify({ name, headline, category_id: categoryId, service_modes: serviceModes,
         location_name: $('#koopo-provider-location-name').val(), address: $('#koopo-provider-address').val(), city: $('#koopo-provider-city').val(), region: $('#koopo-provider-region').val(), postal_code: $('#koopo-provider-postal').val(), country: $('#koopo-provider-country').val(), latitude: $('#koopo-provider-latitude').val(), longitude: $('#koopo-provider-longitude').val(), location_public: $('#koopo-provider-location-public').is(':checked')
       }) });
       const imageInput = document.getElementById('koopo-provider-image');
       if (imageInput && imageInput.files && imageInput.files[0]) {
         $status.text('Uploading profile image directly…');
-        try { await uploadServiceProfileImage(provider.id, imageInput.files[0], percent => $status.text(`Uploading profile image ${percent}%…`)); }
+        try { await uploadServiceProfileImage(provider.id, imageInput.files[0], percent => $status.text(`Uploading profile image ${percent}%…`)); provider = await api(`/providers/${provider.id}`, {method:'GET'}); }
         catch (imageError) { $status.text(`Profile created. Image upload needs another try: ${imageError.message}`); window.setTimeout(() => window.location.reload(), 1800); return; }
       }
-      window.location.reload();
+      if (document.querySelector('[data-koopo-provider-library]')) {
+        $('#koopo-provider-name,#koopo-provider-headline,#koopo-provider-location-name,#koopo-provider-address,#koopo-provider-city,#koopo-provider-region,#koopo-provider-postal,#koopo-provider-latitude,#koopo-provider-longitude').val('');
+        $('#koopo-provider-category').val(''); $('.koopo-provider-mode').prop('checked', false).filter('[value="at_location"]').prop('checked', true);
+        if (imageInput) imageInput.value = '';
+        $('[data-koopo-provider-create-preview]').html('<span aria-hidden="true">+</span>');
+        $(document).trigger('koopo:provider-created', [provider]);
+        $button.prop('disabled', false);
+      } else {
+        window.location.reload();
+      }
     } catch (error) {
       $status.text(error.message || 'Unable to create service profile.');
       $button.prop('disabled', false);

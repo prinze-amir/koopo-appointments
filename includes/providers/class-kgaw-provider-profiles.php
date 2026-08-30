@@ -20,6 +20,7 @@ final class Provider_Profiles {
   const META_GEOCODE_PROVIDER = '_koopo_provider_geocode_provider';
   const META_GEOCODED_AT = '_koopo_provider_geocoded_at';
   const META_GEOCODE_ACCURACY = '_koopo_provider_geocode_accuracy';
+  const META_GEOCODE_ERROR = '_koopo_provider_geocode_error';
   const META_LOCATION_PUBLIC = '_koopo_provider_location_public';
   const META_VIRTUAL_METHOD = '_koopo_provider_virtual_method';
   const META_VIRTUAL_URL = '_koopo_provider_virtual_url';
@@ -156,7 +157,8 @@ final class Provider_Profiles {
     $payload = (array) $request->get_json_params();
     $provider_id = self::create_for_user(get_current_user_id(), $payload);
     if (is_wp_error($provider_id)) {
-      $status = in_array($provider_id->get_error_code(), ['profile_name_required', 'service_mode_required'], true) ? 422 : 500;
+      $code = $provider_id->get_error_code();
+      $status = in_array($code, ['profile_name_required', 'service_mode_required'], true) ? 422 : ('profile_limit_reached' === $code ? 409 : ('profile_creation_busy' === $code ? 503 : 500));
       return new \WP_REST_Response(['error' => $provider_id->get_error_message(), 'code' => $provider_id->get_error_code()], $status);
     }
     return new \WP_REST_Response(self::format((int) $provider_id, true), 201);
@@ -168,7 +170,16 @@ final class Provider_Profiles {
     if (!$user_id) return new \WP_Error('invalid_provider_owner', __('A valid profile owner is required.', 'koopo-appointments'));
     if (!$title) return new \WP_Error('profile_name_required', __('Service profile name is required.', 'koopo-appointments'));
     if (empty($payload['service_modes']) || !is_array($payload['service_modes'])) return new \WP_Error('service_mode_required', __('Choose at least one service delivery option.', 'koopo-appointments'));
-    $provider_id = wp_insert_post([
+    global $wpdb;
+    $lock_name = 'koopo_profile_' . $user_id;
+    $lock_acquired = (string) $wpdb->get_var($wpdb->prepare('SELECT GET_LOCK(%s, 3)', $lock_name));
+    if ('0' === $lock_acquired) return new \WP_Error('profile_creation_busy', __('Another service profile is being created. Please try again.', 'koopo-appointments'));
+    try {
+      $entitlement = self::profile_entitlement($user_id);
+      if (!$entitlement['can_create']) {
+        return new \WP_Error('profile_limit_reached', sprintf(__('Your plan includes %s service profiles. Upgrade your subscription to create another.', 'koopo-appointments'), $entitlement['limit_label']));
+      }
+      $provider_id = wp_insert_post([
       'post_type' => self::POST_TYPE,
       'post_status' => 'publish',
       'post_title' => $title,
@@ -176,31 +187,51 @@ final class Provider_Profiles {
       'post_excerpt' => sanitize_textarea_field((string) ($payload['headline'] ?? '')),
       'post_author' => $user_id,
       'comment_status' => 'open',
-    ], true);
-    if (is_wp_error($provider_id)) return $provider_id;
-    $saved = self::save_meta((int) $provider_id, $payload);
-    if (is_wp_error($saved)) {
-      wp_delete_post((int) $provider_id, true);
-      return $saved;
+      ], true);
+      if (is_wp_error($provider_id)) return $provider_id;
+      $saved = self::save_meta((int) $provider_id, $payload);
+      if (is_wp_error($saved)) {
+        wp_delete_post((int) $provider_id, true);
+        return $saved;
+      }
+      update_post_meta((int) $provider_id, '_koopo_appt_enabled', '1');
+      $resource_id = Resources::ensure_for_provider((int) $provider_id);
+      update_post_meta((int) $provider_id, Resources::META_RESOURCE_ID, $resource_id);
+      return (int) $provider_id;
+    } finally {
+      if ('1' === $lock_acquired) $wpdb->get_var($wpdb->prepare('SELECT RELEASE_LOCK(%s)', $lock_name));
     }
-    update_post_meta((int) $provider_id, '_koopo_appt_enabled', '1');
-    $resource_id = Resources::ensure_for_provider((int) $provider_id);
-    update_post_meta((int) $provider_id, Resources::META_RESOURCE_ID, $resource_id);
-    return (int) $provider_id;
+  }
+
+  public static function owned_profile_ids(int $user_id): array {
+    if (!$user_id) return [];
+    return array_map('absint', get_posts([
+      'post_type'=>self::POST_TYPE,
+      'post_status'=>['publish','draft','pending','private'],
+      'author'=>$user_id,
+      'posts_per_page'=>-1,
+      'fields'=>'ids',
+      'orderby'=>'ID',
+      'order'=>'ASC',
+      'no_found_rows'=>true,
+    ]));
+  }
+
+  public static function profile_entitlement(int $user_id): array {
+    $used = count(self::owned_profile_ids($user_id));
+    $limit = Access::vendor_feature_limit($user_id, 'service_profiles', 1);
+    $unlimited = $limit < 0;
+    return [
+      'used'=>$used,
+      'limit'=>$unlimited ? null : $limit,
+      'limit_label'=>$unlimited ? __('Unlimited', 'koopo-appointments') : (string) $limit,
+      'remaining'=>$unlimited ? null : max(0, $limit - $used),
+      'can_create'=>$unlimited || $used < $limit,
+    ];
   }
 
   public static function owned_profile_id(int $user_id): int {
-    if (!$user_id) return 0;
-    $ids = get_posts([
-      'post_type' => self::POST_TYPE,
-      'post_status' => ['publish', 'draft', 'pending', 'private'],
-      'author' => $user_id,
-      'posts_per_page' => 1,
-      'fields' => 'ids',
-      'orderby' => 'ID',
-      'order' => 'ASC',
-      'no_found_rows' => true,
-    ]);
+    $ids = self::owned_profile_ids($user_id);
     return (int) ($ids[0] ?? 0);
   }
 
@@ -369,18 +400,30 @@ final class Provider_Profiles {
       } elseif ($address['city'] !== '' && ($address['address_1'] !== '' || $address['postal_code'] !== '')) {
         $is_public = array_key_exists('location_public', $payload) ? !empty($payload['location_public']) : '1' === (string) get_post_meta($provider_id, self::META_LOCATION_PUBLIC, true);
         $geocoded = Service_Areas::geocode($address, $is_public ? Geocoding_Router::PUBLIC_PRIVACY_CLASS : 'provider_private', 'provider_profile_location');
-        if (is_wp_error($geocoded)) return $geocoded;
-        $payload['latitude'] = $geocoded['latitude'];
-        $payload['longitude'] = $geocoded['longitude'];
-        update_post_meta($provider_id, self::META_GEOCODE_PROVIDER, sanitize_key((string) ($geocoded['provider'] ?? 'custom')));
-        update_post_meta($provider_id, self::META_GEOCODED_AT, sanitize_text_field((string) ($geocoded['geocoded_at'] ?? current_time('mysql', true))));
-        update_post_meta($provider_id, self::META_GEOCODE_ACCURACY, sanitize_text_field((string) ($geocoded['accuracy'] ?? '')));
+        if (is_wp_error($geocoded)) {
+          // A provider profile remains useful without map coordinates. Preserve the
+          // address and retry verification on a later edit instead of losing it.
+          $payload['latitude'] = '';
+          $payload['longitude'] = '';
+          update_post_meta($provider_id, self::META_GEOCODE_ERROR, sanitize_key($geocoded->get_error_code()));
+          delete_post_meta($provider_id, self::META_GEOCODE_PROVIDER);
+          delete_post_meta($provider_id, self::META_GEOCODED_AT);
+          delete_post_meta($provider_id, self::META_GEOCODE_ACCURACY);
+        } else {
+          $payload['latitude'] = $geocoded['latitude'];
+          $payload['longitude'] = $geocoded['longitude'];
+          update_post_meta($provider_id, self::META_GEOCODE_PROVIDER, sanitize_key((string) ($geocoded['provider'] ?? 'custom')));
+          update_post_meta($provider_id, self::META_GEOCODED_AT, sanitize_text_field((string) ($geocoded['geocoded_at'] ?? current_time('mysql', true))));
+          update_post_meta($provider_id, self::META_GEOCODE_ACCURACY, sanitize_text_field((string) ($geocoded['accuracy'] ?? '')));
+          delete_post_meta($provider_id, self::META_GEOCODE_ERROR);
+        }
       } else {
         $payload['latitude'] = '';
         $payload['longitude'] = '';
         delete_post_meta($provider_id, self::META_GEOCODE_PROVIDER);
         delete_post_meta($provider_id, self::META_GEOCODED_AT);
         delete_post_meta($provider_id, self::META_GEOCODE_ACCURACY);
+        delete_post_meta($provider_id, self::META_GEOCODE_ERROR);
       }
     }
     if (array_key_exists('service_area', $payload) && is_array($payload['service_area']) && class_exists(Service_Areas::class)) {

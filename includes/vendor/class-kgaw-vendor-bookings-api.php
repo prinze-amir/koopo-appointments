@@ -131,6 +131,23 @@ class Vendor_Bookings_API {
     return self::$listing_title_cache[$listing_id];
   }
 
+  private static function customer_message_url(int $customer_id): string {
+    if ($customer_id <= 0 || $customer_id === get_current_user_id()) return '';
+    if (!function_exists('bp_loggedin_user_domain') || !function_exists('bp_get_messages_slug') || !function_exists('bp_members_get_user_nicename')) return '';
+    if (function_exists('bp_is_active') && !bp_is_active('messages')) return '';
+
+    $recipient = (string) bp_members_get_user_nicename($customer_id);
+    $sender_domain = (string) bp_loggedin_user_domain();
+    $messages_slug = (string) bp_get_messages_slug();
+    if ($recipient === '' || $sender_domain === '' || $messages_slug === '') return '';
+
+    return esc_url_raw(add_query_arg(
+      'r',
+      $recipient,
+      trailingslashit($sender_domain) . trailingslashit($messages_slug) . 'compose/'
+    ));
+  }
+
   private static function service_title(int $service_id): string {
     if (!$service_id) return '';
     if (!array_key_exists($service_id, self::$service_title_cache)) {
@@ -357,6 +374,7 @@ class Vendor_Bookings_API {
       $customer_phone = '';
       $customer_avatar = '';
       $customer_profile = '';
+      $customer_message_url = '';
       if (!empty($r['customer_id'])) {
         $user = get_userdata((int)$r['customer_id']);
         $customer_name = $user->display_name ?? '';
@@ -367,6 +385,7 @@ class Vendor_Bookings_API {
         } else {
           $customer_profile = get_author_posts_url((int)$r['customer_id']);
         }
+        $customer_message_url = self::customer_message_url((int) $r['customer_id']);
       }
       $booking_id = (int) $r['id'];
       if (!$customer_name) {
@@ -425,6 +444,7 @@ class Vendor_Bookings_API {
         'customer_phone' => $customer_phone ?: '',
         'customer_avatar' => $customer_avatar ?: '',
         'customer_profile' => $customer_profile ?: '',
+        'customer_message_url' => $customer_message_url,
         'customer_is_guest' => empty($r['customer_id']),
         'booking_for_other' => $booking_for_other,
         'start_datetime' => $r['start_datetime'],

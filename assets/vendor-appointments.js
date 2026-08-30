@@ -1289,15 +1289,18 @@
     });
 
     function openApptDetails(b){
+      $('#koopo-appt-details-reference').text(`Appointment #${Number(b.id || 0)}`);
       $('#koopo-appt-details-customer').html(renderAvatar(b, { showName: true }) + (b.customer_is_guest ? ' <span class="koopo-guest-badge">Guest</span>' : ''));
       const metaParts = [];
       if (b.customer_email) metaParts.push(`<a class="koopo-link-pill" href="mailto:${escapeHtml(b.customer_email)}">Email</a>`);
       if (b.customer_phone) metaParts.push(`<a class="koopo-link-pill" href="tel:${escapeHtml(b.customer_phone)}">Call</a>`);
+      if (b.customer_message_url) metaParts.push(`<a class="koopo-link-pill" href="${escapeHtml(b.customer_message_url)}" target="_blank" rel="noopener">Message</a>`);
       if (b.customer_profile) metaParts.push(`<a class="koopo-link-pill" href="${escapeHtml(b.customer_profile)}" target="_blank" rel="noopener">Profile</a>`);
       $('#koopo-appt-details-meta').html(metaParts.join(' ') || '—');
       $('#koopo-appt-details-service').html(`<span class="koopo-service-cell" style="--service-color:${escapeHtml(b.service_color || '#e5e5e5')}"><span class="koopo-service-color" style="background:${escapeHtml(b.service_color || '#e5e5e5')}"></span>${escapeHtml(b.service_title || '')}</span>`);
       const addonTitles = Array.isArray(b.addon_titles) ? b.addon_titles.filter(Boolean) : [];
-      $('#koopo-appt-details-addons').text(addonTitles.length ? addonTitles.join(', ') : '—');
+      $('#koopo-appt-details-addons').text(addonTitles.join(', '));
+      $('#koopo-appt-details-addons-wrap').toggle(addonTitles.length > 0);
       const baseDuration = Number(b.service_duration || 0);
       const addonDuration = Number(b.addon_total_duration || 0);
       const totalDuration = baseDuration + addonDuration;
@@ -1341,7 +1344,8 @@
         $('#koopo-appt-details-sms-evidence').empty();
         $('#koopo-appt-details-sms-evidence-row').hide();
       }
-      $apptDetailsActions.html(actionsForBooking(b));
+      const actionMarkup = actionsForBooking(b);
+      $apptDetailsActions.html(actionMarkup === '—' ? '' : actionMarkup);
       $apptDetailsModal.show();
     }
 

@@ -96,6 +96,7 @@
   }
 
   function waitlistPrompt($root, date){
+    if (!(window.KOOPO_APPT && KOOPO_APPT.features && KOOPO_APPT.features.waitlist)) return '';
     const start = date || fmtDate(new Date());
     const end = fmtDate(addDays(new Date(`${start}T12:00:00`), 30));
     const day = ['sun','mon','tue','wed','thu','fri','sat'][new Date(`${start}T12:00:00`).getDay()];
@@ -963,6 +964,7 @@
   }
 
   $(function(){
+    if (!(window.KOOPO_APPT && KOOPO_APPT.features && KOOPO_APPT.features.waitlist)) return;
     const token = new URLSearchParams(window.location.search).get('koopo_waitlist_offer');
     if (!token) return;
     $('.koopo-appt').each(function(){

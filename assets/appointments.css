@@ -96,16 +96,20 @@ body.koopo-appt--modal-open {
 
 .koopo-appt__close {
   position: absolute;
-  right: 16px;
+  right: 12px;
   top: 12px;
-  font-size: 2rem !important;
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  font-size: 28px !important;
   background: transparent;
   border: none;
   cursor: pointer;
   color: #666;
   z-index: 10;
   line-height: 1;
-  padding: 4px 8px;
 }
 
 .koopo-appt__close:hover {
@@ -221,7 +225,6 @@ body.koopo-appt--modal-open {
 textarea.koopo-appt__field {
   resize: vertical;
   min-height: 80px;
-  font-family: inherit;
 }
 
 .koopo-appt__form-grid {
@@ -834,3 +837,4 @@ textarea.koopo-appt__field {
     grid-template-columns: 1fr;
   }
 }
+.koopo-appt button,.koopo-appt input,.koopo-appt select,.koopo-appt textarea{font-family:inherit}

@@ -296,66 +296,74 @@ $koopo_sms_unavailable = in_array((string)($koopo_sms_status['unavailable_reason
   </div>
 
   <div class="koopo-modal" id="koopo-appt-details-modal" style="display:none;">
-    <div class="koopo-modal__card koopo-modal__card--wide">
-      <button class="koopo-modal__close" type="button">&times;</button>
-      <h3><?php esc_html_e('Appointment Details', 'appointments'); ?></h3>
+    <div class="koopo-modal__card koopo-modal__card--wide koopo-appt-details-dialog" role="dialog" aria-modal="true" aria-labelledby="koopo-appt-details-title">
+      <button class="koopo-modal__close" type="button" aria-label="<?php esc_attr_e('Close appointment details', 'appointments'); ?>">&times;</button>
+
+      <header class="koopo-appt-details__header">
+        <div>
+          <div class="koopo-appt-details__eyebrow" id="koopo-appt-details-reference"></div>
+          <h3 id="koopo-appt-details-title"><?php esc_html_e('Appointment Details', 'appointments'); ?></h3>
+        </div>
+        <div id="koopo-appt-details-status"></div>
+      </header>
 
       <div class="koopo-appt-details">
-        <div class="koopo-appt-details__row">
+        <section class="koopo-appt-details__section koopo-appt-details__section--customer">
           <div class="koopo-appt-details__label"><?php esc_html_e('Customer', 'appointments'); ?></div>
-          <div class="koopo-appt-details__value" id="koopo-appt-details-customer"></div>
-        </div>
-        <div class="koopo-appt-details__row">
-          <div class="koopo-appt-details__label"><?php esc_html_e('Customer Info', 'appointments'); ?></div>
-          <div class="koopo-appt-details__value">
+          <div class="koopo-appt-details__customer-row">
+            <div class="koopo-appt-details__value" id="koopo-appt-details-customer"></div>
             <div class="koopo-appt-details__meta" id="koopo-appt-details-meta"></div>
           </div>
-        </div>
-        <div class="koopo-appt-details__row">
-          <div class="koopo-appt-details__label"><?php esc_html_e('Service', 'appointments'); ?></div>
-          <div class="koopo-appt-details__value" id="koopo-appt-details-service"></div>
-        </div>
-        <div class="koopo-appt-details__row">
-          <div class="koopo-appt-details__label"><?php esc_html_e('Add-ons', 'appointments'); ?></div>
-          <div class="koopo-appt-details__value" id="koopo-appt-details-addons"></div>
-        </div>
-        <div class="koopo-appt-details__row">
-          <div class="koopo-appt-details__label"><?php esc_html_e('Duration', 'appointments'); ?></div>
-          <div class="koopo-appt-details__value" id="koopo-appt-details-duration"></div>
-        </div>
-        <div class="koopo-appt-details__row">
-          <div class="koopo-appt-details__label"><?php esc_html_e('When', 'appointments'); ?></div>
-          <div class="koopo-appt-details__value" id="koopo-appt-details-when"></div>
-        </div>
-        <div class="koopo-appt-details__row">
-          <div class="koopo-appt-details__label"><?php esc_html_e('Status', 'appointments'); ?></div>
-          <div class="koopo-appt-details__value" id="koopo-appt-details-status"></div>
-        </div>
-        <div class="koopo-appt-details__row">
-          <div class="koopo-appt-details__label"><?php esc_html_e('Cancellation', 'appointments'); ?></div>
-          <div class="koopo-appt-details__value" id="koopo-appt-details-cancelled"></div>
-        </div>
-        <div class="koopo-appt-details__row">
-          <div class="koopo-appt-details__label"><?php esc_html_e('Refund', 'appointments'); ?></div>
-          <div class="koopo-appt-details__value" id="koopo-appt-details-refund"></div>
-        </div>
-        <div class="koopo-appt-details__row">
-          <div class="koopo-appt-details__label"><?php esc_html_e('Total', 'appointments'); ?></div>
-          <div class="koopo-appt-details__value" id="koopo-appt-details-total"></div>
-        </div>
-        <div class="koopo-appt-details__row">
-          <div class="koopo-appt-details__label"><?php esc_html_e('Price Breakdown', 'appointments'); ?></div>
-          <div class="koopo-appt-details__value" id="koopo-appt-details-pricing"></div>
-        </div>
-        <div class="koopo-appt-details__row" id="koopo-appt-details-sms-evidence-row" style="display:none">
+        </section>
+
+        <section class="koopo-appt-details__section koopo-appt-details__section--schedule">
+          <div class="koopo-appt-details__label"><?php esc_html_e('Date & time', 'appointments'); ?></div>
+          <div class="koopo-appt-details__value koopo-appt-details__when" id="koopo-appt-details-when"></div>
+          <div class="koopo-appt-details__secondary" id="koopo-appt-details-duration"></div>
+        </section>
+
+        <section class="koopo-appt-details__section koopo-appt-details__section--service">
+          <div class="koopo-appt-details__service-head">
+            <div>
+              <div class="koopo-appt-details__label"><?php esc_html_e('Service', 'appointments'); ?></div>
+              <div class="koopo-appt-details__value" id="koopo-appt-details-service"></div>
+            </div>
+            <div class="koopo-appt-details__total">
+              <span><?php esc_html_e('Total', 'appointments'); ?></span>
+              <strong id="koopo-appt-details-total"></strong>
+            </div>
+          </div>
+          <div class="koopo-appt-details__service-meta">
+            <div id="koopo-appt-details-addons-wrap">
+              <span><?php esc_html_e('Add-ons', 'appointments'); ?></span>
+              <strong id="koopo-appt-details-addons"></strong>
+            </div>
+            <div>
+              <span><?php esc_html_e('Price breakdown', 'appointments'); ?></span>
+              <strong id="koopo-appt-details-pricing"></strong>
+            </div>
+          </div>
+        </section>
+
+        <section class="koopo-appt-details__operations" aria-label="<?php esc_attr_e('Appointment activity', 'appointments'); ?>">
+          <div>
+            <span><?php esc_html_e('Cancellation', 'appointments'); ?></span>
+            <strong id="koopo-appt-details-cancelled"></strong>
+          </div>
+          <div>
+            <span><?php esc_html_e('Refund', 'appointments'); ?></span>
+            <strong id="koopo-appt-details-refund"></strong>
+          </div>
+        </section>
+
+        <section class="koopo-appt-details__section koopo-appt-details__section--evidence" id="koopo-appt-details-sms-evidence-row" style="display:none">
           <div class="koopo-appt-details__label"><?php esc_html_e('SMS consent evidence', 'appointments'); ?></div>
           <div class="koopo-appt-details__value" id="koopo-appt-details-sms-evidence"></div>
-        </div>
+        </section>
       </div>
 
-      <div class="koopo-appt-details__actions" id="koopo-appt-details-actions"></div>
-
-      <div class="koopo-modal__footer koopo-modal__footer--between">
+      <div class="koopo-appt-details__footer">
+        <div class="koopo-appt-details__actions" id="koopo-appt-details-actions"></div>
         <button type="button" class="koopo-btn" id="koopo-appt-details-close"><?php esc_html_e('Close', 'appointments'); ?></button>
       </div>
     </div>

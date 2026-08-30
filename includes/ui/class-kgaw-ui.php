@@ -53,6 +53,9 @@ class UI {
       'checkoutSuccess' => self::is_order_received_page(),
       'loginUrl' => wp_login_url(),
       'holdMinutes' => (int) apply_filters('koopo_appt_pending_expire_minutes', 10),
+      'features' => [
+        'waitlist' => Features::waitlist_enabled(),
+      ],
     ];
 
     wp_localize_script('koopo-appointments-ui', 'KOOPO_APPT', $localize);

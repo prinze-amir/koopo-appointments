@@ -51,44 +51,46 @@ class Dokan_Dashboard {
       return $urls;
     }
 
+    $submenu = [
+      'koopo-appointments' => [
+        'title' => __('My Appointments', 'appointments'),
+        'url'   => dokan_get_navigation_url('koopo-appointments'),
+        'pos'   => 10,
+      ],
+      'koopo-services' => [
+        'title' => __('Services', 'appointments'),
+        'url'   => dokan_get_navigation_url('koopo-services'),
+        'pos'   => 20,
+      ],
+      'koopo-appointment-settings' => [
+        'title' => __('Appointment Settings', 'appointments'),
+        'url'   => dokan_get_navigation_url('koopo-appointment-settings'),
+        'pos'   => 30,
+      ],
+      'koopo-professional-profile' => [
+        'title' => __('Service Profile', 'appointments'),
+        'url' => dokan_get_navigation_url('koopo-professional-profile'),
+        'pos' => 40,
+      ],
+    ];
+    if (Features::waitlist_enabled()) $submenu['koopo-waitlist'] = [
+      'title' => __('Waitlist', 'appointments'),
+      'url' => dokan_get_navigation_url('koopo-waitlist'),
+      'pos' => 35,
+    ];
+    if (Features::client_forms_enabled()) $submenu['koopo-clients'] = [
+      'title' => __('Clients & Forms', 'appointments'),
+      'url' => dokan_get_navigation_url('koopo-clients'),
+      'pos' => 32,
+    ];
+
     $urls['appointments'] = [
       'title' => __('Appointments', 'appointments'),
       'icon'  => '<i class="fas fa-calendar-check"></i>',
       'url'   => dokan_get_navigation_url('koopo-appointments'),
       'pos'   => 55,
       'icon_name' => 'CalendarCheck',
-      'submenu' => [
-        'koopo-appointments' => [
-          'title' => __('My Appointments', 'appointments'),
-          'url'   => dokan_get_navigation_url('koopo-appointments'),
-          'pos'   => 10,
-        ],
-        'koopo-services' => [
-          'title' => __('Services', 'appointments'),
-          'url'   => dokan_get_navigation_url('koopo-services'),
-          'pos'   => 20,
-        ],
-        'koopo-appointment-settings' => [
-          'title' => __('Appointment Settings', 'appointments'),
-          'url'   => dokan_get_navigation_url('koopo-appointment-settings'),
-          'pos'   => 30,
-        ],
-        'koopo-professional-profile' => [
-          'title' => __('Service Profile', 'appointments'),
-          'url' => dokan_get_navigation_url('koopo-professional-profile'),
-          'pos' => 40,
-        ],
-        'koopo-waitlist' => [
-          'title' => __('Waitlist', 'appointments'),
-          'url' => dokan_get_navigation_url('koopo-waitlist'),
-          'pos' => 35,
-        ],
-        'koopo-clients' => [
-          'title' => __('Clients & Forms', 'appointments'),
-          'url' => dokan_get_navigation_url('koopo-clients'),
-          'pos' => 32,
-        ],
-      ],
+      'submenu' => $submenu,
     ];
 
     return $urls;
@@ -119,9 +121,11 @@ public static function load_templates($query_vars) {
       self::load('provider-profile.php'); return;
     }
     if (isset($query_vars['koopo-waitlist'])) {
+      if (!Features::waitlist_enabled()) { self::render_feature_unavailable('waitlist'); return; }
       self::load('waitlist.php'); return;
     }
     if (isset($query_vars['koopo-clients'])) {
+      if (!Features::client_forms_enabled()) { self::render_feature_unavailable('client_forms'); return; }
       self::load('clients.php'); return;
     }
   }
@@ -161,10 +165,10 @@ public static function load_templates($query_vars) {
     if ($is_provider) {
       wp_enqueue_script('koopo-appt-provider-profile', KOOPO_APPT_URL . 'assets/vendor-provider-profile.js', ['jquery', 'koopo-appt-vendor-core'], KOOPO_APPT_VERSION, true);
     }
-    if ($is_waitlist) {
+    if ($is_waitlist && Features::waitlist_enabled()) {
       wp_enqueue_script('koopo-appt-vendor-waitlist', KOOPO_APPT_URL . 'assets/vendor-waitlist.js', ['jquery', 'koopo-appt-vendor-core'], KOOPO_APPT_VERSION, true);
     }
-    if ($is_clients) {
+    if ($is_clients && Features::client_forms_enabled()) {
       wp_enqueue_script('koopo-appt-vendor-clients', KOOPO_APPT_URL . 'assets/vendor-clients.js', ['jquery', 'koopo-appt-vendor-core'], KOOPO_APPT_VERSION, true);
     }
 
@@ -182,6 +186,12 @@ public static function load_templates($query_vars) {
       'currency_symbol' => function_exists('get_woocommerce_currency_symbol') ? get_woocommerce_currency_symbol() : '$',
       'listings' => Vendor_Listings_API::get_listings_for_user(get_current_user_id()),
       'contexts' => Resources::contexts_for_user(get_current_user_id()),
+      'profileEntitlement' => Provider_Profiles::profile_entitlement(get_current_user_id()),
+      'upgradeUrl' => self::get_upgrade_plan_url(),
+      'features' => [
+        'waitlist' => Features::waitlist_enabled(),
+        'clientForms' => Features::client_forms_enabled(),
+      ],
     ]);
 
     // status badges reused (colors)
@@ -259,6 +269,17 @@ public static function load_templates($query_vars) {
     echo '</div>';
     echo '</div>';
     echo '</div></div>';
+  }
+
+  public static function render_feature_unavailable(string $feature): void {
+    $is_waitlist = $feature === 'waitlist';
+    echo '<div class="dokan-dashboard-wrap"><div class="dokan-dashboard-content">';
+    echo '<div class="koopo-upgrade-card koopo-feature-held-card">';
+    echo '<span class="koopo-upgrade-pill">' . esc_html__('Temporarily unavailable', 'koopo-appointments') . '</span>';
+    echo '<h3>' . esc_html($is_waitlist ? __('Waitlist is being prepared', 'koopo-appointments') : __('Client records and forms are being prepared', 'koopo-appointments')) . '</h3>';
+    echo '<p>' . esc_html__('Koopo has temporarily hidden this feature while it is being refined. Existing records are preserved and no action is required.', 'koopo-appointments') . '</p>';
+    echo '<a class="koopo-btn koopo-btn--secondary" href="' . esc_url(dokan_get_navigation_url('koopo-appointments')) . '">' . esc_html__('Back to appointments', 'koopo-appointments') . '</a>';
+    echo '</div></div></div>';
   }
 
   public static function get_upgrade_plan_url(): string {
