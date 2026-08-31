@@ -60,6 +60,13 @@ namespace Koopo_Appointments {
   expect(strpos($clients, "['id'=>(int)\$form->submission_id, 'status'=>'pending']") !== false, 'Intake completion is not concurrency guarded.');
   expect(strpos($clients, 'unknown_form_answer') !== false && strpos($clients, 'validate_submission_answers') !== false, 'Intake answers are not validated against the immutable form snapshot.');
   expect(strpos($source('includes/providers/class-kgaw-provider-profiles.php'), "Resources::for_subject('provider', \$provider_id)") !== false, 'Public provider formatting can still create booking resources.');
+  $calendar_busy = $source('includes/calendar/class-kgaw-calendar-busy.php');
+  expect(strpos($calendar_busy, "const DISPATCH_LIMIT = 20") !== false, 'Calendar busy refresh dispatch is not bounded.');
+  expect(strpos($calendar_busy, 'as_has_scheduled_action') !== false && strpos($calendar_busy, 'as_enqueue_async_action') !== false, 'Calendar busy refresh is not deduplicated through Action Scheduler.');
+  expect(strpos($calendar_busy, 'self::sync_source($source)') !== false, 'Per-source calendar busy worker is missing.');
+  $waitlist = $source('includes/waitlist/class-kgaw-waitlist.php');
+  expect(strpos($waitlist, "koopo_appt_waitlist_expiry_batch_size") !== false && strpos($waitlist, 'LIMIT %d') !== false, 'Waitlist expiry processing is not bounded.');
+  expect(strpos($source('includes/core/class-kgaw-db.php'), 'KEY status_expiry (status, expires_at, id)') !== false, 'Waitlist expiry index is missing.');
   $privacy = $source('includes/privacy/class-kgaw-privacy.php');
   expect(strpos($privacy, 'koopo_appt_privacy_release_client_file') !== false && strpos($privacy, "'done' => !\$bookings_remaining") !== false, 'Reference-aware paginated client-file erasure is missing.');
 

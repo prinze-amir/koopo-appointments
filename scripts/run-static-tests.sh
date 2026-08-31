@@ -21,6 +21,7 @@ fi
 
 test_files=(
   scripts/test-api-boundaries.php
+  scripts/test-buddyboss-service-activity.php
   scripts/test-booking-invitations.php
   scripts/test-bootstrap-organization.php
   scripts/test-calendar-sync.php

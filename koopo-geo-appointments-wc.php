@@ -2,13 +2,13 @@
 /**
  * Plugin Name: Koopo Appointments
  * Description: Appointments for Koopo professionals and GeoDirectory places with WooCommerce/Dokan integration.
- * Version: 0.16.4
+ * Version: 0.16.7
  * Author: Koopo
  */
 
 defined('ABSPATH') || exit;
 
-define('KOOPO_APPT_VERSION', '0.16.4');
+define('KOOPO_APPT_VERSION', '0.16.7');
 define('KOOPO_APPT_PATH', plugin_dir_path(__FILE__));
 define('KOOPO_APPT_URL', plugin_dir_url(__FILE__));
 
@@ -16,7 +16,7 @@ require_once KOOPO_APPT_PATH . 'includes/core/class-kgaw-logger.php';
 require_once KOOPO_APPT_PATH . 'includes/core/class-kgaw-module-loader.php';
 
 final class Koopo_Appointments {
-  const VERSION = '0.16.4';
+  const VERSION = '0.16.7';
   const SLUG = 'koopo-geo-appointments-wc';
 
   private static $instance = null;
@@ -74,6 +74,7 @@ final class Koopo_Appointments {
       'koopo_appt_cleanup_pending',
       'koopo_appt_calendar_reconcile',
       'koopo_appt_calendar_refresh_busy',
+      'koopo_appt_calendar_refresh_busy_source',
       'koopo_appt_calendar_sync_booking',
       'koopo_appt_waitlist_expire_offers',
       'koopo_appt_send_intake_request',

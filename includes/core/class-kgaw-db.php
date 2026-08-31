@@ -4,7 +4,7 @@ namespace Koopo_Appointments;
 defined('ABSPATH') || exit;
 
 class DB {
-  const VERSION = '4.8';
+  const VERSION = '4.9';
 
   public static function table() {
     global $wpdb;
@@ -270,6 +270,7 @@ class DB {
       UNIQUE KEY token_hash (token_hash),
       KEY waitlist_opening (waitlist_id, opening_booking_id),
       KEY opening_status (opening_booking_id, status, expires_at),
+      KEY status_expiry (status, expires_at, id),
       KEY resource_slot (resource_id, starts_at, status)
     ) {$charset};";
 

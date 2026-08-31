@@ -44,6 +44,21 @@ expect_source('includes/providers/class-kgaw-service-areas.php', 'delete_with_pr
 expect_source('includes/core/class-kgaw-bookings.php', "'fulfillment_mode'", 'Booking fulfillment mode is not persisted.');
 expect_source('includes/waitlist/class-kgaw-waitlist.php', "'service_address'=>", 'Waitlist offers do not preserve mobile fulfillment details.');
 expect_source('includes/services/class-kgaw-bookable-listings-api.php', 'archive_places', 'The Professionals archive does not include bookable places.');
+$directory_css = source('assets/provider-directory.css');
+if (
+  strpos($directory_css, 'height:clamp(620px,calc(100dvh - 96px),820px)') === false
+  || strpos($directory_css, '.koopo-pro-results{height:100%;min-height:0;overflow-y:auto') === false
+  || strpos($directory_css, '.koopo-pro-map-panel{height:100%;min-height:0;overflow:hidden}') === false
+  || strpos($directory_css, '.koopo-pro-map-panel .koopo-pro-map{position:relative;top:auto;height:100%;min-height:0}') === false
+) {
+  throw new RuntimeException('The desktop Bookable results and map do not share a bounded, internally scrollable workspace.');
+}
+if (
+  strpos($directory_css, '.koopo-pro-directory__workspace{width:auto;height:auto;min-height:0;overflow:visible}') === false
+  || strpos($directory_css, '.koopo-pro-results{height:auto;overflow:visible;scrollbar-gutter:auto}') === false
+) {
+  throw new RuntimeException('The Bookable mobile layout does not restore normal page scrolling.');
+}
 expect_source('includes/core/class-kgaw-date-formatter.php', "'virtual_join_url'", 'Virtual meeting access is missing from customer calendar data.');
 expect_source('includes/integrations/class-kgaw-buddyboss-appointments.php', "'services'", 'BuddyBoss services tab is missing.');
 expect_source('includes/ui/class-kgaw-ui.php', "'provider_id'", 'Public professional booking UI is missing.');

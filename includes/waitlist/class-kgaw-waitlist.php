@@ -257,8 +257,12 @@ final class Waitlist {
   }
 
   public static function expire_offers():void{
-    global $wpdb;$expired=$wpdb->get_results('SELECT * FROM '.DB::waitlist_offers_table().' WHERE status IN ("offered","accepting") AND expires_at<=UTC_TIMESTAMP() ORDER BY opening_booking_id,id')?:[];$openings=[];
+    global $wpdb;
+    $limit=(int)apply_filters('koopo_appt_waitlist_expiry_batch_size',100);
+    $limit=max(1,min(500,$limit));
+    $expired=$wpdb->get_results($wpdb->prepare('SELECT * FROM '.DB::waitlist_offers_table().' WHERE status IN ("offered","accepting") AND expires_at<=UTC_TIMESTAMP() ORDER BY expires_at,id LIMIT %d',$limit))?:[];$openings=[];
     foreach($expired as $offer){$wpdb->update(DB::waitlist_offers_table(),['status'=>'expired'],['id'=>(int)$offer->id]);$wpdb->update(DB::waitlist_table(),['status'=>'active'],['id'=>(int)$offer->waitlist_id]);if((int)$offer->opening_booking_id)$openings[(int)$offer->opening_booking_id]=(int)$offer->resource_id;}
+    if(count($expired)===$limit&&!wp_next_scheduled(self::EXPIRE_HOOK))wp_schedule_single_event(time()+30,self::EXPIRE_HOOK);
     if(!Features::waitlist_enabled())return;
     foreach($openings as $opening_id=>$resource_id){$remaining=(int)$wpdb->get_var($wpdb->prepare('SELECT COUNT(*) FROM '.DB::waitlist_offers_table().' WHERE opening_booking_id=%d AND status="offered"',$opening_id));if($remaining)continue;$opening=Bookings::get_booking($opening_id);$settings=self::settings($resource_id);if($opening&&$settings['mode']!=='manual')self::offer_matching($opening,$settings);}
   }

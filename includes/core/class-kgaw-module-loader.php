@@ -90,6 +90,7 @@ final class Module_Loader {
       'includes/refunds/class-kgaw-refund-policy.php',
       'includes/refunds/class-kgaw-refund-processor.php',
       'includes/integrations/class-kgaw-buddyboss-appointments.php',
+      'includes/integrations/class-kgaw-buddyboss-service-activity.php',
     ]);
   }
 
@@ -103,6 +104,7 @@ final class Module_Loader {
       [User_Feature_Overrides::class, 'init'],
       [Provider_Service_Admin::class, 'init'],
       [BuddyBoss_Appointments::class, 'init'],
+      [BuddyBoss_Service_Activity::class, 'init'],
       [Provider_Profiles::class, 'init'],
       [Provider_Reviews::class, 'init'],
       [Provider_Affiliations::class, 'init'],

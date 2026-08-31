@@ -16,7 +16,7 @@ $compliance=$read('includes/notifications/class-kgaw-sms-compliance.php');
 $transactional=$read('includes/notifications/class-kgaw-transactional-sms.php');
 
 $receipts=$read('includes/notifications/class-kgaw-sms-delivery-receipts.php');
-$expect(strpos($plugin,"Version: 0.16.4")!==false&&strpos($loader,"[SMS_Provider::class, 'init']")!==false&&strpos($loader,"[SMS_Delivery_Receipts::class, 'init']")!==false,'SMS release or provider initialization is missing.');
+$expect(strpos($plugin,"Version: 0.16.7")!==false&&strpos($loader,"[SMS_Provider::class, 'init']")!==false&&strpos($loader,"[SMS_Delivery_Receipts::class, 'init']")!==false,'SMS release or provider initialization is missing.');
 $expect(strpos($provider,'https://api.brevo.com/v3/transactionalSMS/send')!==false&&strpos($provider,'/transactionalSMS/sms')===false,'Brevo does not use the current transactional SMS endpoint.');
 $expect(strpos($provider,'https://api.brevo.com/v3/account')!==false&&strpos($provider,"['type'] ?? '')) === 'sms'")!==false,'Brevo SMS credit lookup is missing.');
 $expect(strpos($provider,"const SUPPORTED_PROVIDERS = ['brevo']")!==false&&strpos($admin,'<option value="twilio"')===false,'Incomplete Twilio support remains selectable in production.');
@@ -26,7 +26,7 @@ $expect(strpos($provider,"'accepted'=>true")!==false&&strpos($provider,"'provide
 $expect(strpos($admin,'SMS Delivery')!==false&&strpos($admin,'koopo_appt_sms_test')!==false,'SMS settings or test-send UI is missing.');
 $expect(strpos($admin,'Brevo SMS credits')!==false&&strpos($admin,'Enforce daily limit')!==false&&strpos($admin,'Enforce monthly limit')!==false,'SMS usage meters or hard-limit controls are missing.');
 $expect(strpos($usage,'START TRANSACTION')!==false&&strpos($usage,'FOR UPDATE')!==false&&strpos($usage,"sms_' . \$bucket['type'] . '_limit_reached")!==false,'SMS limits are not reserved atomically.');
-$expect(strpos($db,"const VERSION = '4.8'")!==false&&strpos($db,'koopo_appt_sms_usage')!==false&&strpos($db,'koopo_appt_sms_receipts')!==false&&strpos($db,'koopo_appt_sms_suppressions')!==false,'SMS usage, receipt, or suppression schema is missing.');
+$expect(strpos($db,"const VERSION = '4.9'")!==false&&strpos($db,'koopo_appt_sms_usage')!==false&&strpos($db,'koopo_appt_sms_receipts')!==false&&strpos($db,'koopo_appt_sms_suppressions')!==false,'SMS usage, receipt, or suppression schema is missing.');
 $expect(strpos($provider,"\$body['webUrl'] = \$webhook_url")!==false&&strpos($receipts,'hash_equals($expected, $provided)')!==false,'Secured Brevo delivery receipts are missing.');
 $expect(strpos($receipts,"'delivered'")!==false&&strpos($receipts,"'skipped'")!==false&&strpos($receipts,"'hard_bounce'")!==false,'SMS receipt lifecycle coverage is incomplete.');
 $expect(strpos($receipts,"event['content']")===false&&strpos($db,'reply_content')===false,'SMS receipt handler persists private webhook content.');

@@ -1,0 +1,100 @@
+.koopo-service-activity {
+  display: grid;
+  grid-template-columns: minmax(128px, 38%) 1fr;
+  min-height: 190px;
+  margin-top: 14px;
+  overflow: hidden;
+  color: #17221d;
+  text-decoration: none;
+  background: #f4f1e9;
+  border: 1px solid rgba(23, 34, 29, .12);
+  border-radius: 18px;
+}
+
+.koopo-service-activity:hover,
+.koopo-service-activity:focus-visible {
+  color: #17221d;
+  border-color: rgba(23, 34, 29, .28);
+  box-shadow: 0 14px 34px rgba(23, 34, 29, .12);
+  transform: translateY(-1px);
+}
+
+.koopo-service-activity__media {
+  min-height: 190px;
+  background: #d7d4ca;
+}
+
+.koopo-service-activity__media img {
+  width: 100%;
+  height: 100%;
+  min-height: 190px;
+  object-fit: cover;
+}
+
+.koopo-service-activity__body {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 24px;
+}
+
+.koopo-service-activity__eyebrow {
+  margin-bottom: 8px;
+  color: #68746e;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+
+.koopo-service-activity__service {
+  color: #17221d;
+  font-size: clamp(19px, 3vw, 25px);
+  line-height: 1.12;
+}
+
+.koopo-service-activity__provider {
+  margin-top: 8px;
+  color: #314039;
+  font-weight: 650;
+}
+
+.koopo-service-activity__headline {
+  display: -webkit-box;
+  margin-top: 5px;
+  overflow: hidden;
+  color: #68746e;
+  font-size: 13px;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.koopo-service-activity__cta {
+  align-self: flex-start;
+  margin-top: 18px;
+  color: #1d6a4a;
+  font-size: 13px;
+  font-weight: 750;
+}
+
+@media (max-width: 560px) {
+  .koopo-service-activity {
+    grid-template-columns: 1fr;
+  }
+
+  .koopo-service-activity__media,
+  .koopo-service-activity__media img {
+    min-height: 180px;
+    max-height: 230px;
+  }
+
+  .koopo-service-activity__body {
+    padding: 20px;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .koopo-service-activity {
+    transition: border-color .18s ease, box-shadow .18s ease, transform .18s ease;
+  }
+}

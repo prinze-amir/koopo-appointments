@@ -364,6 +364,15 @@ final class Calendar_Repository {
     )) ?: [];
   }
 
+  public static function get_busy_source(int $source_id): ?object {
+    global $wpdb;
+    $source = $wpdb->get_row($wpdb->prepare(
+      'SELECT * FROM ' . self::busy_sources_table() . ' WHERE id = %d LIMIT 1',
+      $source_id
+    ));
+    return is_object($source) ? $source : null;
+  }
+
   public static function list_due_busy_sources(int $limit = 100): array {
     global $wpdb;
     $limit = min(500, max(1, $limit));

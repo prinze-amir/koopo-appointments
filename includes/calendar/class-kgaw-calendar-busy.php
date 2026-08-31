@@ -6,10 +6,14 @@ defined('ABSPATH') || exit;
 /** Imports external events as privacy-safe, read-only availability blocks. */
 final class Calendar_Busy {
   const REFRESH_HOOK = 'koopo_appt_calendar_refresh_busy';
+  const SOURCE_REFRESH_HOOK = 'koopo_appt_calendar_refresh_busy_source';
+  const ACTION_GROUP = 'koopo-appointments-calendar-busy';
+  const DISPATCH_LIMIT = 20;
 
   public static function init(): void {
     add_filter('cron_schedules', [__CLASS__, 'cron_schedules']);
     add_action(self::REFRESH_HOOK, [__CLASS__, 'refresh_due']);
+    add_action(self::SOURCE_REFRESH_HOOK, [__CLASS__, 'refresh_source'], 10, 1);
     if (!wp_next_scheduled(self::REFRESH_HOOK)) wp_schedule_event(time() + 300, 'koopo_five_minutes', self::REFRESH_HOOK);
   }
 
@@ -19,10 +23,32 @@ final class Calendar_Busy {
   }
 
   public static function refresh_due(): void {
-    foreach (Calendar_Repository::list_due_busy_sources(100) as $source) {
+    $sources = Calendar_Repository::list_due_busy_sources(self::DISPATCH_LIMIT);
+    foreach ($sources as $source) {
       if (!Admin_Settings::calendar_provider_enabled((string) $source->provider)) continue;
-      self::sync_source($source);
+      self::enqueue_source_refresh((int) $source->id);
     }
+  }
+
+  private static function enqueue_source_refresh(int $source_id): void {
+    if ($source_id < 1) return;
+    $args = [$source_id];
+    if (function_exists('as_enqueue_async_action')) {
+      if (!function_exists('as_has_scheduled_action') || !as_has_scheduled_action(self::SOURCE_REFRESH_HOOK, $args, self::ACTION_GROUP)) {
+        as_enqueue_async_action(self::SOURCE_REFRESH_HOOK, $args, self::ACTION_GROUP, true);
+      }
+      return;
+    }
+    if (!wp_next_scheduled(self::SOURCE_REFRESH_HOOK, $args)) {
+      wp_schedule_single_event(time() + 5, self::SOURCE_REFRESH_HOOK, $args);
+    }
+  }
+
+  public static function refresh_source(int $source_id): void {
+    $source = Calendar_Repository::get_busy_source($source_id);
+    if (!$source || empty($source->enabled) || (string) $source->busy_mode === 'informational') return;
+    if (!Admin_Settings::calendar_provider_enabled((string) $source->provider)) return;
+    self::sync_source($source);
   }
 
   public static function sync_resource(int $resource_id): array {
