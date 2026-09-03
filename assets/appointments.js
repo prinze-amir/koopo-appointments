@@ -462,7 +462,7 @@
               </svg>
               ${duration}
             </span>
-            <button type="button" class="koopo-appt__service-card-btn">Select</button>
+            <button type="button" class="koopo-appt__service-card-btn" aria-pressed="false">Select</button>
           </div>
         </div>
       `);
@@ -783,16 +783,20 @@
   });
 
   // Service card selection
-  $(document).on('click', '.koopo-appt__service-card-btn', function(e){
-    e.stopPropagation();
-    const $card = $(this).closest('.koopo-appt__service-card');
+  $(document).on('click', '.koopo-appt__service-card', function(e){
+    e.preventDefault();
+    const $card = $(this);
     const $root = $card.closest('.koopo-appt');
 
     // Deselect all cards
-    $root.find('.koopo-appt__service-card').removeClass('koopo-appt__service-card--selected');
+    $root.find('.koopo-appt__service-card')
+      .removeClass('koopo-appt__service-card--selected')
+      .find('.koopo-appt__service-card-btn')
+      .attr('aria-pressed', 'false');
 
     // Select this card
     $card.addClass('koopo-appt__service-card--selected');
+    $card.find('.koopo-appt__service-card-btn').attr('aria-pressed', 'true');
 
     // Set the service ID in hidden input
     const serviceId = $card.data('service-id');

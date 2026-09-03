@@ -54,6 +54,12 @@ if (
   throw new RuntimeException('The desktop Bookable results and map do not share a bounded, internally scrollable workspace.');
 }
 if (
+  strpos($directory_css, '.koopo-pro-map--single{height:380px;min-height:380px') === false
+  || strpos($directory_css, '.koopo-pro-map,.koopo-pro-map-panel .koopo-pro-map{position:relative') !== false
+) {
+  throw new RuntimeException('The Bookable archive map override can collapse the service-profile map.');
+}
+if (
   strpos($directory_css, '.koopo-pro-directory__workspace{width:auto;height:auto;min-height:0;overflow:visible}') === false
   || strpos($directory_css, '.koopo-pro-results{height:auto;overflow:visible;scrollbar-gutter:auto}') === false
 ) {
