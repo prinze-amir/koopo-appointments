@@ -33,7 +33,8 @@ $expect(strpos($db, 'sms_consent_version') !== false && strpos($db, 'sms_consent
 $compliance = $source('includes/notifications/class-kgaw-sms-compliance.php');
 $vendor_template = $source('templates/dokan/appointments.php');
 $vendor_api = $source('includes/vendor/class-kgaw-vendor-bookings-api.php');
-$expect(strpos($compliance, "const CONSENT_METHOD = 'voice'") !== false && strpos($compliance, 'Reply STOP to opt out or HELP for assistance') !== false, 'Exact voice consent disclosure is missing.');
+$expected_disclosure = 'Do you consent to receive one transactional text message from Koopo containing one appointment invitation? Standard message and data rates may apply. Message frequency may vary. Reply STOP to opt out. Reply HELP for help. No mobile information will be sold or shared with third parties for promotional or marketing purposes.';
+$expect(strpos($compliance, "const CONSENT_METHOD = 'voice'") !== false && strpos($compliance, "const DISCLOSURE_VERSION = 'guest-invite-voice-v2'") !== false && strpos($compliance, $expected_disclosure) !== false, 'Exact voice consent disclosure is missing.');
 $expect(strpos($vendor_template, 'SMS_Compliance::DISCLOSURE') !== false && strpos($vendor_template, 'SMS_Compliance::CONFIRMATION') !== false, 'Provider voice-consent UI is missing.');
 $expect(strpos($db, 'sms_consent_disclosure TEXT') !== false && strpos($db, 'sms_consent_revoked_at DATETIME') !== false, 'Immutable consent snapshot or revocation schema is missing.');
 $expect(strpos($vendor_api, "'sms_consent_evidence'") !== false && strpos($invites, 'consent_evidence') !== false, 'Visible provider consent evidence is missing.');

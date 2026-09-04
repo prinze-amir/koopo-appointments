@@ -6,8 +6,8 @@ defined('ABSPATH') || exit;
 /** Immutable invitation consent copy and privacy-safe phone suppression. */
 final class SMS_Compliance {
   const CONSENT_METHOD = 'voice';
-  const DISCLOSURE_VERSION = 'guest-invite-voice-v1';
-  const DISCLOSURE = 'Do you agree to receive a transactional SMS from Koopo containing one appointment invitation? Message frequency may vary. Standard message and data rates may apply. Reply STOP to opt out or HELP for assistance. Your mobile information will not be sold or shared for promotional or marketing purposes.';
+  const DISCLOSURE_VERSION = 'guest-invite-voice-v2';
+  const DISCLOSURE = 'Do you consent to receive one transactional text message from Koopo containing one appointment invitation? Standard message and data rates may apply. Message frequency may vary. Reply STOP to opt out. Reply HELP for help. No mobile information will be sold or shared with third parties for promotional or marketing purposes.';
   const CONFIRMATION = 'I confirm that I read the disclosure above and the customer expressly agreed to receive this transactional appointment invitation by SMS.';
   const STOP_KEYWORDS = ['stop', 'stopall', 'unsubscribe', 'cancel', 'end', 'quit'];
   const HELP_KEYWORDS = ['help', 'info'];

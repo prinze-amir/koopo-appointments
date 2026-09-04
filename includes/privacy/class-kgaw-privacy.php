@@ -190,7 +190,8 @@ final class Privacy {
   public static function privacy_policy_content(): void {
     if (!function_exists('wp_add_privacy_policy_content')) return;
     wp_add_privacy_policy_content('Koopo Appointments', wp_kses_post(
-      '<p>' . __('Koopo Appointments stores appointment contact details, delivery addresses for mobile services, service history, provider-private notes, intake answers, signatures, calendar identifiers, and references to remotely stored client files. WordPress erasure requests release eligible remote client-file references through Media Gateway before removing local records; site-specific legal retention holds may retain applicable records.', 'koopo-appointments') . '</p>'
+      '<p>' . __('Koopo Appointments stores appointment contact details, delivery addresses for mobile services, service history, provider-private notes, intake answers, signatures, calendar identifiers, and references to remotely stored client files. WordPress erasure requests release eligible remote client-file references through Media Gateway before removing local records; site-specific legal retention holds may retain applicable records.', 'koopo-appointments') . '</p>' .
+      '<p>' . __('No mobile information will be sold or shared with third parties for promotional or marketing purposes.', 'koopo-appointments') . '</p>'
     ));
   }
 
