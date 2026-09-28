@@ -17,11 +17,19 @@ $checkout = koopo_integrity_source($root, 'includes/woocommerce/class-kgaw-check
 $bookings = koopo_integrity_source($root, 'includes/core/class-kgaw-bookings.php');
 $refunds = koopo_integrity_source($root, 'includes/refunds/class-kgaw-refund-processor.php');
 $db = koopo_integrity_source($root, 'includes/core/class-kgaw-db.php');
+$order_hooks = koopo_integrity_source($root, 'includes/woocommerce/class-kgaw-order-hooks.php');
+$vendor_api = koopo_integrity_source($root, 'includes/vendor/class-kgaw-vendor-bookings-api.php');
 
 koopo_integrity_expect(strpos($checkout, 'acquire_checkout_lock($booking_id, 5)') !== false, 'Checkout creation is not serialized.');
 koopo_integrity_expect(strpos($checkout, 'finally {') !== false && strpos($checkout, 'release_checkout_lock($booking_id)') !== false, 'Checkout lock is not released with finally.');
 koopo_integrity_expect(strpos($checkout, 'Bookings::assign_order_id_if_empty') !== false, 'Checkout does not use atomic order assignment.');
 koopo_integrity_expect(strpos($bookings, 'AND (wc_order_id IS NULL OR wc_order_id = 0)') !== false, 'Order assignment can overwrite an existing order.');
+koopo_integrity_expect(strpos($order_hooks, "'bookingId', 'booking_id', 'appointmentId', 'appointment_id'") !== false, 'Legacy mobile appointment metadata is not recognized.');
+koopo_integrity_expect(strpos($order_hooks, 'payment_is_verified') !== false && strpos($order_hooks, "str_starts_with(\$transaction_id, 'ch_')") !== false, 'Appointment confirmation is not gated on captured Stripe payment evidence.');
+koopo_integrity_expect(strpos($order_hooks, 'assign_order_id_if_empty') !== false, 'Paid appointment confirmation does not repair the booking/order link.');
+koopo_integrity_expect(strpos($bookings, 'recover_paid_expired_booking_safely') !== false && strpos($bookings, "retention_class = 'abandoned_hold'") !== false, 'Paid abandoned-hold recovery is missing or too broad.');
+koopo_integrity_expect(strpos($bookings, '$timezone = (string) self::resolve_listing_timezone($settings)->getName()') !== false, 'Booking timezone is not authoritative from provider/resource settings.');
+koopo_integrity_expect(strpos($vendor_api, "in_array(\$action, ['cancel', 'reschedule', 'confirm'], true)") !== false && strpos($vendor_api, 'koopo_appointment_ended') !== false, 'Ended appointments are not protected from invalid vendor actions.');
 
 koopo_integrity_expect(strpos($refunds, 'acquire_order_lock($order_id, 5)') !== false, 'Refund creation is not serialized by order.');
 koopo_integrity_expect(strpos($refunds, 'existing_woocommerce_refund') !== false, 'Refund retry reconciliation is missing.');

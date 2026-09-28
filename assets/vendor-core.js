@@ -215,7 +215,13 @@
 
   function renderAvatar(booking, opts = {}){
     const showName = !!opts.showName;
-    const name = (booking && (booking.customer_name || booking.customer_email)) || 'Guest';
+    const rawName = (booking && (booking.customer_name || booking.customer_email)) || 'Guest';
+    // Customer names can come from legacy/API data with HTML entities already
+    // encoded. Decode once before escaping for the HTML sink so "&amp;" does
+    // not leak into the seller dashboard as visible text.
+    const decoder = document.createElement('textarea');
+    decoder.innerHTML = String(rawName);
+    const name = decoder.value;
     if (!booking || !booking.customer_avatar || !booking.customer_profile) {
       return `<span>${escapeHtml(name)}</span>`;
     }

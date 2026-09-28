@@ -597,7 +597,8 @@ private static function release_lock(int $resource_id): void {
     $start = sanitize_text_field($data['start_datetime']); // 'YYYY-MM-DD HH:MM:SS'
     $end   = sanitize_text_field($data['end_datetime']);
 
-    // timezone / currency were defaulted at REST boundary; keep them as-is for DB insert.
+    // Currency is defaulted at the REST boundary. Timezone is replaced below
+    // with the resource/provider setting so clients cannot relabel a local slot.
     $timezone = sanitize_text_field((string)($data['timezone'] ?? 'UTC'));
     $currency = sanitize_text_field((string)($data['currency'] ?? (function_exists('get_woocommerce_currency') ? (string) get_woocommerce_currency() : 'USD')));
 
@@ -624,6 +625,9 @@ private static function release_lock(int $resource_id): void {
       $expected_duration += self::get_service_duration_minutes($addon_id);
     }
     $settings = self::assert_slot_matches_schedule($resource_id, $start, $end, $expected_duration, true);
+    if (!empty($settings['timezone'])) {
+      $timezone = (string) self::resolve_listing_timezone($settings)->getName();
+    }
     if (!empty($fulfillment['travel_buffer_minutes'])) {
       $settings['buffer_before'] = max((int) ($settings['buffer_before'] ?? 0), (int) $fulfillment['travel_buffer_minutes']);
       $settings['buffer_after'] = max((int) ($settings['buffer_after'] ?? 0), (int) $fulfillment['travel_buffer_minutes']);
@@ -988,6 +992,67 @@ public static function confirm_booking_safely(int $booking_id): array {
 
     return ['ok' => true, 'reason' => 'confirmed'];
 
+  } finally {
+    self::release_lock($resource_id);
+  }
+}
+
+/**
+ * Recover a paid appointment that the abandoned-hold cleanup expired before
+ * its Woo order was linked. Payment and ownership must be verified by the
+ * caller before entering this narrow recovery path.
+ */
+public static function recover_paid_expired_booking_safely(int $booking_id): array {
+  global $wpdb;
+  $table = DB::table();
+  $booking = self::get_booking($booking_id);
+  if (!$booking) return ['ok' => false, 'reason' => 'not_found'];
+  if ($booking->status === 'confirmed') return ['ok' => true, 'reason' => 'already_confirmed'];
+  if ($booking->status !== 'expired' || (string) ($booking->retention_class ?? '') !== 'abandoned_hold') {
+    return ['ok' => false, 'reason' => 'not_recoverable:' . $booking->status];
+  }
+
+  $resource_id = Resources::booking_resource_id($booking);
+  if (!$resource_id) return ['ok' => false, 'reason' => 'resource_not_found'];
+  if (!self::acquire_lock($resource_id, 2)) return ['ok' => false, 'reason' => 'lock_timeout'];
+
+  try {
+    $booking = self::get_booking($booking_id);
+    if (!$booking) return ['ok' => false, 'reason' => 'not_found'];
+    if ($booking->status === 'confirmed') return ['ok' => true, 'reason' => 'already_confirmed'];
+    if ($booking->status !== 'expired' || (string) ($booking->retention_class ?? '') !== 'abandoned_hold') {
+      return ['ok' => false, 'reason' => 'not_recoverable:' . $booking->status];
+    }
+
+    $settings = Settings_API::read_settings(Resources::settings_post_id($resource_id));
+    $conflict_id = self::find_conflict_id(
+      $resource_id,
+      $booking->start_datetime,
+      $booking->end_datetime,
+      $settings,
+      $booking_id
+    );
+    if ($conflict_id !== 0) {
+      return ['ok' => false, 'reason' => 'conflict', 'conflict_id' => $conflict_id];
+    }
+
+    $timezone = !empty($settings['timezone'])
+      ? (string) self::resolve_listing_timezone($settings)->getName()
+      : (string) ($booking->timezone ?? 'UTC');
+    $updated = $wpdb->query($wpdb->prepare(
+      "UPDATE {$table}
+       SET status = 'confirmed', archived_at = NULL, retention_class = NULL,
+           hold_expires_at = NULL, timezone = %s, updated_at = UTC_TIMESTAMP()
+       WHERE id = %d AND status = 'expired' AND retention_class = 'abandoned_hold'",
+      $timezone,
+      $booking_id
+    ));
+    if ($updated !== 1) return ['ok' => false, 'reason' => 'concurrent_update'];
+
+    $recovered = self::get_booking($booking_id);
+    do_action('koopo_booking_confirmed_safe', $booking_id, $recovered ?: $booking);
+    do_action('koopo_booking_recovered_paid_order', $booking_id, $recovered ?: $booking);
+    return ['ok' => true, 'reason' => 'recovered_paid_expired'];
   } finally {
     self::release_lock($resource_id);
   }

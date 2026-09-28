@@ -12,6 +12,18 @@ class Vendor_Bookings_API {
   private static array $service_title_cache = [];
   private static array $service_meta_cache = [];
 
+  private static function booking_has_ended($booking): bool {
+    $end = is_array($booking) ? (string) ($booking['end_datetime'] ?? '') : (string) ($booking->end_datetime ?? '');
+    $timezone = is_array($booking) ? (string) ($booking['timezone'] ?? '') : (string) ($booking->timezone ?? '');
+    if ($end === '') return false;
+    try {
+      $zone = new \DateTimeZone($timezone ?: 'UTC');
+      return new \DateTimeImmutable($end, $zone) <= new \DateTimeImmutable('now', $zone);
+    } catch (\Throwable $e) {
+      return strtotime($end . ' UTC') <= time();
+    }
+  }
+
   public static function init(): void {
     add_action('rest_api_init', [__CLASS__, 'register_routes']);
   }
@@ -409,6 +421,11 @@ class Vendor_Bookings_API {
         (string) Bookings::extra_from_record($r, 'service_country', ''),
       ]));
       $addon_summary = self::get_addons_summary($r);
+      $payment_status = 'not_linked';
+      if (!empty($r['wc_order_id'])) {
+        $payment_order = wc_get_order((int) $r['wc_order_id']);
+        $payment_status = $payment_order && Order_Hooks::payment_is_verified($payment_order) ? 'verified' : 'not_received';
+      }
 
       $service_price = $service_meta['price'];
       $service_duration = $service_meta['duration'];
@@ -453,9 +470,11 @@ class Vendor_Bookings_API {
         'end_datetime_formatted' => $end_formatted,
         'duration_formatted' => $duration_formatted,
         'status' => $r['status'],
+        'has_ended' => self::booking_has_ended($r),
         'price' => isset($r['price']) ? (float) $r['price'] : 0.0,
         'currency' => $r['currency'] ?? '',
         'wc_order_id' => isset($r['wc_order_id']) ? (int) $r['wc_order_id'] : 0,
+        'payment_status' => $payment_status,
         'created_at' => $r['created_at'] ?? '',
         'created_at_formatted' => $created_at_formatted,
         'timezone' => $tz,
@@ -550,6 +569,15 @@ class Vendor_Bookings_API {
 
     $order_id = (int) ($booking->wc_order_id ?? 0);
     $order = $order_id ? wc_get_order($order_id) : null;
+    $has_ended = self::booking_has_ended($booking);
+
+    if ($has_ended && in_array($action, ['cancel', 'reschedule', 'confirm'], true)) {
+      return new \WP_Error(
+        'koopo_appointment_ended',
+        'This appointment has already ended. It can no longer be cancelled, rescheduled, or manually confirmed.',
+        ['status' => 409]
+      );
+    }
 
     // === CANCEL ACTION ===
     if ($action === 'cancel') {

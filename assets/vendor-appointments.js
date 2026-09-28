@@ -117,11 +117,13 @@
     const id = Number(b && b.id ? b.id : 0);
     if (!id) return '—';
     const st = String(b.status||'').toLowerCase();
+    const hasEnded = Boolean(b.has_ended);
+    const endedButton = (action, label, danger = false) => `<button class="koopo-btn koopo-btn--sm${danger ? ' koopo-btn--danger' : ''}" type="button" disabled aria-disabled="true" title="Unavailable after the appointment has ended">${label}</button> `;
     let html = '';
 
     if (st === 'conflict') {
       html += `<span class="koopo-conflict-badge">⚠️ Requires Action</span><br>`;
-      html += `<button class="koopo-btn koopo-btn--sm koopo-appt-action" data-action="reschedule" data-id="${id}">Reschedule</button> `;
+      html += hasEnded ? endedButton('reschedule', 'Reschedule') : `<button class="koopo-btn koopo-btn--sm koopo-appt-action" data-action="reschedule" data-id="${id}">Reschedule</button> `;
       html += `<button class="koopo-btn koopo-btn--sm koopo-btn--danger koopo-appt-action" data-action="refund" data-id="${id}">Refund</button>`;
       return html;
     }
@@ -133,15 +135,15 @@
     }
 
     if (st === 'pending_payment' || st === 'confirmed') {
-      html += `<button class="koopo-btn koopo-btn--sm koopo-btn--danger koopo-appt-action" data-action="cancel" data-id="${id}">Cancel</button> `;
+      html += hasEnded ? endedButton('cancel', 'Cancel', true) : `<button class="koopo-btn koopo-btn--sm koopo-btn--danger koopo-appt-action" data-action="cancel" data-id="${id}">Cancel</button> `;
     }
 
     if (st === 'pending_payment') {
-      html += `<button class="koopo-btn koopo-btn--sm koopo-appt-action" data-action="confirm" data-id="${id}">Confirm</button> `;
+      html += hasEnded ? endedButton('confirm', 'Confirm') : `<button class="koopo-btn koopo-btn--sm koopo-appt-action" data-action="confirm" data-id="${id}">Confirm</button> `;
     }
 
     if (st === 'confirmed') {
-      html += `<button class="koopo-btn koopo-btn--sm koopo-appt-action" data-action="reschedule" data-id="${id}">Reschedule</button> `;
+      html += hasEnded ? endedButton('reschedule', 'Reschedule') : `<button class="koopo-btn koopo-btn--sm koopo-appt-action" data-action="reschedule" data-id="${id}">Reschedule</button> `;
     }
    
 
@@ -944,13 +946,33 @@
       if (message) $loading.find('.koopo-modal__loading-text').text(message);
       $loading.toggle(!!isLoading);
       $apptCreateModal.find('.koopo-modal__card :input, .koopo-modal__card button').prop('disabled', !!isLoading);
+      if (!isLoading) syncSmsControls();
     }
+
+    function syncSmsControls(){
+      const $sms = $('#koopo-appt-invite-sms');
+      const ready = $sms.attr('data-ready') === '1';
+      $sms.prop('disabled', !ready);
+      $('#koopo-appt-sms-consent').prop('disabled', !ready || !$sms.is(':checked'));
+    }
+
+    function resetSmsConsent(){
+      $('#koopo-appt-sms-consent').prop('checked', false);
+      syncSmsControls();
+    }
+
+    // Consent belongs to the current customer and invitation only.
+    resetSmsConsent();
+    $apptCreateModal.on('input change', '#koopo-appt-guest-phone, #koopo-appt-guest-name, #koopo-appt-guest-email', resetSmsConsent);
 
     $apptCreate.on('click', async function(){
       if (!apptState.resourceId) {
         alert('Please select a booking profile first.');
         return;
       }
+      resetSmsConsent();
+      $('#koopo-appt-invite-sms').prop('checked', false);
+      syncSmsControls();
       $apptCreateModal.show();
       setCreateModalLoading(true, 'Loading form...');
       selectedAddonIds = [];
@@ -976,11 +998,18 @@
     closeModalOnOverlay($apptCreateModal);
     closeModalOnOverlay($apptDetailsModal);
 
+    $apptCreateModal.on('click', function(e){
+      if ($(e.target).is($apptCreateModal)) resetSmsConsent();
+    });
+    $apptCreateModal.on('click', '.koopo-modal__close', resetSmsConsent);
+
     $apptCreateModal.on('click', '#koopo-appt-create-cancel', function(){
+      resetSmsConsent();
       $apptCreateModal.hide();
     });
 
     $apptCreateModal.on('change', 'input[name="koopo-appt-customer-type"]', function(){
+      resetSmsConsent();
       const type = $(this).val();
       if (type === 'guest') {
         $('.koopo-appt-customer--user').hide();
@@ -994,8 +1023,7 @@
     });
 
     $apptCreateModal.on('change', '#koopo-appt-invite-sms', function(){
-      $('.koopo-appt-sms-consent').toggle($(this).is(':checked'));
-      if (!$(this).is(':checked')) $('#koopo-appt-sms-consent').prop('checked', false);
+      resetSmsConsent();
     });
 
     function getTotalDurationMinutes(){
@@ -1219,6 +1247,7 @@
       setCreateModalLoading(true, 'Creating appointment...');
       try {
         const created = await api('/vendor/bookings/create', { method:'POST', body: JSON.stringify(payload) });
+        resetSmsConsent();
         $apptCreateModal.hide();
         selectedAddonIds = [];
         $('#koopo-appt-addon-selected').empty();
@@ -1323,6 +1352,12 @@
         refundText = `Refund pending (${formatMoney(refundAmount, b.currency)})`;
       }
       $('#koopo-appt-details-refund').text(refundText);
+      const paymentLabels = {
+        verified: 'Payment verified',
+        not_received: 'Payment not received',
+        not_linked: 'No payment order linked'
+      };
+      $('#koopo-appt-details-payment').text(paymentLabels[b.payment_status] || 'Payment status unavailable');
       $('#koopo-appt-details-total').text(formatMoney(b.price, b.currency));
       const basePrice = Number(b.service_price || 0);
       const addonTotal = Number(b.addon_total_price || 0);
@@ -1558,11 +1593,11 @@
         if (wc.can_refund) {
           modalHtml += `
             <div class="koopo-refund-gateway">
-              <strong>Payment Method:</strong> ${escapeHtml(wc.gateway || 'Unknown')}
+              <strong>Payment Method:</strong> Koopo payment processing
               <br>
               ${wc.automatic 
-                ? '<span class="koopo-refund-auto">✓ Automatic refund via payment gateway</span>'
-                : '<span class="koopo-refund-manual">⚠️ Manual refund required in payment gateway</span>'}
+                ? '<span class="koopo-refund-auto">✓ Koopo will send the refund automatically</span>'
+                : '<span class="koopo-refund-manual">⚠️ Manual refund action required</span>'}
             </div>
           `;
 
@@ -1681,9 +1716,9 @@
       let message = `✓ Refund processed: $${result.amount.toFixed(2)}\n\n`;
       
       if (result.automatic) {
-        message += 'The refund was processed automatically via your payment gateway.';
+        message += 'Koopo sent the refund automatically for processing.';
       } else {
-        message += 'The refund was created in WooCommerce. Please complete the refund manually in your payment gateway.';
+        message += 'Koopo recorded the refund. A payment administrator must complete the remaining refund action.';
       }
 
       alert(message);

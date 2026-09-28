@@ -146,7 +146,7 @@ class Refund_Processor {
       $note = sprintf(
         'Koopo refund processed: $%.2f%s. Reason: %s',
         $amount,
-        $api_refund ? ' (automatic via payment gateway)' : ' (manual refund required)',
+        $api_refund ? ' (sent automatically by Koopo)' : ' (manual payment action required)',
         $refund_reason
       );
       $fee_note = '';
@@ -166,8 +166,8 @@ class Refund_Processor {
         'automatic' => $api_refund,
         'amount' => $amount,
         'message' => $api_refund 
-          ? 'Refund processed successfully via payment gateway'
-          : 'Refund created. Please process manually in your payment gateway.',
+          ? 'Refund sent automatically by Koopo for processing'
+          : 'Refund recorded. A payment administrator must complete the remaining refund action.',
       ];
 
     } catch (\Throwable $e) {
@@ -579,15 +579,11 @@ class Refund_Processor {
    * @return string
    */
   public static function get_manual_refund_instructions(\WC_Order $order): string {
-    $gateway_name = self::get_gateway_name($order);
     $transaction_id = $order->get_transaction_id();
 
-    $instructions = sprintf(
-      'This payment gateway (%s) does not support automatic refunds. ',
-      esc_html($gateway_name)
-    );
+    $instructions = 'Koopo cannot send this refund automatically for the current payment method. ';
 
-    $instructions .= 'Please log in to your payment gateway account and process the refund manually. ';
+    $instructions .= 'A payment administrator must complete the refund manually. ';
 
     if ($transaction_id) {
       $instructions .= sprintf('Transaction ID: %s', esc_html($transaction_id));
@@ -615,7 +611,6 @@ class Refund_Processor {
       ];
     }
 
-    $gateway_name = self::get_gateway_name($order);
     $supports_refunds = self::gateway_supports_refunds($order);
 
     $order_total = (float) $order->get_total();
@@ -627,11 +622,11 @@ class Refund_Processor {
     return [
       'can_refund' => $can_refund,
       'automatic' => $supports_refunds,
-      'gateway' => $gateway_name,
+      'gateway' => 'Koopo payment processing',
       'available_amount' => $available,
       'already_refunded' => $already_refunded,
       'instructions' => $supports_refunds 
-        ? 'Refund will be processed automatically via ' . $gateway_name
+        ? 'Koopo will send this refund automatically for processing.'
         : self::get_manual_refund_instructions($order),
     ];
   }

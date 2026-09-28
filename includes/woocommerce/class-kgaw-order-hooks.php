@@ -6,6 +6,7 @@ defined('ABSPATH') || exit;
 class Order_Hooks {
   private const CONFIRMATION_COMPLETE_META = '_koopo_booking_confirmation_complete';
   private const GATEWAY_FEE_META = 'dokan_gateway_fee';
+  private const BOOKING_META_KEYS = ['_koopo_booking_id', 'bookingId', 'booking_id', 'appointmentId', 'appointment_id'];
 
   /** @var array<int,bool> */
   private static $confirming_orders = [];
@@ -50,13 +51,46 @@ class Order_Hooks {
     add_action('dokan_process_payment_gateway_fee', [__CLASS__, 'unlock_booking_gateway_fee'], PHP_INT_MAX, 3);
   }
 
+  private static function booking_id_from_item($item): int {
+    if (!is_object($item) || !method_exists($item, 'get_meta')) {
+      return 0;
+    }
+    foreach (self::BOOKING_META_KEYS as $key) {
+      $booking_id = absint($item->get_meta($key, true));
+      if ($booking_id > 0) {
+        return $booking_id;
+      }
+    }
+    return 0;
+  }
+
   private static function get_booking_ids_from_order(\WC_Order $order): array {
     $booking_ids = [];
     foreach ($order->get_items() as $item) {
-      $bid = $item->get_meta('_koopo_booking_id', true);
+      $bid = self::booking_id_from_item($item);
       if ($bid) { $booking_ids[] = (int) $bid; }
     }
+    $order_ids = $order->get_meta('_koopo_booking_ids', true);
+    if (is_string($order_ids)) {
+      $order_ids = preg_split('/[\s,]+/', $order_ids, -1, PREG_SPLIT_NO_EMPTY);
+    }
+    if (is_array($order_ids)) {
+      $booking_ids = array_merge($booking_ids, array_map('absint', $order_ids));
+    }
     return array_values(array_unique(array_filter($booking_ids)));
+  }
+
+  public static function payment_is_verified(\WC_Order $order): bool {
+    $verified = $order->is_paid() && (bool) $order->get_date_paid();
+    if ($verified && $order->get_payment_method() === 'dokan_stripe_express') {
+      $intent_id = (string) $order->get_meta('_dokan_stripe_express_payment_intent_id', true);
+      $captured = (string) $order->get_meta('_dokan_stripe_express_charge_captured', true);
+      $transaction_id = (string) $order->get_transaction_id();
+      $verified = str_starts_with($intent_id, 'pi_')
+        && $captured === 'yes'
+        && str_starts_with($transaction_id, 'ch_');
+    }
+    return (bool) apply_filters('koopo_appt_order_payment_verified', $verified, $order);
   }
 
   private static function get_meta_id_list(\WC_Order $order, string $key): array {
@@ -172,6 +206,10 @@ class Order_Hooks {
         return;
       }
 
+      if (!self::payment_is_verified($order)) {
+        return;
+      }
+
       if ($order->get_meta(self::CONFIRMATION_COMPLETE_META, true) === 'yes') {
         self::maybe_auto_complete_booking_order($order);
         return;
@@ -213,11 +251,42 @@ class Order_Hooks {
     foreach ($booking_ids as $booking_id) {
       $booking_id = (int) $booking_id;
       if (in_array($booking_id, $confirmed, true)) { continue; }
-      $result = Bookings::confirm_booking_safely($booking_id);
+      $booking = Bookings::get_booking($booking_id);
+      if (!$booking) {
+        $all_confirmed = false;
+        $order->add_order_note(sprintf('Koopo booking #%d could not be confirmed: not_found.', $booking_id));
+        continue;
+      }
+
+      $customer_id = (int) $order->get_customer_id();
+      if ($customer_id > 0 && (int) $booking->customer_id !== $customer_id) {
+        $all_confirmed = false;
+        $order->add_order_note(sprintf('Koopo booking #%d could not be confirmed: customer_mismatch.', $booking_id));
+        continue;
+      }
+
+      $linked_order_id = Bookings::assign_order_id_if_empty($booking_id, (int) $order->get_id());
+      if (!in_array($linked_order_id, [(int) $order->get_id(), (int) $order->get_parent_id()], true)) {
+        $all_confirmed = false;
+        $order->add_order_note(sprintf('Koopo booking #%d could not be confirmed: linked_to_order_%d.', $booking_id, $linked_order_id));
+        continue;
+      }
+
+      if ((string) $booking->status === 'expired') {
+        $paid_at = $order->get_date_paid();
+        $hold_expiry = !empty($booking->hold_expires_at) ? strtotime((string) $booking->hold_expires_at . ' UTC') : false;
+        if (!$paid_at || ($hold_expiry !== false && $paid_at->getTimestamp() > $hold_expiry)) {
+          $result = ['ok' => false, 'reason' => 'expired_before_payment'];
+        } else {
+          $result = Bookings::recover_paid_expired_booking_safely($booking_id);
+        }
+      } else {
+        $result = Bookings::confirm_booking_safely($booking_id);
+      }
 
       if (!empty($result['ok'])) {
         $confirmed[] = $booking_id;
-        if (($result['reason'] ?? '') === 'confirmed') {
+        if (in_array(($result['reason'] ?? ''), ['confirmed', 'recovered_paid_expired'], true)) {
           $newly_confirmed[] = $booking_id;
         }
         continue;
@@ -291,7 +360,7 @@ class Order_Hooks {
     $items = $order->get_items();
     if (!$items) return false;
     foreach ($items as $item) {
-      $bid = $item->get_meta('_koopo_booking_id', true);
+      $bid = self::booking_id_from_item($item);
       if (empty($bid)) {
         return false;
       }
@@ -314,7 +383,7 @@ class Order_Hooks {
   private static function booking_refund_amount_from_order(\WC_Order $order, int $booking_id): float {
     $amount = 0.0;
     foreach ($order->get_items() as $item) {
-      $item_booking_id = (int) $item->get_meta('_koopo_booking_id', true);
+      $item_booking_id = self::booking_id_from_item($item);
       if ($item_booking_id !== $booking_id) {
         continue;
       }

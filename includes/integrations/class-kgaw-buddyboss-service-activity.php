@@ -121,6 +121,7 @@ final class BuddyBoss_Service_Activity {
       'provider_name' => $context['profile_name'],
       'url' => $context['profile_url'],
       'image_url' => $context['image_url'],
+      'headline' => $context['headline'],
     ];
     $response->set_data($data);
     return $response;

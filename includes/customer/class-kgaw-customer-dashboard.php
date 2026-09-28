@@ -163,6 +163,13 @@ class Customer_Dashboard {
       'api_url' => rest_url('koopo/v1'),
       'nonce' => wp_create_nonce('wp_rest'),
       'currency_symbol' => get_woocommerce_currency_symbol(),
+      'urls' => [
+        // Resolve the active WooCommerce My Account page and endpoint so the
+        // dashboard follows administrator-configured slugs.
+        'view_order_base' => function_exists('wc_get_endpoint_url') && function_exists('wc_get_page_permalink')
+          ? wc_get_endpoint_url('view-order', '', wc_get_page_permalink('myaccount'))
+          : '',
+      ],
       'features' => [
         'clientForms' => Features::client_forms_enabled(),
       ],

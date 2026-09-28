@@ -11,6 +11,16 @@
   if (!api || !fmtMoney) return;
   const escapeHtml = value => $('<div>').text(String(value || '')).html();
 
+  function getViewOrderUrl(orderId) {
+    const base = KOOPO_CUSTOMER.urls && KOOPO_CUSTOMER.urls.view_order_base;
+    if (!base || !orderId) return '';
+    try {
+      return new URL(`${encodeURIComponent(orderId)}/`, base).toString();
+    } catch (error) {
+      return '';
+    }
+  }
+
   let currentFilter = 'upcoming';
   let currentPage = 1;
   let currentBookingId = null;
@@ -116,7 +126,10 @@
 
   function formatHoldNotice(booking) {
     if (booking.status === 'expired') {
-      return 'Booking deleted due to non-payment. Please book again.';
+      if (booking.payment_status === 'verified') {
+        return 'Payment was received, but the appointment was not confirmed. Do not pay again; please contact support.';
+      }
+      return 'The appointment expired before payment could be verified. If you were charged, do not pay again; please contact support.';
     }
     if (booking.status !== 'pending_payment') return '';
     const expiresAt = Number(booking.payment_hold_expires_at || 0);
@@ -131,7 +144,7 @@
     const now = Date.now() / 1000;
     const minutesLeft = Math.max(0, Math.ceil((expiresAt - now) / 60));
     if (!minutesLeft) {
-      return 'Booking deleted due to non-payment. Please book again.';
+      return 'Payment has not been verified and this appointment hold has expired. If you were charged, do not pay again; please contact support.';
     }
     const displayMinutes = Math.min(minutesLeftFromNotice, minutesLeft);
     return `Pending payment. Please pay within ${displayMinutes} minutes or it will be deleted.${payLink}`;
@@ -251,9 +264,12 @@
 
     // Order link
     if (booking.wc_order_id) {
-      $card.find('.koopo-btn-order')
-        .show()
-        .attr('href', `/my-account/view-order/${booking.wc_order_id}/`);
+      const orderUrl = getViewOrderUrl(booking.wc_order_id);
+      if (orderUrl) {
+        $card.find('.koopo-btn-order')
+          .show()
+          .attr('href', orderUrl);
+      }
     }
 
     return $card;

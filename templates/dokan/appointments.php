@@ -242,14 +242,14 @@ $koopo_sms_unavailable = in_array((string)($koopo_sms_status['unavailable_reason
             <strong><?php esc_html_e('Registration invitation', 'appointments'); ?></strong>
             <p class="koopo-muted"><?php esc_html_e('The appointment is held while this person creates a Koopo account. After registration, reminders move to their Koopo inbox, push notifications, and email.', 'appointments'); ?></p>
             <label><input type="checkbox" id="koopo-appt-invite-email" checked /> <?php esc_html_e('Send email invitation', 'appointments'); ?></label>
-            <label><input type="checkbox" id="koopo-appt-invite-sms" <?php disabled(empty($koopo_sms_status['ready'])); ?> /> <?php esc_html_e('Send one text invitation', 'appointments'); ?><?php if(empty($koopo_sms_status['ready'])): ?> <span class="koopo-muted"><?php echo esc_html($koopo_sms_unavailable); ?></span><?php endif; ?></label>
-            <div class="koopo-appt-sms-consent" style="display:none" data-method="<?php echo esc_attr(\Koopo_Appointments\SMS_Compliance::CONSENT_METHOD); ?>" data-version="<?php echo esc_attr(\Koopo_Appointments\SMS_Compliance::DISCLOSURE_VERSION); ?>">
+            <label><input type="checkbox" id="koopo-appt-invite-sms" data-ready="<?php echo empty($koopo_sms_status['ready']) ? '0' : '1'; ?>" <?php disabled(empty($koopo_sms_status['ready'])); ?> /> <?php esc_html_e('Send one text invitation', 'appointments'); ?><?php if(empty($koopo_sms_status['ready'])): ?> <span class="koopo-muted"><?php echo esc_html($koopo_sms_unavailable); ?></span><?php endif; ?></label>
+            <div class="koopo-appt-sms-consent" data-method="<?php echo esc_attr(\Koopo_Appointments\SMS_Compliance::CONSENT_METHOD); ?>" data-version="<?php echo esc_attr(\Koopo_Appointments\SMS_Compliance::DISCLOSURE_VERSION); ?>">
               <div class="koopo-sms-disclosure">
                 <strong><?php esc_html_e('Read this disclosure to the customer', 'appointments'); ?></strong>
                 <p>&ldquo;<?php echo esc_html(\Koopo_Appointments\SMS_Compliance::DISCLOSURE); ?>&rdquo;</p>
               </div>
-              <label><input type="checkbox" id="koopo-appt-sms-consent" /> <?php echo esc_html(\Koopo_Appointments\SMS_Compliance::CONFIRMATION); ?></label>
-              <p class="koopo-muted"><?php esc_html_e('This consent covers one transactional appointment invitation only.', 'appointments'); ?></p>
+              <label><input type="checkbox" id="koopo-appt-sms-consent" disabled autocomplete="off" /> <?php echo esc_html(\Koopo_Appointments\SMS_Compliance::CONFIRMATION); ?></label>
+              <p class="koopo-muted"><?php esc_html_e('Select the confirmation only after the customer expressly agrees verbally. It starts unchecked for each invitation. Consent covers one transactional appointment invitation only; it does not authorize reminders, recurring messages, or marketing.', 'appointments'); ?></p>
             </div>
             <label><?php esc_html_e('Hold the time for', 'appointments'); ?>
               <select class="koopo-input" id="koopo-appt-invite-hold">
@@ -353,6 +353,10 @@ $koopo_sms_unavailable = in_array((string)($koopo_sms_status['unavailable_reason
           <div>
             <span><?php esc_html_e('Refund', 'appointments'); ?></span>
             <strong id="koopo-appt-details-refund"></strong>
+          </div>
+          <div>
+            <span><?php esc_html_e('Payment', 'appointments'); ?></span>
+            <strong id="koopo-appt-details-payment"></strong>
           </div>
         </section>
 

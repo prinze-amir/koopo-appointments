@@ -162,3 +162,14 @@ a.koopo-appt-appointments__avatar img { width:60px; height:60px; border-radius:5
     border: solid 1px #333;
 }
 .koopo-appt-settings-mount button,.koopo-appt-settings-mount input,.koopo-appt-settings-mount select,.koopo-appt-settings-mount textarea{font-family:inherit}
+a.koopo-appt-settings__cta {
+    border: solid 1px #0b5829;
+    border-radius: 8px;
+    padding: 5px 7px;
+    background-color: #3fc07e;
+    color: #fff;
+}
+
+a.koopo-appt-settings__cta:hover {
+    color: #3fc07e;
+}

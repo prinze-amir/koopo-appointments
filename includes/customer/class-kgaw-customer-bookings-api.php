@@ -643,6 +643,11 @@ class Customer_Bookings_API {
     if ($status === 'pending_payment' && class_exists('\Koopo_Appointments\MyAccount')) {
       $pay_now_url = MyAccount::pay_now_url((int) $booking->id);
     }
+    $payment_status = 'not_linked';
+    if (!empty($booking->wc_order_id)) {
+      $payment_order = wc_get_order((int) $booking->wc_order_id);
+      $payment_status = $payment_order && Order_Hooks::payment_is_verified($payment_order) ? 'verified' : 'not_received';
+    }
 
     return [
       'id' => (int) $booking->id,
@@ -665,6 +670,7 @@ class Customer_Bookings_API {
       'can_cancel' => $can_cancel,
       'can_reschedule' => $can_reschedule,
       'wc_order_id' => isset($booking->wc_order_id) ? (int) $booking->wc_order_id : 0,
+      'payment_status' => $payment_status,
       'calendar_links' => $calendar_links,
       'pay_now_url' => $pay_now_url,
       'payment_hold_minutes' => $hold_minutes,

@@ -407,11 +407,12 @@ class Notifications {
     $body_customer = self::render_email_html([
       'title' => 'Your booking expired',
       'lines' => [
-        "Your booking expired because checkout wasn’t completed within {$minutes} minutes.",
+        "We could not verify a completed payment before the {$minutes}-minute booking hold expired.",
+        'If you were charged, do not book or pay again. Contact Koopo support with this booking number so we can review the payment.',
         "Business: {$ctx['listing_title']}",
         "Service: {$ctx['service_title']}",
         "Time requested: {$ctx['start']} → {$ctx['end']}",
-        $listing_url ? 'Book a new appointment: <a href="' . esc_url($listing_url) . '">View listing</a>' : 'Please choose a new time and try again.',
+        $listing_url ? 'If you were not charged, choose a new time: <a href="' . esc_url($listing_url) . '">View listing</a>' : 'If you were not charged, please choose a new time and try again.',
       ],
     ]);
 
@@ -483,7 +484,10 @@ class Notifications {
     $booking = Bookings::get_booking($booking_id);
     if (!$booking) return;
     if ((string) $booking->status !== 'pending_payment') return;
-    if (!empty($booking->wc_order_id)) return;
+    if (!empty($booking->wc_order_id)) {
+      $order = wc_get_order((int) $booking->wc_order_id);
+      if ($order && Order_Hooks::payment_is_verified($order)) return;
+    }
     self::email_pending_payment($booking_id, $booking);
     self::notify_pending_payment($booking_id, $booking);
   }
@@ -581,7 +585,7 @@ class Notifications {
     } elseif ($action === 'expired') {
       $listing_link = $listing_id ? get_permalink($listing_id) : home_url('/');
       $link = $listing_link ?: home_url('/');
-      $text = 'Your booking expired because checkout was not completed. Book a new appointment.';
+      $text = 'Payment was not verified before your booking hold expired. If you were charged, do not pay again; contact support.';
     } elseif ($action === 'review_invite') {
       $listing_link = $listing_id ? get_permalink($listing_id) : home_url('/');
       $review_link = $listing_link ? rtrim($listing_link, '/') . '/#reviews' : home_url('/');

@@ -5,6 +5,7 @@ defined('ABSPATH') || exit;
 
 /** Idempotent, privacy-safe delivery records for appointment communications. */
 final class Notification_Delivery {
+  const MANAGED_EMAIL_BRIDGE = true;
   const MAX_ATTEMPTS = 3;
   const STALE_PROCESSING_SECONDS = 15 * MINUTE_IN_SECONDS;
 
@@ -20,7 +21,9 @@ final class Notification_Delivery {
     ]);
     if (is_wp_error($delivery_id)) return $delivery_id->get_error_code() === 'delivery_already_handled';
 
-    $sent = wp_mail($to, $subject, $body, $headers);
+    // A first-party notification manager may handle this exact audience after the delivery claim.
+    $managed = apply_filters('koopo_appt_notification_email_delivery', null, $booking_id, $event_name, $recipient_role, $to);
+    $sent = is_bool($managed) ? $managed : wp_mail($to, $subject, $body, $headers);
     if ($sent) self::complete($delivery_id);
     else self::fail($delivery_id, 'wp_mail_rejected');
     return (bool) $sent;
